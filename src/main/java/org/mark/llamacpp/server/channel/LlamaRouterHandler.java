@@ -9,6 +9,7 @@ import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
 
 import org.mark.llamacpp.server.LlamaServer;
+import org.mark.llamacpp.server.service.AnthropicService;
 import org.mark.llamacpp.server.service.OpenAIService;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.tools.JsonUtil;
@@ -21,9 +22,9 @@ import java.util.concurrent.Executors;
 /**
  * 	服务端的主要实现。
  */
-public class OpenAIRouterHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
+public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
-	private static final Logger logger = LoggerFactory.getLogger(OpenAIRouterHandler.class);
+	private static final Logger logger = LoggerFactory.getLogger(LlamaRouterHandler.class);
 
 	private static final ExecutorService async = Executors.newVirtualThreadPerTaskExecutor();
 	
@@ -32,7 +33,12 @@ public class OpenAIRouterHandler extends SimpleChannelInboundHandler<FullHttpReq
 	 */
 	private OpenAIService openAIServerHandler = new OpenAIService();
 	
-	public OpenAIRouterHandler() {
+	/**
+	 * 	Anthropic接口的实现。
+	 */
+	private AnthropicService anthropicService = new AnthropicService();
+	
+	public LlamaRouterHandler() {
 
 	}
 
@@ -77,7 +83,11 @@ public class OpenAIRouterHandler extends SimpleChannelInboundHandler<FullHttpReq
 			// OpenAI API 端点
 			// 获取模型列表
 			if (uri.startsWith("/v1/models") || uri.startsWith("/models")) {
-				this.openAIServerHandler.handleOpenAIModelsRequest(ctx, request);
+				if (this.isAnthropicClient(request)) {
+					this.anthropicService.handleModelsRequest(ctx, request);
+				} else {
+					this.openAIServerHandler.handleOpenAIModelsRequest(ctx, request);
+				}
 				return;
 			}
 			// 聊天补全
@@ -105,6 +115,20 @@ public class OpenAIRouterHandler extends SimpleChannelInboundHandler<FullHttpReq
 			// 音频
 			if(uri.startsWith("/v1/audio/transcriptions") || uri.startsWith("/audio/transcriptions")) {
 				this.openAIServerHandler.handleOpenAIAudioTranscriptionsRequest(ctx, request);
+				return;
+			}
+			
+			// Anthropic API 端点 (Messages)
+			if (uri.startsWith("/v1/messages/count_tokens")) {
+				this.anthropicService.handleMessagesCountTokensRequest(ctx, request);
+				return;
+			}
+			if (uri.startsWith("/v1/messages")) {
+				this.anthropicService.handleMessagesRequest(ctx, request);
+				return;
+			}
+			if (uri.startsWith("/v1/complete")) {
+				this.anthropicService.handleCompleteRequest(ctx, request);
 				return;
 			}
 			
@@ -163,6 +187,7 @@ public class OpenAIRouterHandler extends SimpleChannelInboundHandler<FullHttpReq
 	public void channelInactive(ChannelHandlerContext ctx) throws Exception {
 		// 事件通知
 		this.openAIServerHandler.channelInactive(ctx);
+		this.anthropicService.channelInactive(ctx);
 		super.channelInactive(ctx);
 	}
 
@@ -185,12 +210,29 @@ public class OpenAIRouterHandler extends SimpleChannelInboundHandler<FullHttpReq
 		if (expected == null || expected.isBlank()) {
 			return false;
 		}
+
 		String auth = request.headers().get(HttpHeaderNames.AUTHORIZATION);
-		if(auth == null)
-			return false;
-		// 去掉Bearer 
-		auth = auth.replace("Bearer ", "");
-		// 
-		return auth.equals(LlamaServer.getApiKey());
+		if (auth != null) {
+			auth = auth.replace("Bearer ", "");
+			return auth.equals(expected);
+		}
+
+		String apiKey = request.headers().get("x-api-key");
+		if (apiKey != null && !apiKey.isBlank()) {
+			return apiKey.equals(expected);
+		}
+
+		return false;
+	}
+
+	private boolean isAnthropicClient(FullHttpRequest request) {
+		String anthropicVersion = request.headers().get("anthropic-version");
+		if (anthropicVersion != null && !anthropicVersion.isBlank()) {
+			return true;
+		}
+		if (request.headers().contains("x-api-key")) {
+			return true;
+		}
+		return false;
 	}
 }

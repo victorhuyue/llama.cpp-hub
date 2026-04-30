@@ -13,7 +13,9 @@ import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.*;
 import io.netty.util.CharsetUtil;
+import org.mark.llamacpp.server.LlamaHubNode;
 import org.mark.llamacpp.server.LlamaServerManager;
+import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
 import org.slf4j.Logger;
@@ -27,12 +29,20 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.HashSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import org.mark.llamacpp.server.LlamaCppProcess;
 
@@ -45,6 +55,7 @@ public class AnthropicService {
     private static final Logger logger = LoggerFactory.getLogger(AnthropicService.class);
     private static final Gson gson = new Gson();
     private static final String ANTHROPIC_API_KEY = "123456";
+    private static final javax.net.ssl.SSLSocketFactory TRUST_ALL_SOCKET_FACTORY = createTrustAllSocketFactory();
 	/**
 	 * 	线程池。
 	 */
@@ -54,6 +65,25 @@ public class AnthropicService {
 	 * 	存储当前通道正在处理的模型链接，用于在连接关闭时停止对应的模型进程
 	 */
 	private final Map<ChannelHandlerContext, HttpURLConnection> channelConnectionMap = new HashMap<>();
+
+	private static javax.net.ssl.SSLSocketFactory createTrustAllSocketFactory() {
+		try {
+			TrustManager[] trustAll = new TrustManager[]{
+				new X509TrustManager() {
+					public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+					public void checkClientTrusted(X509Certificate[] certs, String authType) {}
+					public void checkServerTrusted(X509Certificate[] certs, String authType) {}
+				}
+			};
+			SSLContext sc = SSLContext.getInstance("TLS");
+			sc.init(null, trustAll, new SecureRandom());
+			return sc.getSocketFactory();
+		} catch (Exception e) {
+			throw new RuntimeException("Failed to create trust-all SSL socket factory", e);
+		}
+	}
+
+	private static final javax.net.ssl.HostnameVerifier TRUST_ALL_HOSTNAME_VERIFIER = (hostname, session) -> true;
 
 	public AnthropicService() {
 		
@@ -211,8 +241,16 @@ public class AnthropicService {
         // 处理采样覆盖
         ModelSamplingService.getInstance().handleOpenAI(oaiReq);
         
-        String modelName;
+        String nodeId = JsonUtil.getJsonString(anthropicReq, "nodeId", null);
         LlamaServerManager manager = LlamaServerManager.getInstance();
+
+        if (nodeId != null && !nodeId.isBlank()) {
+            oaiReq.remove("nodeId");
+            this.routeMessagesToNode(ctx, request, oaiReq, nodeId);
+            return;
+        }
+
+        String modelName;
         if (oaiReq.has("model")) {
             modelName = oaiReq.get("model").getAsString();
         } else {
@@ -223,30 +261,41 @@ public class AnthropicService {
             }
         }
 
-        if (!manager.getLoadedProcesses().containsKey(modelName)) {
-            if (manager.getLoadedProcesses().size() == 1) {
-                modelName = manager.getFirstModelName();
-            } else {
-                this.sendError(ctx, HttpResponseStatus.NOT_FOUND, "Model not found: " + modelName);
-                return;
-            }
-        }
-
-        Integer port = manager.getModelPort(modelName);
-        if (port == null) {
-            this.sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "Model port not found for " + modelName);
-            return;
-        }
-
         boolean isStream = false;
         if (oaiReq.has("stream") && oaiReq.get("stream").isJsonPrimitive()) {
             try {
                 isStream = oaiReq.get("stream").getAsBoolean();
-            } catch (Exception ignore) {
+            } catch (Exception ignore) {}
+        }
+
+        if (manager.getLoadedProcesses().containsKey(modelName)) {
+            Integer port = manager.getModelPort(modelName);
+            if (port == null) {
+                this.sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "Model port not found for " + modelName);
+                return;
+            }
+            String targetUrl = String.format("http://localhost:%d/v1/chat/completions", port.intValue());
+            this.forwardMessagesToChatCompletions(ctx, request, JsonUtil.toJson(oaiReq), targetUrl, null, isStream, modelName);
+            return;
+        }
+
+        if (manager.getLoadedProcesses().size() == 1) {
+            modelName = manager.getFirstModelName();
+            Integer port = manager.getModelPort(modelName);
+            if (port != null) {
+                String targetUrl = String.format("http://localhost:%d/v1/chat/completions", port.intValue());
+                this.forwardMessagesToChatCompletions(ctx, request, JsonUtil.toJson(oaiReq), targetUrl, null, isStream, modelName);
+                return;
             }
         }
 
-        this.forwardMessagesToChatCompletions(ctx, request, JsonUtil.toJson(oaiReq), port, isStream, modelName);
+        String[] remoteResult = resolveModelOnRemoteNodes(modelName);
+        if (remoteResult != null) {
+            this.forwardMessagesToChatCompletions(ctx, request, JsonUtil.toJson(oaiReq), remoteResult[0], remoteResult[1], isStream, modelName);
+            return;
+        }
+
+        this.sendError(ctx, HttpResponseStatus.NOT_FOUND, "Model not found: " + modelName);
     }
     
     
@@ -378,7 +427,86 @@ public class AnthropicService {
         });
     }
 
-    private void forwardMessagesToChatCompletions(ChannelHandlerContext ctx, FullHttpRequest request, String requestBody, int port, boolean isStream, String modelName) {
+    private void routeMessagesToNode(ChannelHandlerContext ctx, FullHttpRequest request, JsonObject oaiReq, String nodeId) {
+        NodeManager nodeManager = NodeManager.getInstance();
+        LlamaHubNode node = nodeManager.getNode(nodeId);
+        if (node == null || !node.isEnabled()) {
+            this.sendError(ctx, HttpResponseStatus.NOT_FOUND, "Node not found or disabled: " + nodeId);
+            return;
+        }
+        String modelName = oaiReq.has("model") ? oaiReq.get("model").getAsString() : "";
+        String targetUrl = node.getBaseUrl() + "/v1/chat/completions";
+
+        boolean isStream = false;
+        if (oaiReq.has("stream") && oaiReq.get("stream").isJsonPrimitive()) {
+            try {
+                isStream = oaiReq.get("stream").getAsBoolean();
+            } catch (Exception ignore) {}
+        }
+
+        String apiKey = node.getApiKey();
+        this.forwardMessagesToChatCompletions(ctx, request, JsonUtil.toJson(oaiReq), targetUrl, apiKey, isStream, modelName);
+    }
+
+    private String[] resolveModelOnRemoteNodes(String modelName) {
+        NodeManager nodeManager = NodeManager.getInstance();
+        List<LlamaHubNode> enabledNodes = nodeManager.listEnabledNodes();
+        logger.info("[Anthropic路由] 远程节点数量: {}", enabledNodes.size());
+
+        for (LlamaHubNode node : enabledNodes) {
+            logger.info("[Anthropic路由] 检查远程节点: nodeId={}, baseUrl={}", node.getNodeId(), node.getBaseUrl());
+            try {
+                NodeManager.HttpResult result = nodeManager.callRemoteApi(node.getNodeId(), "GET", "/v1/models", null);
+                logger.info("[Anthropic路由] 远程响应: nodeId={}, code={}", node.getNodeId(), result.getStatusCode());
+                if (!result.isSuccess()) {
+                    logger.warn("[Anthropic路由] 远程请求失败: nodeId={}, body={}", node.getNodeId(), result.getBody());
+                    continue;
+                }
+
+                JsonObject root = JsonUtil.fromJson(result.getBody(), JsonObject.class);
+                if (root == null) {
+                    logger.warn("[Anthropic路由] JSON解析失败: nodeId={}", node.getNodeId());
+                    continue;
+                }
+
+                if (root.has("models") && root.get("models").isJsonArray()) {
+                    JsonArray remoteModels = root.getAsJsonArray("models");
+                    for (JsonElement el : remoteModels) {
+                        if (!el.isJsonObject()) continue;
+                        JsonObject m = el.getAsJsonObject();
+                        String remoteKey = JsonUtil.getJsonString(m, "model");
+                        if (remoteKey.isEmpty()) remoteKey = JsonUtil.getJsonString(m, "name");
+                        logger.info("[Anthropic路由] 远程模型条目: nodeId={}, key={}", node.getNodeId(), remoteKey);
+                        if (modelName.equals(remoteKey)) {
+                            logger.info("[Anthropic路由] 匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
+                            return new String[]{ node.getBaseUrl() + "/v1/chat/completions", node.getApiKey() };
+                        }
+                    }
+                }
+
+                if (root.has("data") && root.get("data").isJsonArray()) {
+                    JsonArray dataArr = root.getAsJsonArray("data");
+                    for (JsonElement el : dataArr) {
+                        if (!el.isJsonObject()) continue;
+                        JsonObject d = el.getAsJsonObject();
+                        String id = JsonUtil.getJsonString(d, "id", "");
+                        if (modelName.equals(id)) {
+                            logger.info("[Anthropic路由] data匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
+                            return new String[]{ node.getBaseUrl() + "/v1/chat/completions", node.getApiKey() };
+                        }
+                    }
+                }
+
+                logger.warn("[Anthropic路由] 节点无匹配模型: nodeId={}, model={}", node.getNodeId(), modelName);
+            } catch (Exception e) {
+                logger.warn("[Anthropic路由] 异常: nodeId={}, error={}", node.getNodeId(), e.getMessage());
+            }
+        }
+        logger.warn("[Anthropic路由] 所有远程节点均未找到: model={}", modelName);
+        return null;
+    }
+
+    private void forwardMessagesToChatCompletions(ChannelHandlerContext ctx, FullHttpRequest request, String requestBody, String targetUrl, String apiKey, boolean isStream, String modelName) {
         HttpMethod method = request.method();
         Map<String, String> headers = new HashMap<>();
         for (Map.Entry<String, String> entry : request.headers()) {
@@ -388,9 +516,13 @@ public class AnthropicService {
         worker.execute(() -> {
             HttpURLConnection connection = null;
             try {
-                String targetUrl = String.format("http://localhost:%d%s", port, "/v1/chat/completions");
                 URL url = URI.create(targetUrl).toURL();
                 connection = (HttpURLConnection) url.openConnection();
+
+                if (connection instanceof HttpsURLConnection) {
+                    ((HttpsURLConnection) connection).setSSLSocketFactory(TRUST_ALL_SOCKET_FACTORY);
+                    ((HttpsURLConnection) connection).setHostnameVerifier(TRUST_ALL_HOSTNAME_VERIFIER);
+                }
 
                 synchronized (this.channelConnectionMap) {
                     this.channelConnectionMap.put(ctx, connection);
@@ -405,6 +537,10 @@ public class AnthropicService {
                         !entry.getKey().equalsIgnoreCase("Transfer-Encoding")) {
                         connection.setRequestProperty(entry.getKey(), entry.getValue());
                     }
+                }
+
+                if (apiKey != null && !apiKey.isBlank()) {
+                    connection.setRequestProperty("Authorization", "Bearer " + apiKey);
                 }
 
                 connection.setConnectTimeout(36000 * 1000);

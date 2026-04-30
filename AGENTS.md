@@ -61,12 +61,11 @@ CI 打包时被替换。本地测试时显示原始 `{tag}` 等。
 10. 初始化 `NodeManager`（单例）：加载远程节点，判断 `nodeRole`。master 模式下连接所有远程节点的 WebSocket 并启动 30 秒健康检查；slave 模式下跳过
 11. 加载 HTTPS 上下文（`initHttpsContext()`）
 12. 在独立线程启动 `bindOpenAI(webPort)`（默认 8080）
-13. 在独立线程启动 `bindAnthropic(anthropicPort)`（默认 8070）
-14. 可选：启动 LM Studio 兼容（默认 1234）
-15. 可选：启动 Ollama 兼容（默认 11434）
-16. 可选：启动 MCP 服务器（默认 8075）
-17. Windows 下创建系统托盘
-18. 可选：如果命令行参数提供了模型名称，自动加载该模型
+13. 可选：启动 LM Studio 兼容（默认 1234）
+14. 可选：启动 Ollama 兼容（默认 11434）
+15. 可选：启动 MCP 服务器（默认 8075）
+16. Windows 下创建系统托盘
+17. 可选：如果命令行参数提供了模型名称，自动加载该模型
 
 ---
 
@@ -74,8 +73,7 @@ CI 打包时被替换。本地测试时显示原始 `{tag}` 等。
 
 | 端口 | 服务 | 默认 | 配置项 |
 |------|------|------|--------|
-| 8080 | 主服务：OpenAI API + WebUI + 内部 API + WebSocket | 开 | `application.json` → `server.webPort` |
-| 8070 | Anthropic 兼容 API | 开 | `server.anthropicPort` |
+| 8080 | 主服务：OpenAI/Anthropic API + WebUI + 内部 API + WebSocket | 开 | `application.json` → `server.webPort` |
 | 8075 | MCP 服务器（Streamable HTTP） | 关 | `compat.mcpServer.enabled` |
 | 11434 | Ollama 兼容 API | 关 | `compat.ollama.enabled/port` |
 | 1234 | LM Studio 兼容 API | 关 | `compat.lmstudio.enabled/port` |
@@ -98,20 +96,10 @@ SslHandler (可选)
   → BasicRouterHandler（静态文件 + `/api/*` 控制器链）
   → CompletionRouterHandler（EasyRP 角色/文件/头像管理）
   → FileDownloadRouterHandler（下载管理）
-  → OpenAIRouterHandler（`/v1/*` OpenAI API + API Key 验证）
+  → LlamaRouterHandler（`/v1/*` OpenAI + Anthropic API + API Key 验证）
 ```
 
-### 8070 端口（`bindAnthropic()`）
-```
-SslHandler (可选)
-  → HttpServerCodec
-  → HttpObjectAggregator（最大 16MB）
-  → ChunkedWriteHandler
-  → BasicRouterHandler（仅 `/api/*` 和静态文件）
-  → CompletionRouterHandler
-  → AnthropicRouterHandler（`/v1/messages` 等 Anthropic 兼容 API）
-  → FileDownloadRouterHandler
-```
+> **Anthropic 协议已合并入 8080 端口。** `LlamaRouterHandler`（原 `OpenAIRouterHandler`）统一处理两套协议。Anthropic 端点（`/v1/messages`、`/v1/complete`、`/v1/messages/count_tokens`）在 OpenAI 路由之后匹配，`/v1/models` 根据请求头 `anthropic-version` 或 `x-api-key` 自动识别客户端类型返回对应格式。`bindAnthropic()` 已不再调用，8070 端口不再启动。
 
 ---
 
@@ -301,7 +289,7 @@ SslHandler (可选)
 
 ## 完整 API 端点文档
 
-### OpenAI 兼容 API（`OpenAIRouterHandler` → `OpenAIService`）
+### OpenAI 兼容 API（`LlamaRouterHandler` → `OpenAIService`）
 | 端点 | 方法 | 说明 | 请求参数 |
 |------|------|------|----------|
 | `/v1/models` | GET | 列出已加载模型（含能力标记） | - |
@@ -312,7 +300,7 @@ SslHandler (可选)
 | `/v1/rerank` | POST | 重排序 | `{model, query, documents, ...}` |
 | `/v1/audio/transcriptions` | POST | 音频转写（multipart） | `model, file, language` |
 
-**API Key 验证：** 读取 `Authorization: Bearer {key}` 头，对比 `application.json` 中的 `security.apiKey`。只在 `security.apiKeyEnabled=true` 时启用，仅对 `/v1/*` 路径生效。
+**API Key 验证：** 读取 `Authorization: Bearer {key}` 头（OpenAI）或 `x-api-key: {key}` 头（Anthropic），对比 `application.json` 中的 `security.apiKey`。两套协议共用同一个 key。只在 `security.apiKeyEnabled=true` 时启用，仅对 `/v1/*` 路径生效。
 
 **流式聊天流程（`OpenAIChatStreamingHandler` → `ChatStreamSession`）：**
 1. `OpenAIChatStreamingHandler` 在 `HttpObjectAggregator` 之前拦截请求
@@ -324,11 +312,11 @@ SslHandler (可选)
 7. `DeferredConnectionOutputStream` 缓冲输出（先内存最大 1MB → 溢出到临时文件），连接建立后写入
 8. 响应通过 SSE 转发回客户端，支持 `tool_call_id` 修复
 
-### Anthropic 兼容 API（`AnthropicRouterHandler` → `AnthropicService`）
+### Anthropic 兼容 API（`LlamaRouterHandler` → `AnthropicService`）
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/v1/models` | GET | 列出已加载模型（Anthropic 格式） |
-| `/v1/messages` | POST | 聊天消息（自动转换 Anthropic ↔ OpenAI 格式） |
+| `/v1/models` | GET | 列出已加载模型（根据请求头 `anthropic-version`/`x-api-key` 自动选择 Anthropic 或 OpenAI 格式） |
+| `/v1/messages` | POST | 聊天消息（自动转换 Anthropic ↔ OpenAI 格式，支持 `nodeId` 远程路由和全节点兜底） |
 | `/v1/messages/count_tokens` | POST | 计 token |
 | `/v1/complete` | POST | 旧版文本补全 |
 
@@ -501,7 +489,7 @@ SslHandler (可选)
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/api/sys/setting` | GET | 获取全部系统设置 |
-| `/api/sys/setting` | POST | 保存系统设置。Body 支持：ollama/lmstudio port、日志开关、webPort、anthropicPort、apiKey、HTTPS、downloadDirectory |
+| `/api/sys/setting` | POST | 保存系统设置。Body 支持：ollama/lmstudio port、日志开关、webPort、apiKey、HTTPS、downloadDirectory |
 | `/api/sys/version` | GET | 构建版本信息（tag/version/createdTime） |
 | `/api/sys/compat/status` | GET | 兼容服务状态（Ollama/LMStudio/MCP/日志） |
 | `/api/sys/ollama` | POST | 启用/禁用 Ollama。Body: `{enable, port}` |
@@ -645,7 +633,7 @@ SslHandler (可选)
 ```json
 {
   "nodeRole": "master",
-  "server": { "webPort": 8080, "anthropicPort": 8070 },
+  "server": { "webPort": 8080 },
   "download": { "directory": "downloads" },
   "security": { "apiKeyEnabled": false, "apiKey": "" },
   "compat": {
@@ -825,7 +813,7 @@ MCP 客户端注册的外部工具服务器。
 | `main-download` | 下载管理 | 状态统计（活跃/等待/完成/总数）、下载列表（URL/文件名/进度条/速度/状态）、暂停/恢复/删除操作 |
 | `main-llamacpp-setting` | llama.cpp 路径 | 路径列表、添加（含目录浏览）、编辑、测试（版本+设备）、删除 |
 | `main-model-path-setting` | 模型路径 | 路径列表、添加/编辑/删除 |
-| `main-settings` | 设置 | 6 个标签页：Server（webPort/anthropicPort）、Compatibility（Ollama/LMStudio 开关+端口、MCP 开关）、Security（API Key 开关+值）、HTTPS（开关+证书路径+密码）、Logging（请求 URL/Header/Body 日志开关）、Download（下载目录） |
+| `main-settings` | 设置 | 6 个标签页：Server（webPort）、Compatibility（Ollama/LMStudio 开关+端口、MCP 开关）、Security（API Key 开关+值）、HTTPS（开关+证书路径+密码）、Logging（请求 URL/Header/Body 日志开关）、Download（下载目录） |
 | `main-device-status` | 设备状态 | GPU 实时状态（1 秒轮询）、JSON 展示 |
 | `main-hf` | HuggingFace | 搜索框（query/limit/base 镜像选择）、模型结果网格（名称/下载量/收藏/参数）、Load more、GGUF 文件详情弹窗（分卷分组/复制下载链接/创建下载任务） |
 | `main-console` | 控制台 | 控制台日志、自动刷新、刷新间隔设置 |
@@ -1123,6 +1111,8 @@ buildLoadModelPayload()        ← 将表单状态序列化为 cmd 字符串
 - GET 类代理请求无 body，通过 URL path 转发，不存在回环风险
 
 **聊天 API 的远程路由：** 前端在 `/v1/chat/completions` / `/v1/completions` / `/api/chat`（Ollama）请求体中添加 `nodeId` 字段，后端 `ChatStreamSession`（流式）和 `OpenAIService`（非流式）检测到 `nodeId` 后直接调用 `resolveRemoteModelUrl()` 将请求转发到远程节点，不再回退到遍历全部节点的兜底路径。`ChatRequestStreamingTransformer` 会在写入子进程输出前自动剥离 `nodeId` 字段。
+
+**Anthropic `/v1/messages` 的远程路由：** 同样支持 `nodeId` 直达（`AnthropicService.routeMessagesToNode()`）和全节点兜底（`resolveModelOnRemoteNodes()`，遍历所有启用节点的 `/v1/models` 匹配模型名）。`nodeId` 从原始 Anthropic 请求体提取，转发前从 OpenAI 格式请求体中剥离。远程转发使用 trust-all SSL 兼容自签名证书。
 
 ### WebSocket 事件转发（后端中继）
 

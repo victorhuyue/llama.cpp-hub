@@ -38,8 +38,6 @@
         if (s) {
             const webPort = byId('webPortInput');
             if (webPort && s.webPort) webPort.value = s.webPort;
-            const anthropicPort = byId('anthropicPortInput');
-            if (anthropicPort && s.anthropicPort) anthropicPort.value = s.anthropicPort;
         }
 
         // Compatibility
@@ -123,12 +121,10 @@
 
     async function saveServerPorts() {
         const webPort = byId('webPortInput');
-        const anthropicPort = byId('anthropicPortInput');
         const payload = {};
         if (webPort && webPort.value) payload.webPort = Number(webPort.value);
-        if (anthropicPort && anthropicPort.value) payload.anthropicPort = Number(anthropicPort.value);
-        if (!payload.webPort && !payload.anthropicPort) {
-            toast(t('toast.error', '错误'), '请至少填写一个端口', 'error');
+        if (!payload.webPort) {
+            toast(t('toast.error', '错误'), '请填写端口', 'error');
             return;
         }
         try {

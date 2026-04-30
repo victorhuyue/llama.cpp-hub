@@ -588,8 +588,6 @@
   "page.settings.tab.download": "Download",
   "page.settings.server.web_port": "Web Port",
   "page.settings.server.web_port_desc": "OpenAI-compatible API port, requires restart after change",
-  "page.settings.server.anthropic_port": "Anthropic Port",
-  "page.settings.server.anthropic_port_desc": "Anthropic-compatible API port, requires restart after change",
   "page.settings.server.mcp_server": "MCP Server",
   "page.settings.server.hint": "⚠ Port changes require manual server restart; MCP Server takes effect dynamically",
   "page.settings.security.title": "API Key Authentication",

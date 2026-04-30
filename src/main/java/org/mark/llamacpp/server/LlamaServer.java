@@ -24,7 +24,7 @@ import org.mark.llamacpp.server.channel.BasicRouterHandler;
 import org.mark.llamacpp.server.channel.CompletionRouterHandler;
 import org.mark.llamacpp.server.channel.FileDownloadRouterHandler;
 import org.mark.llamacpp.server.channel.OpenAIChatStreamingHandler;
-import org.mark.llamacpp.server.channel.OpenAIRouterHandler;
+import org.mark.llamacpp.server.channel.LlamaRouterHandler;
 import org.mark.llamacpp.server.io.ConsoleBroadcastOutputStream;
 import org.mark.llamacpp.server.io.ConsoleBufferLogAppender;
 import org.mark.llamacpp.server.mcp.McpClientService;
@@ -142,11 +142,6 @@ public class LlamaServer {
 			LlamaServer.bindOpenAI(webPort);
 		});
 		t1.start();
-
-		Thread t2 = new Thread(() -> {
-			LlamaServer.bindAnthropic(anthropicPort);
-		});
-		t2.start();
 		
 		if (lmstudioCompatEnabled) {
 			try {
@@ -1025,7 +1020,7 @@ private static void bindOpenAI(int port) {
                                         .addLast(new BasicRouterHandler())
                                         .addLast(new CompletionRouterHandler())
                                         .addLast(new FileDownloadRouterHandler())
-                                        .addLast(new OpenAIRouterHandler());
+                                        .addLast(new LlamaRouterHandler());
                             } else {
                                 ch.pipeline()
                                         .addLast(new HttpServerCodec())
@@ -1038,7 +1033,7 @@ private static void bindOpenAI(int port) {
                                         .addLast(new BasicRouterHandler())
                                         .addLast(new CompletionRouterHandler())
                                         .addLast(new FileDownloadRouterHandler())
-                                        .addLast(new OpenAIRouterHandler());
+                                        .addLast(new LlamaRouterHandler());
                             }
                         }
                         @Override

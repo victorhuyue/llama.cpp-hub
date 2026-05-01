@@ -5,11 +5,16 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.net.ssl.HttpsURLConnection;
+
+import org.mark.llamacpp.server.LlamaHubNode;
 import org.mark.llamacpp.server.LlamaServerManager;
+import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.service.ModelRequestTracker;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.Timing;
@@ -17,6 +22,8 @@ import org.mark.llamacpp.server.tools.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import io.netty.channel.ChannelHandlerContext;
@@ -76,26 +83,59 @@ public class OllamaEmbedService {
 			return;
 		}
 		
-		LlamaServerManager manager = LlamaServerManager.getInstance();
+		String nodeId = JsonUtil.getJsonString(ollamaReq, "nodeId", null);
+		if (nodeId != null) {
+			ollamaReq.remove("nodeId");
+		}
+
 		final String modelName = JsonUtil.getJsonString(ollamaReq, "model", null);
 		if (modelName == null || modelName.isBlank()) {
 			Ollama.sendOllamaError(ctx, HttpResponseStatus.BAD_REQUEST, "Missing required parameter: model");
 			return;
 		}
-		
-		if (!manager.getLoadedProcesses().containsKey(modelName)) {
+
+		String targetUrl = null;
+		String remoteApiKey = null;
+		boolean isRemote = false;
+
+		if (nodeId != null && !nodeId.isBlank()) {
+			NodeManager nodeManager = NodeManager.getInstance();
+			LlamaHubNode node = nodeManager.getNode(nodeId);
+			if (node == null || !node.isEnabled()) {
+				Ollama.sendOllamaError(ctx, HttpResponseStatus.NOT_FOUND, "Remote node not found or disabled: " + nodeId);
+				return;
+			}
+			targetUrl = node.getBaseUrl() + "/v1/embeddings";
+			remoteApiKey = node.getApiKey();
+			isRemote = true;
+			logger.info("[OllamaEmbed路由] 请求体指定 nodeId，直接路由远程节点: nodeId={}, model={}", nodeId, modelName);
+		} else {
+			LlamaServerManager manager = LlamaServerManager.getInstance();
+			if (manager.getLoadedProcesses().containsKey(modelName)) {
+				Integer port = manager.getModelPort(modelName);
+				if (port != null) {
+					targetUrl = String.format("http://localhost:%d/v1/embeddings", port.intValue());
+				}
+			}
+			if (targetUrl == null) {
+				logger.info("[OllamaEmbed路由] 本地未找到模型，开始搜索远程节点: model={}", modelName);
+				String[] remote = this.resolveFromRemoteNodes(modelName);
+				if (remote != null) {
+					targetUrl = remote[0];
+					remoteApiKey = remote[1];
+					isRemote = true;
+				}
+			}
+		}
+
+		if (targetUrl == null) {
 			Ollama.sendOllamaError(ctx, HttpResponseStatus.NOT_FOUND, "Model not found: " + modelName);
 			return;
 		}
-		
-		///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		
-		Integer port = manager.getModelPort(modelName);
-		if (port == null) {
-			Ollama.sendOllamaError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "Model port not found: " + modelName);
-			return;
-		}
-		
+
+		final String finalTargetUrl = targetUrl;
+		final String finalRemoteApiKey = remoteApiKey;
+
 		JsonObject openAiReq = OllamaApiTool.toOpenAIEmbeddingsRequest(ollamaReq);
 		if (openAiReq == null) {
 			Ollama.sendOllamaError(ctx, HttpResponseStatus.BAD_REQUEST, "Missing required parameter: input");
@@ -110,13 +150,19 @@ public class OllamaEmbedService {
 			HttpURLConnection connection = null;
 			try {
 				long startNs = System.nanoTime();
-				String targetUrl = String.format("http://localhost:%d/v1/embeddings", port.intValue());
-				URL url = URI.create(targetUrl).toURL();
+				logger.info("连接到目标: {}", finalTargetUrl);
+				URL url = URI.create(finalTargetUrl).toURL();
 				connection = (HttpURLConnection) url.openConnection();
+				if (connection instanceof HttpsURLConnection) {
+					NodeManager.trustAllCerts((HttpsURLConnection) connection);
+				}
 				connection.setRequestMethod("POST");
 				connection.setConnectTimeout(36000 * 1000);
 				connection.setReadTimeout(36000 * 1000);
 				connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+				if (finalRemoteApiKey != null && !finalRemoteApiKey.isBlank()) {
+					connection.setRequestProperty("Authorization", "Bearer " + finalRemoteApiKey);
+				}
 				connection.setDoOutput(true);
 				byte[] input = requestBody.getBytes(StandardCharsets.UTF_8);
 				connection.setRequestProperty("Content-Length", String.valueOf(input.length));
@@ -159,5 +205,59 @@ public class OllamaEmbedService {
 			}
 		});
 		
+	}
+
+	/**
+	 * 从远程节点中查找模型
+	 */
+	private String[] resolveFromRemoteNodes(String modelName) {
+		NodeManager nodeManager = NodeManager.getInstance();
+		List<LlamaHubNode> enabledNodes = nodeManager.listEnabledNodes();
+		logger.info("[OllamaEmbed路由] 远程节点列表: count={}", enabledNodes.size());
+
+		for (LlamaHubNode node : enabledNodes) {
+			logger.info("[OllamaEmbed路由] 检查远程节点: nodeId={}, baseUrl={}", node.getNodeId(), node.getBaseUrl());
+			try {
+				NodeManager.HttpResult result = nodeManager.callRemoteApi(node.getNodeId(), "GET", "/v1/models", null);
+				if (!result.isSuccess()) {
+					logger.warn("[OllamaEmbed路由] 远程节点请求失败: nodeId={}, body={}", node.getNodeId(), result.getBody());
+					continue;
+				}
+
+				JsonObject root = JsonUtil.fromJson(result.getBody(), JsonObject.class);
+				if (root == null) continue;
+
+				if (root.has("models") && root.get("models").isJsonArray()) {
+					JsonArray remoteModels = root.getAsJsonArray("models");
+					for (JsonElement el : remoteModels) {
+						if (!el.isJsonObject()) continue;
+						JsonObject m = el.getAsJsonObject();
+						String remoteKey = JsonUtil.getJsonString(m, "model");
+						if (remoteKey.isEmpty()) remoteKey = JsonUtil.getJsonString(m, "name");
+						if (modelName.equals(remoteKey)) {
+							logger.info("[OllamaEmbed路由] 匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
+							return new String[]{ node.getBaseUrl() + "/v1/embeddings", node.getApiKey() };
+						}
+					}
+				}
+
+				if (root.has("data") && root.get("data").isJsonArray()) {
+					JsonArray dataArr = root.getAsJsonArray("data");
+					for (JsonElement el : dataArr) {
+						if (!el.isJsonObject()) continue;
+						JsonObject d = el.getAsJsonObject();
+						String id = JsonUtil.getJsonString(d, "id", "");
+						if (modelName.equals(id)) {
+							logger.info("[OllamaEmbed路由] data匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
+							return new String[]{ node.getBaseUrl() + "/v1/embeddings", node.getApiKey() };
+						}
+					}
+				}
+			} catch (Exception e) {
+				logger.warn("[OllamaEmbed路由] 异常: nodeId={}, error={}", node.getNodeId(), e.getMessage());
+			}
+		}
+		logger.warn("[OllamaEmbed路由] 所有远程节点均未找到: model={}", modelName);
+		return null;
 	}
 }

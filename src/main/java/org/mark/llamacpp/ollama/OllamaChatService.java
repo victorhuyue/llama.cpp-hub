@@ -10,12 +10,17 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.net.ssl.HttpsURLConnection;
+
+import org.mark.llamacpp.server.LlamaHubNode;
 import org.mark.llamacpp.server.LlamaServerManager;
+import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.service.ChatTemplateKwargsService;
 import org.mark.llamacpp.server.service.LlamaRecordService;
 import org.mark.llamacpp.server.service.ModelRequestTracker;
@@ -101,23 +106,61 @@ public class OllamaChatService {
 			return;
 		}
 		
-		LlamaServerManager manager = LlamaServerManager.getInstance();
+		String nodeId = JsonUtil.getJsonString(ollamaReq, "nodeId", null);
+		if (nodeId != null) {
+			ollamaReq.remove("nodeId");
+		}
+
 		final String modelName = JsonUtil.getJsonString(ollamaReq, "model", null);
 		if (modelName == null || modelName.isBlank()) {
 			Ollama.sendOllamaError(ctx, HttpResponseStatus.BAD_REQUEST, "Missing required parameter: model");
 			return;
 		}
-		
-		if (!manager.getLoadedProcesses().containsKey(modelName)) {
+
+		String targetUrl = null;
+		String remoteApiKey = null;
+		boolean isRemote = false;
+
+		if (nodeId != null && !nodeId.isBlank()) {
+			NodeManager nodeManager = NodeManager.getInstance();
+			LlamaHubNode node = nodeManager.getNode(nodeId);
+			if (node == null || !node.isEnabled()) {
+				Ollama.sendOllamaError(ctx, HttpResponseStatus.NOT_FOUND, "Remote node not found or disabled: " + nodeId);
+				return;
+			}
+			targetUrl = node.getBaseUrl() + "/v1/chat/completions";
+			remoteApiKey = node.getApiKey();
+			isRemote = true;
+			logger.info("[Ollama路由] 请求体指定 nodeId，直接路由远程节点: nodeId={}, model={}", nodeId, modelName);
+		} else {
+			LlamaServerManager manager = LlamaServerManager.getInstance();
+			if (manager.getLoadedProcesses().containsKey(modelName)) {
+				Integer port = manager.getModelPort(modelName);
+				if (port != null) {
+					targetUrl = String.format("http://localhost:%d/v1/chat/completions", port.intValue());
+					logger.info("[Ollama路由] 本地模型已加载: model={}, port={}", modelName, port);
+				}
+			}
+			if (targetUrl == null) {
+				logger.info("[Ollama路由] 本地未找到模型，开始搜索远程节点: model={}", modelName);
+				String[] remote = this.resolveFromRemoteNodes(modelName);
+				if (remote != null) {
+					targetUrl = remote[0];
+					remoteApiKey = remote[1];
+					isRemote = true;
+				}
+			}
+		}
+
+		if (targetUrl == null) {
 			Ollama.sendOllamaError(ctx, HttpResponseStatus.NOT_FOUND, "Model not found: " + modelName);
 			return;
 		}
-		
-		Integer port = manager.getModelPort(modelName);
-		if (port == null) {
-			Ollama.sendOllamaError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "Model port not found: " + modelName);
-			return;
-		}
+
+		final String finalTargetUrl = targetUrl;
+		final String finalRemoteApiKey = remoteApiKey;
+		final boolean finalIsRemote = isRemote;
+
 		// 是否开启流式传输
 		boolean isStream = true;
 		try {
@@ -175,33 +218,36 @@ public class OllamaChatService {
 		String requestBody = JsonUtil.toJson(openAiReq);
 		
 		int requestBodyLength = requestBody == null ? 0 : requestBody.length();
-		logger.info("转发请求到llama.cpp进程: {} {} 端口: {} 请求体长度: {}", request.method().name(), "/v1/chat/completions", port, requestBodyLength);
+		logger.info("转发请求到目标: {} {} 请求体长度: {}", request.method().name(), finalTargetUrl, requestBodyLength);
 		
 		boolean finalIsStream = isStream;
 		this.worker.execute(() -> {
 			String requestId = ModelRequestTracker.getInstance().createRequest(modelName, "/api/chat");
 			try {
-				String targetUrl = String.format("http://localhost:%d/v1/chat/completions", port.intValue());
+				logger.info("连接到目标: {}", finalTargetUrl);
 				
-				logger.info("连接到llama.cpp进程: {}", targetUrl);
-				
-				URL url = URI.create(targetUrl).toURL();
+				URL url = URI.create(finalTargetUrl).toURL();
 				this.connection = (HttpURLConnection) url.openConnection();
+				if (this.connection instanceof HttpsURLConnection) {
+					NodeManager.trustAllCerts((HttpsURLConnection) this.connection);
+				}
 				this.connection.setRequestMethod("POST");
 				this.connection.setConnectTimeout(36000 * 1000);
 				this.connection.setReadTimeout(36000 * 1000);
 				this.connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+				if (finalRemoteApiKey != null && !finalRemoteApiKey.isBlank()) {
+					this.connection.setRequestProperty("Authorization", "Bearer " + finalRemoteApiKey);
+				}
 				this.connection.setDoOutput(true);
 				byte[] input = requestBody.getBytes(StandardCharsets.UTF_8);
 				try (OutputStream os = this.connection.getOutputStream()) {
 					os.write(input, 0, input.length);
-					logger.info("已发送请求体到llama.cpp进程，大小: {} 字节", input.length);
+					logger.info("已发送请求体，大小: {} 字节", input.length);
 				}
 				long t = System.currentTimeMillis();
 				int responseCode = this.connection.getResponseCode();
+				logger.info("目标响应码: {}，等待时间：{}", responseCode, System.currentTimeMillis() - t);
 				ModelRequestTracker.getInstance().updatePhase(requestId, ActiveRequest.Phase.GENERATION);
-				
-				logger.info("llama.cpp进程响应码: {}，等待时间：{}", responseCode, System.currentTimeMillis() - t);
 				
 				if (finalIsStream) {
 					this.handleOllamaChatStreamResponse(ctx, this.connection, responseCode, modelName, requestId);
@@ -568,6 +614,64 @@ public class OllamaChatService {
 		}
 	}
 	
+	/**
+	 * 从远程节点中查找模型
+	 */
+	private String[] resolveFromRemoteNodes(String modelName) {
+		NodeManager nodeManager = NodeManager.getInstance();
+		List<LlamaHubNode> enabledNodes = nodeManager.listEnabledNodes();
+		logger.info("[Ollama路由] 远程节点列表: count={}", enabledNodes.size());
+
+		for (LlamaHubNode node : enabledNodes) {
+			logger.info("[Ollama路由] 检查远程节点: nodeId={}, baseUrl={}", node.getNodeId(), node.getBaseUrl());
+			try {
+				NodeManager.HttpResult result = nodeManager.callRemoteApi(node.getNodeId(), "GET", "/v1/models", null);
+				logger.info("[Ollama路由] 远程节点响应: nodeId={}, code={}", node.getNodeId(), result.getStatusCode());
+				if (!result.isSuccess()) {
+					logger.warn("[Ollama路由] 远程节点请求失败: nodeId={}, body={}", node.getNodeId(), result.getBody());
+					continue;
+				}
+
+				JsonObject root = JsonUtil.fromJson(result.getBody(), JsonObject.class);
+				if (root == null) continue;
+
+				if (root.has("models") && root.get("models").isJsonArray()) {
+					JsonArray remoteModels = root.getAsJsonArray("models");
+					for (JsonElement el : remoteModels) {
+						if (!el.isJsonObject()) continue;
+						JsonObject m = el.getAsJsonObject();
+						String remoteKey = JsonUtil.getJsonString(m, "model");
+						if (remoteKey.isEmpty()) remoteKey = JsonUtil.getJsonString(m, "name");
+						logger.info("[Ollama路由] 远程模型条目: nodeId={}, key={}", node.getNodeId(), remoteKey);
+						if (modelName.equals(remoteKey)) {
+							logger.info("[Ollama路由] 匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
+							return new String[]{ node.getBaseUrl() + "/v1/chat/completions", node.getApiKey() };
+						}
+					}
+				}
+
+				if (root.has("data") && root.get("data").isJsonArray()) {
+					JsonArray dataArr = root.getAsJsonArray("data");
+					for (JsonElement el : dataArr) {
+						if (!el.isJsonObject()) continue;
+						JsonObject d = el.getAsJsonObject();
+						String id = JsonUtil.getJsonString(d, "id", "");
+						if (modelName.equals(id)) {
+							logger.info("[Ollama路由] data匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
+							return new String[]{ node.getBaseUrl() + "/v1/chat/completions", node.getApiKey() };
+						}
+					}
+				}
+
+				logger.warn("[Ollama路由] 节点无匹配模型: nodeId={}, model={}", node.getNodeId(), modelName);
+			} catch (Exception e) {
+				logger.warn("[Ollama路由] 异常: nodeId={}, error={}", node.getNodeId(), e.getMessage());
+			}
+		}
+		logger.warn("[Ollama路由] 所有远程节点均未找到: model={}", modelName);
+		return null;
+	}
+
 	/**
 	 * 	当连接断开时调用，用于清理{@link #channelConnectionMap}
 	 * 

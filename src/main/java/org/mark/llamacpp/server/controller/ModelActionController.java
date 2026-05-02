@@ -1404,7 +1404,7 @@ public class ModelActionController implements BaseController {
 			}
 			connection.setRequestMethod(method);
 			connection.setConnectTimeout(2000);
-			connection.setReadTimeout(60000);
+			connection.setReadTimeout(2000);
 			if (node.getApiKey() != null && !node.getApiKey().isBlank()) {
 				connection.setRequestProperty("Authorization", "Bearer " + node.getApiKey());
 			}

@@ -273,7 +273,7 @@ public class NodeManager {
 
             connection.setRequestMethod(method);
             connection.setConnectTimeout(2000);
-            connection.setReadTimeout(60000);
+            connection.setReadTimeout(2000);
 
             if (node.apiKey != null && !node.apiKey.isBlank()) {
                 connection.setRequestProperty("Authorization", "Bearer " + node.apiKey);

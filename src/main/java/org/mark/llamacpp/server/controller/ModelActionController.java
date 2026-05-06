@@ -1403,8 +1403,8 @@ public class ModelActionController implements BaseController {
 				NodeManager.trustAllCerts((javax.net.ssl.HttpsURLConnection) connection);
 			}
 			connection.setRequestMethod(method);
-			connection.setConnectTimeout(2000);
-			connection.setReadTimeout(2000);
+			connection.setConnectTimeout(3600 * 7 * 24 * 1000);
+			connection.setReadTimeout(3600 * 7 * 24 * 1000);
 			if (node.getApiKey() != null && !node.getApiKey().isBlank()) {
 				connection.setRequestProperty("Authorization", "Bearer " + node.getApiKey());
 			}

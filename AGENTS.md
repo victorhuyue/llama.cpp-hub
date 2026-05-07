@@ -138,14 +138,15 @@ URI 以 `/api/`、`/v1`（非 HTML）、`/session`、`/tokenize`、`/apply-templ
 | `ChatTemplateKwargsService` | 每模型 `chat_template_kwargs`（例如 `enable_thinking`、`thinking_budget_tokens`）。存储在 `config/model-chat-template-kwargs.json`。基于 mtime 的缓存。 |
 | `McpClientService` | MCP 客户端：注册 SSE/Streamable HTTP 服务器、工具索引、工具调用。两种传输：短寿命 SSE（每次请求握手）和持久 Streamable HTTP（会话管理）。环境变量占位符解析（`${VAR_NAME}`）。120 秒工具调用超时。 |
 | `GpuService` | 启动时 GPU 检测快照 + 实时状态查询。通过 OS 命令检测 NVIDIA/AMD/Apple 厂商。 |
-| `DownloadManager` | 下载任务管理。最大 4 个并发。多部分并行下载（8MB 部分，每部分使用虚拟线程）。通过 ETag 验证支持断点续传。状态机：IDLE→PREPARING→DOWNLOADING→MERGING→VERIFYING→COMPLETED。1 秒进度轮询 + WebSocket 通知。 |
+| `DownloadTaskManager` | 下载任务管理（**HTTP 路由中的活跃系统**）。`HttpURLConnection` 分块下载，回调驱动进度通知。通过 Java 序列化持久化到 `cache/tasks.cache`。状态机：PENDING→RUNNING→COMPLETED/FAILED/PAUSED。 |
+| `DownloadManager` | **遗留下载管理器**，`org.mark.llamacpp.download`。使用 `BasicDownloader`（`java.net.http.HttpClient`），未接入任何 HTTP 路由。状态机：IDLE→PREPARING→DOWNLOADING→MERGING→VERIFYING→COMPLETED。 |
 | `LlamaRecordService` | 累积推理性能记录。每模型累积 `Timing` + 在 `cache/record/{modelId}.{json,log,requests.log}` 的逐请求 JSONL 日志。 |
 | `ModelRequestTracker` | 活跃推理请求状态机。广播 `model_busy` WebSocket 事件。跟踪 PREFILL→GENERATION 阶段转换。 |
 | `AnthropicService` | Anthropic ↔ OpenAI 消息格式转换 + 转发。支持 `nodeId` 远程路由 + 全节点回退。HTTPS 远程节点信任所有 SSL。 |
 | `OpenAIService` | OpenAI API 转发到模型子进程。处理 chat/completions/embeddings/rerank/responses/audio/transcriptions。流式响应 SSE 解析 + tool_call_id 修复。通过 `/v1/models` 查询合并远程模型。 |
 | `NodeProxyService` | 流式和非流式代理到远程节点。SSE 块转发，包含 `tool_call_id` 修复。 |
 | `BenchmarkService` | V2 基准测试：通过二分搜索 + `/tokenize` + `/apply-template` 生成精确 token 计数的提示。运行 `/v1/chat/completions` 并将计时记录到 `benchmarks/{modelId}_V2.jsonl`。 |
-| `DownloadService` | `DownloadManager` 的 REST API 门面。创建/暂停/恢复/删除下载任务。返回统计信息。 |
+| `DownloadService` | **死代码**。`DownloadManager`（遗留）的 REST API 门面，未注册到任何路由。 |
 | `ToolExecutionService` | 执行工具调用。路由到 MCP 工具（通过 `McpClientService`）或内置的 `zhipu_web_search`。 |
 | `UsageReportService` | 读取 `cache/record/` 文件以生成 token 使用摘要和逐请求日志列表。 |
 | `CompletionService` | EasyRP 角色 CRUD + 头像/聊天文件持久化。文件存储在 `cache/charactors/`、`cache/chat/`、`cache/avatars/`。遗留 `cache/completions/` 回退。 |
@@ -159,7 +160,7 @@ URI 以 `/api/`、`/v1`（非 HTML）、`/session`、`/tokenize`、`/apply-templ
 - WebSocket 心跳/系统状态：`ScheduledThreadPool(2)`
 - 节点健康检查：`ScheduledExecutorService` 守护线程（`node-health-check`）
 - 系统监控：`ScheduledThreadPool(1)` 守护线程
-- 下载管理器：固定线程池（4 个工作线程）+ 1 秒轮询调度器
+- 下载管理器：固定线程池（4 个工作线程）
 - 远程 WS 客户端重连：每个节点使用单线程 `ScheduledExecutorService`
 
 ### 模型工作状态机（`ModelRequestTracker`）
@@ -756,19 +757,56 @@ MCP 客户端注册的外部工具服务器。
 
 ## 下载系统
 
-### 架构
-`DownloadManager`（单例）通过 `BasicDownloader`（并行多部分 HTTP 下载）管理任务。还存在使用 `HttpURLConnection` 的替代 `SimpleHttpDownloader`（`org.mark.file.downloader`）。
+有两个并行的下载包，`org.mark.file.downloader` 是当前 HTTP 路由中的**活跃系统**，`org.mark.llamacpp.download` 是**遗留系统**（未接入路由）。
 
-### 特性
+### 活跃系统（`org.mark.file.downloader`）
+
+#### 架构
+`FileDownloadRouterHandler` → `DownloadTaskManager` → `SimpleHttpDownloader`（`HttpURLConnection` 分块下载）。
+
+#### 核心类
+| 类 | 职责 |
+|-----|----------|
+| `FileDownloadRouterHandler` | Netty 管道中 `BasicRouterHandler` 链的第 3 个控制器，路由 `/api/downloads/*` |
+| `DownloadTaskManager` | 任务生命周期管理、持久化（`ObjectOutputStream` → `cache/tasks.cache`）、WebSocket 通知 |
+| `SimpleHttpDownloader` | 实际 HTTP 下载：先 `probe()` 发 HEAD 请求获取 Content-Length，再分块 Range 并行下载 |
+| `DownloadTaskInfo` | 数据模型。`totalBytes` 初始化为 `-1L`，probe 完成后更新为真实值 |
+| `DownloadTaskStatus` | 枚举：`PENDING`→`RUNNING`→`COMPLETED`/`FAILED`/`PAUSED` |
+| `DownloadWebSocketListener` | 回调监听器，通过 `WebSocketManager` 广播状态/进度事件 |
+
+#### 特性
 - HTTP/HTTPS 下载
-- 断点续传支持（ETag + Range 验证）
-- 多部分并行下载：8MB 部分，并行度 = CPU 核心数（最大 8，由 `BasicDownloader` 控制），通过 `PartDownloadTask` 使用虚拟线程
-- 重试：最多 5 次尝试，指数退避（200ms→5s）
-- 最大并发：4（`DownloadManager`）
-- 进度：通过 `ScheduledExecutorService` 每秒轮询，WebSocket 广播
-- 持久化：`TaskRepository` 保存到 `downloads/tasks.json`
+- `probe()` 通过 HEAD 请求获取文件大小（`Content-Length` 或 `Content-Range`）
+- 并行分块下载（`HttpURLConnection` + `Range` 头）
+- 重试：`probe()` 默认 3 次重试
+- 最大并发：4（`DownloadTaskManager` 的固定线程池）
+- 进度：回调驱动（`DownloadProgressListener`），非轮询
+- 持久化：Java 原生序列化（`ObjectOutputStream`）写入 `cache/tasks.cache`
 
-### 下载状态机
+#### 状态机
+```
+PENDING → RUNNING → COMPLETED
+               ↘  ↗   ↘
+              PAUSED    FAILED
+```
+`startTask()` 同步设状态为 `RUNNING`，下载在 `workerPool.submit()` 中异步执行。暂停/恢复通过 `requestStop()` 中断线程，恢复时重扫 `.part` 文件。
+
+#### WebSocket 事件
+| 事件 | 触发时机 | JS 处理器 |
+|------|---------|-----------|
+| `download_update` | 创建/暂停/完成/失败 | `updateDownloadItem()`→`renderDownloadsList()` |
+| `download_progress` | 每次进度回调 | `updateDownloadProgress()`（直接操作 DOM） |
+
+#### 暂停/恢复
+暂停：`requestStop()` → 中断下载线程 → `pauseTask()` 持久化到 cache。恢复：`startTask()` 重新开始，`SimpleHttpDownloader` 扫描现有 `.part` 文件跳过已下载部分。
+
+### 遗留系统（`org.mark.llamacpp.download`）
+
+#### 架构
+`DownloadManager`（单例）→ `BasicDownloader`（`java.net.http.HttpClient`，8MB 分块，虚拟线程 `PartDownloadTask`）。通过 `TaskRepository`（Gson JSON）持久化到 `downloads/tasks.json`。1 秒 `ScheduledExecutorService` 轮询进度。
+**未接入任何 HTTP 路由，属于死代码。**
+
+#### 状态机
 ```
 IDLE → PREPARING → DOWNLOADING → MERGING → VERIFYING → COMPLETED
                                      ↘                   ↘
@@ -776,10 +814,7 @@ IDLE → PREPARING → DOWNLOADING → MERGING → VERIFYING → COMPLETED
 ```
 所有状态 → FAILED。DOWNLOADING → PAUSED → RESUMED → DOWNLOADING。
 
-### 暂停/恢复
-暂停：保存 `downloadedBytes`、`parts`、`etag`、`finalUri`，停止下载器，中断线程。恢复：验证 ETag/大小匹配，扫描现有 `.partN` 文件，重新下载缺失/损坏的部分。
-
-### 文件命名
+### 文件命名（两个系统共用）
 - 下载中：`{fileName}.downloading`
 - 完成后：重命名为 `{fileName}`
 - 从 URL 自动提取文件名
@@ -888,7 +923,7 @@ IDLE → PREPARING → DOWNLOADING → MERGING → VERIFYING → COMPLETED
 16. **`LlamaCppService` 和 `SessionService` 是 `@Deprecated`** — 在生产流程中未使用。
 17. **`OllamaService.java` 完全被注释掉** — 已被 `OllamaChatService`/`OllamaShowService`/`OllamaTagsService` 取代。
 18. **`LlamaCommandParser.java` 完全被注释掉** — 已被 `ChatStreamSession` + `OpenAIService` 取代。
-19. **存在两个并行的下载包** — `org.mark.llamacpp.download`（使用 `java.net.http.HttpClient`、`BasicDownloader`）和 `org.mark.file.downloader`（使用 `HttpURLConnection`、`SimpleHttpDownloader`）。`FileDownloadRouterHandler` 使用 `org.mark.file.downloader.DownloadTaskManager`，而 `SystemController`/`DownloadManager` 使用 `org.mark.llamacpp.download.DownloadManager`。
+19. **存在两个并行的下载包** — `org.mark.file.downloader`（**活跃**，使用 `HttpURLConnection`、`SimpleHttpDownloader`、`DownloadTaskManager`，通过 `FileDownloadRouterHandler` 接入 HTTP 路由）和 `org.mark.llamacpp.download`（**遗留**，使用 `java.net.http.HttpClient`、`BasicDownloader`、`DownloadManager`，未接入任何路由）。
 20. **`VramEstimator` 是 `@Deprecated`** — 实时服务器上的 VRAM 估算使用不同的（更新的）方法，通过 `CommandLineRunner` + `llama-cli`。
 
 ---

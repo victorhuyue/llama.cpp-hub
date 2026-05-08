@@ -938,7 +938,7 @@
       const protectedMath = protectMathSegments(source);
       let rendered = '';
       try {
-        rendered = window.marked.parse(fixEmphasisSpacing(protectedMath.text), {
+        rendered = window.marked.parse(/*fixEmphasisSpacing*/(protectedMath.text), {
           gfm: true,
           breaks: true,
           mangle: false,

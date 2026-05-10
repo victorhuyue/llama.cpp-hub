@@ -164,12 +164,18 @@ public class LlamaCppProcess {
 	}
 
 	/**
-	 * 	停止进程 — Fix 版本。
+	 * 	停止进程 — Windows 修复版。
 	 * 	
-	 * 	改进点：
-	 * 	- 先关闭 stdwriter，防止 SIGPIPE
-	 * 	- 显式关闭子进程的 stdout/stderr 流，让 reader 线程的 readLine() 立即退出
-	 * 	- destroyForcibly 后追加 waitFor(1) 确保进程真正回收
+	 * 	操作顺序（重要，特别是 Windows）：
+	 * 	1. 关闭 stdin writer
+	 * 	2. 先 destroy() 杀死子进程 → 关闭管道写端 → 读端 ReadFile 收到 ERROR_BROKEN_PIPE
+	 * 	3. 再关闭 Java 端的 InputStream/ErrorStream
+	 * 	4. 等待 reader 线程自然退出
+	 * 	
+	 * 	为什么不能先关流再杀进程（Windows）：
+	 * 	在 Windows 上，CloseHandle(管道读端) 不会中断另一个线程中正在进行的 ReadFile()。
+	 * 	虚拟线程因此永久 pinned 在 readLine() 上，joinThread 超时后漏掉线程。
+	 * 	先杀进程让 Windows 关闭写端，ReadFile 返回断管错误，reader 线程自然 exit。
 	 */
 	public synchronized boolean stop() {
 		if (!this.isRunning.getAndSet(false)) {
@@ -181,12 +187,7 @@ public class LlamaCppProcess {
 		this.stdwriter = null;
 
 		if (this.process != null) {
-			// 2. 主动关闭子进程的输出流（即 Java 端的输入流），
-			//    让 reader 线程的 readLine() 立即收到 EOF / IOException，而非永久阻塞
-			closeQuietly(this.process.getInputStream());
-			closeQuietly(this.process.getErrorStream());
-
-			// 3. 优雅终止
+			// 2. 先优雅终止进程 — 关闭进程端管道句柄
 			this.process.destroy();
 
 			try {
@@ -198,9 +199,13 @@ public class LlamaCppProcess {
 				this.process.destroyForcibly();
 				Thread.currentThread().interrupt();
 			}
+
+			// 3. 进程已死 / 管道已断裂，再关闭 Java 端流（reader 线程已收到 EOF 或 IOException）
+			closeQuietly(this.process.getInputStream());
+			closeQuietly(this.process.getErrorStream());
 		}
 
-		// 4. 等待 reader 线程（流已关闭，readLine 应快速返回）
+		// 4. 等待 reader 线程自然退出
 		joinThread(this.outputThread, 2000);
 		joinThread(this.errorThread, 2000);
 

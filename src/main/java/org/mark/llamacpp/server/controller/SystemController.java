@@ -16,6 +16,7 @@ import java.util.stream.Stream;
 
 import org.mark.llamacpp.lmstudio.LMStudio;
 import org.mark.llamacpp.ollama.Ollama;
+import org.mark.llamacpp.server.BuildInfo;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
@@ -26,6 +27,7 @@ import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
 import org.mark.llamacpp.update.GitHubTagFetcherNative;
+import org.mark.llamacpp.update.LetsUpdate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -160,7 +162,27 @@ public class SystemController implements BaseController {
 			this.handleUpdateCheckRequest(ctx, request);
 			return true;
 		}
-		
+		// 下载更新
+		if (uri.startsWith("/api/sys/update/download")) {
+			this.handleUpdateDownloadRequest(ctx, request);
+			return true;
+		}
+		// 应用更新
+		if (uri.startsWith("/api/sys/update/apply")) {
+			this.handleUpdateApplyRequest(ctx, request);
+			return true;
+		}
+		// 更新状态查询
+		if (uri.startsWith("/api/sys/update/status")) {
+			this.handleUpdateStatusRequest(ctx, request);
+			return true;
+		}
+		// 取消下载
+		if (uri.startsWith("/api/sys/update/cancel")) {
+			this.handleUpdateCancelRequest(ctx, request);
+			return true;
+		}
+
 		return false;
 	}
 	
@@ -1073,6 +1095,151 @@ public class SystemController implements BaseController {
 		}
 	}
 	
+	/**
+	 * 下载更新包
+	 */
+	private void handleUpdateDownloadRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		if (request.method() == HttpMethod.OPTIONS) {
+			LlamaServer.sendCorsResponse(ctx);
+			return;
+		}
+		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+		try {
+			if (!isOfficialBuild()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("自编译版本不支持自动更新"));
+				return;
+			}
+			JsonObject obj = parseJsonBody(ctx, request);
+			if (obj == null) {
+				return;
+			}
+			String url = JsonUtil.getJsonString(obj, "url", null);
+			String version = JsonUtil.getJsonString(obj, "version", null);
+			if (url == null || url.trim().isEmpty()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少url参数"));
+				return;
+			}
+			if (!isGitHubReleaseUrl(url.trim())) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("只允许下载 GitHub Release 资源"));
+				return;
+			}
+			Map<String, Object> data = LetsUpdate.getInstance().download(url.trim(), version);
+			boolean success = (Boolean) data.getOrDefault("success", false);
+			if (success) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+			} else {
+				String error = (String) data.getOrDefault("error", "下载失败");
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error));
+			}
+		} catch (Exception e) {
+			logger.info("下载更新包时发生错误", e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("下载更新失败: " + e.getMessage()));
+		}
+	}
+
+	/**
+	 *  简单校验 URL 是否为 GitHub Release 资源下载链接。<br>
+	 * 	https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub/releases/download/
+	 */
+	private boolean isGitHubReleaseUrl(String url) {
+		return url.contains("://github.com");
+	}
+
+	/**
+	 * 应用更新包
+	 */
+	private void handleUpdateApplyRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		if (request.method() == HttpMethod.OPTIONS) {
+			LlamaServer.sendCorsResponse(ctx);
+			return;
+		}
+		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+		try {
+			if (!isOfficialBuild()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("自编译版本不支持自动更新"));
+				return;
+			}
+			File zip = new File(System.getProperty("user.dir"), "cache" + File.separator + "update.zip");
+			Map<String, Object> data = LetsUpdate.getInstance().doUpdate(zip);
+			boolean success = (Boolean) data.getOrDefault("success", false);
+			if (success) {
+				String message = (String) data.getOrDefault("message", "更新已应用，请重启程序生效");
+				Map<String, Object> respData = new HashMap<>();
+				respData.put("success", true);
+				respData.put("message", message);
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(respData));
+			} else {
+				String error = (String) data.getOrDefault("error", "应用更新失败");
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error));
+			}
+		} catch (Exception e) {
+			logger.info("应用更新包时发生错误", e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("应用更新失败: " + e.getMessage()));
+		}
+	}
+
+	/**
+	 * 更新状态查询
+	 */
+	private void handleUpdateStatusRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		if (request.method() == HttpMethod.OPTIONS) {
+			LlamaServer.sendCorsResponse(ctx);
+			return;
+		}
+		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+		try {
+			LetsUpdate updater = LetsUpdate.getInstance();
+			LetsUpdate.UpdateStatus status = updater.getStatus();
+
+			Path zipPath = Paths.get(System.getProperty("user.dir")).resolve("cache" + File.separator + "update.zip");
+			boolean zipExists = Files.exists(zipPath);
+			long zipSize = zipExists ? Files.size(zipPath) : 0L;
+
+			Map<String, Object> data = new HashMap<>();
+			data.put("status", status.getLabel());
+			data.put("currentVersion", BuildInfo.getTag());
+			data.put("zipDownloaded", zipExists);
+			data.put("zipSize", zipSize);
+			data.put("pendingVersion", updater.getPendingVersion());
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+		} catch (Exception e) {
+			logger.info("查询更新状态时发生错误", e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("查询更新状态失败: " + e.getMessage()));
+		}
+	}
+
+	/**
+	 * 判断是否为官方发行版本（BuildInfo 占位符已被替换）。
+	 */
+	private boolean isOfficialBuild() {
+		String tag = BuildInfo.getTag();
+		return tag != null && !tag.isEmpty() && !"{tag}".equals(tag);
+	}
+
+	/**
+	 * 取消下载
+	 */
+	private void handleUpdateCancelRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		if (request.method() == HttpMethod.OPTIONS) {
+			LlamaServer.sendCorsResponse(ctx);
+			return;
+		}
+		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+		try {
+			Map<String, Object> data = LetsUpdate.getInstance().cancelDownload();
+			boolean success = (Boolean) data.getOrDefault("success", false);
+			if (success) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+			} else {
+				String error = (String) data.getOrDefault("error", "取消失败");
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error));
+			}
+		} catch (Exception e) {
+			logger.info("取消更新下载时发生错误", e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("取消失败: " + e.getMessage()));
+		}
+	}
+
 	/**
 	 * 处理停止服务请求
 	 * 

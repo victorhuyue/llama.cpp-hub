@@ -879,6 +879,27 @@
 
                                 <div id="updateErrorArea" class="update-error" style="display:none;"></div>
 
+                                <div id="updateProgressArea" style="display:none;">
+                                    <div class="update-progress-card">
+                                        <div class="update-progress-header">
+                                            <span id="updateProgressText" class="update-progress-text">准备下载...</span>
+                                            <span id="updateProgressPercent" class="update-progress-percent">0%</span>
+                                        </div>
+                                        <div class="update-progress-bar-outer">
+                                            <div id="updateProgressBar" class="update-progress-bar-inner" style="width:0%;"></div>
+                                        </div>
+                                        <div class="update-progress-detail">
+                                            <span id="updateProgressSpeed" class="update-progress-speed"></span>
+                                            <span id="updateProgressSize" class="update-progress-size"></span>
+                                        </div>
+                                        <div class="update-progress-actions">
+                                            <button class="btn btn-secondary btn-sm" id="updateCancelBtn" onclick="cancelUpdateDownload()">
+                                                <i class="fas fa-times"></i> 取消
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div id="updateResultArea" style="display:none;">
                                     <div class="update-result-card">
                                         <div class="update-result-header">
@@ -899,6 +920,12 @@
                                             </div>
                                         </div>
                                         <div class="update-result-actions">
+                                            <button class="btn btn-primary" id="updateDownloadBtn" style="display:none;" onclick="downloadUpdate()">
+                                                <i class="fas fa-download"></i> 下载安装包
+                                            </button>
+                                            <button class="btn btn-success" id="updateApplyBtn" style="display:none;" onclick="applyUpdate()">
+                                                <i class="fas fa-check"></i> 应用更新
+                                            </button>
                                             <a id="updateReleaseUrl" href="#" target="_blank" rel="noopener" class="update-release-link" style="display:none;">
                                                 <i class="fas fa-external-link-alt"></i>
                                                 <span data-i18n="page.settings.update.view_release">查看 Release 页面</span>

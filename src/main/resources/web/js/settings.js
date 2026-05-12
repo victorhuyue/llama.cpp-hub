@@ -565,11 +565,13 @@
         var loadingEl = byId('updateLoadingArea');
         var resultEl = byId('updateResultArea');
         var errorEl = byId('updateErrorArea');
+        var progressEl = byId('updateProgressArea');
         var btn = byId('checkUpdateBtn');
 
         if (loadingEl) loadingEl.style.display = '';
         if (resultEl) resultEl.style.display = 'none';
         if (errorEl) errorEl.style.display = 'none';
+        if (progressEl) progressEl.style.display = 'none';
         if (btn) btn.disabled = true;
 
         try {
@@ -648,6 +650,33 @@
                 bodyEl.textContent = '-';
             }
 
+            var downloadBtn = byId('updateDownloadBtn');
+            var applyBtn = byId('updateApplyBtn');
+            if (downloadBtn) downloadBtn.style.display = 'none';
+            if (applyBtn) applyBtn.style.display = 'none';
+
+            var statusResp = await fetch('/api/sys/update/status', { method: 'GET' });
+            var statusResult = await statusResp.json();
+            var sd = statusResult && statusResult.success ? (statusResult.data || {}) : {};
+
+            if (sd.status === 'ready' && applyBtn) {
+                applyBtn.style.display = 'inline-flex';
+                if (sd.pendingVersion) {
+                    applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用 ' + sd.pendingVersion;
+                } else {
+                    applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用更新';
+                }
+            }
+
+            if (!isPlaceholder && data.hasUpdate && release && sd.status !== 'downloading' && sd.status !== 'applying') {
+                if (downloadBtn) {
+                    downloadBtn.style.display = 'inline-flex';
+                    downloadBtn.dataset.tagName = release.tag_name;
+                    downloadBtn.disabled = false;
+                    downloadBtn.innerHTML = '<i class="fas fa-download"></i> 下载 ' + release.tag_name;
+                }
+            }
+
         } catch (e) {
             if (loadingEl) loadingEl.style.display = 'none';
             if (errorEl) {
@@ -659,11 +688,146 @@
         }
     }
 
+    async function downloadUpdate() {
+        var downloadBtn = byId('updateDownloadBtn');
+        var applyBtn = byId('updateApplyBtn');
+        var errorEl = byId('updateErrorArea');
+        var progressEl = byId('updateProgressArea');
+        var resultEl = byId('updateResultArea');
+        var tagName = downloadBtn ? (downloadBtn.dataset.tagName || '') : '';
+        if (!tagName || tagName === '{tag}') {
+            if (errorEl) {
+                errorEl.style.display = '';
+                errorEl.textContent = '当前版本不支持自动更新';
+            }
+            return;
+        }
+        var zipFileName = 'llama.cpp-hub-' + tagName + '.zip';
+        var downloadUrl = 'https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub/releases/download/' + tagName + '/' + zipFileName;
+
+        if (downloadBtn) downloadBtn.disabled = true;
+        if (applyBtn) applyBtn.style.display = 'none';
+        if (errorEl) errorEl.style.display = 'none';
+
+        try {
+            var resp = await fetch('/api/sys/update/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: downloadUrl, version: tagName })
+            });
+            var result = await resp.json();
+            if (!result || !result.success) {
+                if (errorEl) {
+                    errorEl.style.display = '';
+                    errorEl.textContent = (result && result.error) ? result.error : '下载失败';
+                }
+                if (downloadBtn) downloadBtn.disabled = false;
+                return;
+            }
+            if (downloadBtn) downloadBtn.style.display = 'none';
+            if (applyBtn) {
+                applyBtn.style.display = 'inline-flex';
+                applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用 ' + tagName;
+            }
+            if (resultEl) resultEl.style.display = '';
+        } catch (e) {
+            if (errorEl) {
+                errorEl.style.display = '';
+                errorEl.textContent = '网络请求失败';
+            }
+            if (downloadBtn) downloadBtn.disabled = false;
+        }
+    }
+
+    async function applyUpdate() {
+        var applyBtn = byId('updateApplyBtn');
+        var errorEl = byId('updateErrorArea');
+        if (applyBtn) applyBtn.disabled = true;
+        if (errorEl) errorEl.style.display = 'none';
+
+        try {
+            var resp = await fetch('/api/sys/update/apply', {
+                method: 'POST'
+            });
+            var result = await resp.json();
+            if (!result || !result.success) {
+                if (errorEl) {
+                    errorEl.style.display = '';
+                    errorEl.textContent = (result && result.error) ? result.error : '应用更新失败';
+                }
+                if (applyBtn) applyBtn.disabled = false;
+                return;
+            }
+            if (applyBtn) applyBtn.style.display = 'none';
+            showToast('更新成功', result.data ? (result.data.message || '更新已应用，请重启程序生效') : '更新已应用，请重启程序生效', 'success');
+        } catch (e) {
+            if (errorEl) {
+                errorEl.style.display = '';
+                errorEl.textContent = '网络请求失败';
+            }
+            if (applyBtn) applyBtn.disabled = false;
+        }
+    }
+
+    async function cancelUpdateDownload() {
+        try {
+            var resp = await fetch('/api/sys/update/cancel', {
+                method: 'POST'
+            });
+            var result = await resp.json();
+            if (result && result.success) {
+                checkUpdate();
+            }
+        } catch (e) {}
+    }
+
+    async function restoreUpdateStatus() {
+        try {
+            var statusResp = await fetch('/api/sys/update/status', { method: 'GET' });
+            var statusResult = await statusResp.json();
+            if (!statusResult || !statusResult.success) return;
+            var sd = statusResult.data;
+            var applyBtn = byId('updateApplyBtn');
+            var downloadBtn = byId('updateDownloadBtn');
+            var resultEl = byId('updateResultArea');
+            var errorEl = byId('updateErrorArea');
+            var currentVerEl = byId('updateCurrentVersion');
+            if (currentVerEl) currentVerEl.textContent = sd.currentVersion || '-';
+            if (sd.status === 'ready' && applyBtn) {
+                if (resultEl) resultEl.style.display = '';
+                applyBtn.style.display = 'inline-flex';
+                if (sd.pendingVersion) {
+                    applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用 ' + sd.pendingVersion;
+                } else {
+                    applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用更新';
+                }
+                if (downloadBtn) downloadBtn.style.display = 'none';
+                if (errorEl) errorEl.style.display = 'none';
+            } else if (sd.status === 'downloading' || sd.status === 'applying') {
+                if (downloadBtn) {
+                    downloadBtn.style.display = 'inline-flex';
+                    downloadBtn.disabled = true;
+                }
+                if (applyBtn) applyBtn.style.display = 'none';
+            } else {
+                if (downloadBtn) {
+                    downloadBtn.style.display = 'none';
+                    downloadBtn.disabled = false;
+                }
+                if (applyBtn) applyBtn.style.display = 'none';
+            }
+        } catch (e) {}
+    }
+
     function init() {
         // Tab switching
         document.querySelectorAll('.settings-tab').forEach(tab => {
             tab.addEventListener('click', function () {
-                switchTab(this.getAttribute('data-tab'));
+                var tabName = this.getAttribute('data-tab');
+                switchTab(tabName);
+                if (tabName === 'update') {
+                    restoreUpdateStatus();
+                }
             });
         });
 
@@ -732,5 +896,8 @@
         _initialized = true;
     });
 
+    window.downloadUpdate = downloadUpdate;
+    window.applyUpdate = applyUpdate;
+    window.cancelUpdateDownload = cancelUpdateDownload;
     window.SettingsPage = { init, load, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode };
 })();

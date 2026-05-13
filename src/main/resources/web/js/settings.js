@@ -1,6 +1,9 @@
 (function () {
     const byId = (id) => document.getElementById(id);
 
+    let llamaCppItems = [];
+    let editingLlamaCppPath = null;
+
     function toast(title, msg, type) {
         if (typeof window.showToast === 'function') window.showToast(title, msg, type);
     }
@@ -968,6 +971,301 @@
         } catch (e) {}
     }
 
+    // --- Llama.cpp path management ---
+    function toggleLlamaCppSection() {
+        const content = byId('llamacppSectionContent');
+        const chevron = byId('llamacppSectionChevron');
+        if (content) {
+            const collapsed = content.style.display === 'none';
+            content.style.display = collapsed ? '' : 'none';
+            if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+        }
+    }
+
+    function loadLlamaCppList() {
+        const container = byId('llamacppListSettings');
+        if (!container) return;
+        container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
+
+        fetch('/api/llamacpp/list')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    llamaCppItems = data.data.items || [];
+                    const countEl = byId('llamacppCountSettings');
+                    if (countEl) countEl.textContent = llamaCppItems.length;
+                    renderLlamaCppList();
+                } else {
+                    showToast(t('toast.error', '错误'), data.error || t('common.load_failed', '加载失败'), 'error');
+                    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="empty-state-title">' + t('common.load_failed', '加载失败') + '</div><div class="empty-state-text">' + (data.error || t('common.unknown_error', '未知错误')) + '</div></div>';
+                }
+            })
+            .catch(error => {
+                console.error(t('log.llamacpp.load_error', '加载 Llama.cpp 列表出错:'), error);
+                showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="empty-state-title">' + t('common.network_error', '网络错误') + '</div><div class="empty-state-text">' + t('common.unable_connect_server', '无法连接到服务器') + '</div></div>';
+            });
+    }
+
+    function renderLlamaCppList() {
+        const container = byId('llamacppListSettings');
+        if (!container) return;
+
+        if (!llamaCppItems || llamaCppItems.length === 0) {
+            container.innerHTML = '<div class="empty-state" style="padding: 1rem;"><div class="empty-state-icon"><i class="fas fa-folder-open"></i></div><div class="empty-state-title">' + t('page.llamacpp.empty_title', '暂无配置') + '</div><div class="empty-state-text">' + t('page.llamacpp.empty_desc', '尚未配置任何 Llama.cpp 路径') + '</div></div>';
+            return;
+        }
+
+        var html = '';
+        llamaCppItems.forEach(function(item) {
+            const path = item.path || '';
+            const name = item.name || '';
+            const desc = item.description || '';
+            const displayName = name || path;
+            const escapedPath = path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const escapedName = name ? name.replace(/'/g, "\\'") : '';
+            const escapedDesc = desc ? desc.replace(/'/g, "\\'") : '';
+
+            html += ''
+                + '<div class="model-item" style="padding: 0.5rem 0.625rem;">'
+                + '<div class="model-icon-wrapper">'
+                + '<i class="fas fa-microchip"></i>'
+                + '</div>'
+                + '<div class="model-details">'
+                + '<div class="model-name" title="' + displayName.replace(/"/g, '&quot;') + '">' + displayName.replace(/"/g, '&quot;') + '</div>'
+                + '<div class="model-meta">'
+                + '<span><i class="fas fa-folder"></i> ' + path.replace(/"/g, '&quot;') + '</span>'
+                + '</div>'
+                + (desc ? '<div class="model-desc" title="' + desc.replace(/"/g, '&quot;') + '"><i class="fas fa-info-circle"></i> ' + desc.replace(/"/g, '&quot;') + '</div>' : '')
+                + '</div>'
+                + '<div class="model-actions">'
+                + '<button class="btn-icon" onclick="window.testLlamaCpp(\'' + escapedPath + '\', \'' + escapedName + '\', \'' + escapedDesc + '\')" title="' + t('common.test', '测试') + '">'
+                + '<i class="fas fa-vial"></i>'
+                + '</button>'
+                + '<button class="btn-icon" onclick="window.editLlamaCpp(\'' + escapedPath + '\', \'' + escapedName + '\', \'' + escapedDesc + '\')" title="' + t('common.edit', '编辑') + '">'
+                + '<i class="fas fa-edit"></i>'
+                + '</button>'
+                + '<button class="btn-icon danger" onclick="window.removeLlamaCpp(\'' + escapedPath + '\')" title="' + t('common.delete', '删除') + '">'
+                + '<i class="fas fa-trash"></i>'
+                + '</button>'
+                + '</div>'
+                + '</div>';
+        });
+        container.innerHTML = html;
+    }
+
+    function openAddLlamaCppModal() {
+        editingLlamaCppPath = null;
+        const pathInput = byId('addLlamaCppPathInput');
+        const nameInput = byId('addLlamaCppNameInput');
+        const descInput = byId('addLlamaCppDescInput');
+        if (pathInput) pathInput.value = '';
+        if (nameInput) nameInput.value = '';
+        if (descInput) descInput.value = '';
+        const titleEl = document.querySelector('#addLlamaCppModal .modal-title');
+        if (titleEl) titleEl.innerHTML = '<i class="fas fa-plus"></i> ' + t('modal.llamacpp_add.title', '添加 Llama.cpp');
+        const modal = byId('addLlamaCppModal');
+        if (modal) modal.classList.add('show');
+    }
+
+    function editLlamaCpp(path, name, desc) {
+        editingLlamaCppPath = path;
+        const pathInput = byId('addLlamaCppPathInput');
+        const nameInput = byId('addLlamaCppNameInput');
+        const descInput = byId('addLlamaCppDescInput');
+        if (pathInput) pathInput.value = path;
+        if (nameInput) nameInput.value = name;
+        if (descInput) descInput.value = desc;
+        const titleEl = document.querySelector('#addLlamaCppModal .modal-title');
+        if (titleEl) titleEl.innerHTML = '<i class="fas fa-edit"></i> ' + t('modal.llamacpp_add.title.edit', '编辑 Llama.cpp 路径');
+        const modal = byId('addLlamaCppModal');
+        if (modal) modal.classList.add('show');
+    }
+
+    async function addLlamaCpp() {
+        const path = byId('addLlamaCppPathInput') ? String(byId('addLlamaCppPathInput').value).trim() : '';
+        const name = byId('addLlamaCppNameInput') ? String(byId('addLlamaCppNameInput').value).trim() : '';
+        const desc = byId('addLlamaCppDescInput') ? String(byId('addLlamaCppDescInput').value).trim() : '';
+
+        if (!path) {
+            showToast(t('toast.error', '错误'), t('modal.llamacpp_add.path_required', '目录路径不能为空'), 'error');
+            return;
+        }
+
+        const payload = { path: path };
+        if (name) payload.name = name;
+        if (desc) payload.description = desc;
+
+        try {
+            if (editingLlamaCppPath) {
+                await fetch('/api/llamacpp/remove', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: editingLlamaCppPath })
+                }).catch(function() {});
+            }
+
+            const resp = await fetch('/api/llamacpp/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast(t('toast.success', '成功'), editingLlamaCppPath ? t('common.updated', '更新成功') : t('common.added', '添加成功'), 'success');
+                if (typeof window.closeModal === 'function') window.closeModal('addLlamaCppModal');
+                loadLlamaCppList();
+            } else {
+                showToast(t('toast.error', '错误'), data.error || t('common.save_failed', '保存失败'), 'error');
+            }
+        } catch (e) {
+            console.error(t('log.llamacpp.save_error', '保存 Llama.cpp 出错:'), e);
+            showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        }
+    }
+
+    function removeLlamaCpp(path) {
+        if (!confirm(t('confirm.llamacpp.remove', '确定要删除此路径吗？'))) return;
+
+        fetch('/api/llamacpp/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast(t('toast.success', '成功'), t('common.deleted', '已删除'), 'success');
+                loadLlamaCppList();
+            } else {
+                showToast(t('toast.error', '错误'), data.error || t('common.delete_failed', '删除失败'), 'error');
+            }
+        })
+        .catch(function(error) {
+            console.error(t('log.llamacpp.delete_error', '删除 Llama.cpp 出错:'), error);
+            showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        });
+    }
+
+    function ensureLlamaCppTestModal() {
+        const modalId = 'llamaCppTestModal';
+        let modal = byId(modalId);
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = modalId;
+        modal.className = 'modal';
+        modal.innerHTML = [
+            '<div class="modal-content" style="max-width: 980px; height: 85vh;">',
+            '<div class="modal-header">',
+            '<h3 class="modal-title" id="llamaCppTestModalTitle"><i class="fas fa-vial"></i> ' + t('page.llamacpp.test_modal_title', 'Llama.cpp 测试') + '</h3>',
+            '<button class="modal-close" onclick="closeModal(\'' + modalId + '\')">&times;</button>',
+            '</div>',
+            '<div class="modal-body" style="height: calc(85vh - 132px); overflow: auto;">',
+            '<div style="margin-bottom: 14px;">',
+            '<div style="font-weight: 600; margin-bottom: 6px;">llama-cli --version</div>',
+            '<div style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 6px;">',
+            '<span id="llamaCppTestVersionCmd"></span>',
+            '<span style="margin-left: 10px;">exitCode: <span id="llamaCppTestVersionExit"></span></span>',
+            '</div>',
+            '<pre id="llamaCppTestVersionOut" style="white-space: pre-wrap; padding: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: #0b1220; color: #e5e7eb;"></pre>',
+            '<pre id="llamaCppTestVersionErr" style="white-space: pre-wrap; padding: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: #1f2937; color: #fca5a5;"></pre>',
+            '</div>',
+            '<div style="margin-bottom: 14px;">',
+            '<div style="font-weight: 600; margin-bottom: 6px;">llama-cli --list-devices</div>',
+            '<div style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 6px;">',
+            '<span id="llamaCppTestDevicesCmd"></span>',
+            '<span style="margin-left: 10px;">exitCode: <span id="llamaCppTestDevicesExit"></span></span>',
+            '</div>',
+            '<pre id="llamaCppTestDevicesOut" style="white-space: pre-wrap; padding: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: #0b1220; color: #e5e7eb;"></pre>',
+            '<pre id="llamaCppTestDevicesErr" style="white-space: pre-wrap; padding: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: #1f2937; color: #fca5a5;"></pre>',
+            '</div>',
+            '<div style="font-size: 0.875rem; color: var(--text-secondary);">' + t('common.raw_response', '原始响应') + '</div>',
+            '<pre id="llamaCppTestRaw" style="white-space: pre-wrap; padding: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: #111827; color: #d1d5db;"></pre>',
+            '</div>',
+            '<div class="modal-footer">',
+            '<button class="btn btn-secondary" onclick="closeModal(\'' + modalId + '\')">' + t('common.close', '关闭') + '</button>',
+            '</div>',
+            '</div>'
+        ].join('');
+
+        const root = byId('dynamicModalRoot') || document.body;
+        root.appendChild(modal);
+        return modal;
+    }
+
+    function setLlamaCppTestModalLoading(titleText) {
+        const titleEl = byId('llamaCppTestModalTitle');
+        if (titleEl) titleEl.textContent = titleText || t('page.llamacpp.test_modal_title', 'Llama.cpp 测试');
+        var ids = [
+            'llamaCppTestVersionCmd', 'llamaCppTestVersionExit', 'llamaCppTestVersionOut', 'llamaCppTestVersionErr',
+            'llamaCppTestDevicesCmd', 'llamaCppTestDevicesExit', 'llamaCppTestDevicesOut', 'llamaCppTestDevicesErr',
+            'llamaCppTestRaw'
+        ];
+        ids.forEach(function(id) {
+            var el = byId(id);
+            if (el) el.textContent = (id.indexOf('Out') >= 0 || id.indexOf('Err') >= 0 || id.indexOf('Raw') >= 0) ? t('common.loading', '加载中...') : '';
+        });
+    }
+
+    function fillLlamaCppTestModal(res) {
+        var data = res && res.data ? res.data : null;
+        var version = data && data.version ? data.version : null;
+        var listDevices = data && data.listDevices ? data.listDevices : null;
+
+        function setText(id, v) {
+            var el = byId(id);
+            if (el) el.textContent = v == null ? '' : String(v);
+        }
+
+        setText('llamaCppTestVersionCmd', version ? version.command : '');
+        setText('llamaCppTestVersionExit', version ? version.exitCode : '');
+        setText('llamaCppTestVersionOut', version ? (version.output || '') : '');
+        setText('llamaCppTestVersionErr', version ? (version.error || '') : '');
+
+        setText('llamaCppTestDevicesCmd', listDevices ? listDevices.command : '');
+        setText('llamaCppTestDevicesExit', listDevices ? listDevices.exitCode : '');
+        setText('llamaCppTestDevicesOut', listDevices ? (listDevices.output || '') : '');
+        setText('llamaCppTestDevicesErr', listDevices ? (listDevices.error || '') : '');
+
+        setText('llamaCppTestRaw', JSON.stringify(res, null, 2));
+    }
+
+    async function testLlamaCpp(path, name, desc) {
+        var modal = ensureLlamaCppTestModal();
+        modal.classList.add('show');
+
+        var displayName = (name && name.trim()) ? name.trim() : path;
+        setLlamaCppTestModalLoading(t('page.llamacpp.test_modal_title', 'Llama.cpp 测试') + ' - ' + displayName);
+
+        try {
+            var payload = { path: path };
+            if (name) payload.name = name;
+            if (desc) payload.description = desc;
+
+            var resp = await fetch('/api/llamacpp/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            var data = await resp.json();
+
+            if (!data || !data.success) {
+                var rawEl = byId('llamaCppTestRaw');
+                if (rawEl) rawEl.textContent = JSON.stringify(data, null, 2);
+                showToast(t('toast.error', '错误'), (data && data.error) ? data.error : t('common.test_failed', '测试失败'), 'error');
+                fillLlamaCppTestModal(data || { success: false, error: 'Test failed' });
+                return;
+            }
+
+            fillLlamaCppTestModal(data);
+        } catch (e) {
+            var rawEl = byId('llamaCppTestRaw');
+            if (rawEl) rawEl.textContent = String(e && e.message ? e.message : e);
+            showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        }
+    }
+
     function init() {
         // Tab switching
         document.querySelectorAll('.settings-tab').forEach(tab => {
@@ -979,6 +1277,14 @@
                 }
             });
         });
+
+        // Server tab - load llama.cpp list on switch
+        const serverTab = document.querySelector('.settings-tab[data-tab="server"]');
+        if (serverTab) {
+            serverTab.addEventListener('click', function() {
+                loadLlamaCppList();
+            });
+        }
 
         // Server tab
         const saveServerBtn = byId('saveServerPortsBtn');
@@ -1038,6 +1344,7 @@
         }
         loadSettings();
         loadNodes();
+        loadLlamaCppList();
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -1050,4 +1357,11 @@
     window.cancelUpdateDownload = cancelUpdateDownload;
     window.onAppUpdateEvent = handleAppUpdateEvent;
     window.SettingsPage = { init, load, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode };
+    window.loadLlamaCppList = loadLlamaCppList;
+    window.addLlamaCpp = addLlamaCpp;
+    window.editLlamaCpp = editLlamaCpp;
+    window.removeLlamaCpp = removeLlamaCpp;
+    window.testLlamaCpp = testLlamaCpp;
+    window.openAddLlamaCppModal = openAddLlamaCppModal;
+    window.toggleLlamaCppSection = toggleLlamaCppSection;
 })();

@@ -263,10 +263,6 @@
                 <i class="fas fa-terminal"></i>
                 <span data-i18n="nav.console">nav.console</span>
             </a>
-            <a href="#" class="nav-item" id="nav-llamacpp" onclick="showLlamaCppSetting(); return false;">
-                <i class="fas fa-microchip"></i>
-                <span data-i18n="nav.llamacpp">nav.llamacpp</span>
-            </a>
             <a href="#" class="nav-item" id="nav-model-path" onclick="showModelPathSetting(); return false;">
                 <i class="fas fa-folder-open"></i>
                 <span data-i18n="nav.model_path">nav.model_path</span>
@@ -469,49 +465,6 @@
     </main>
 
 
-    <main class="main-area" id="main-llamacpp-setting" style="display: none">
-        <!-- Top Bar -->
-        <div class="top-bar">
-            <h1 class="page-title" data-i18n="page.llamacpp.title">page.llamacpp.title</h1>
-            <div class="top-actions">
-                <button class="btn btn-secondary" onclick="loadLlamaCppList()" title="common.refresh" data-i18n="common.refresh" data-i18n-attr="title">
-                    <i class="fas fa-sync-alt"></i>
-                </button>
-            </div>
-        </div>
-
-        <!-- Scrollable Content -->
-        <div class="content-scrollable">
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-microchip"></i>
-                    </div>
-                    <div class="stat-info">
-                        <h3 id="llamacppCount">0</h3>
-                        <p data-i18n="page.llamacpp.stats.configured">page.llamacpp.stats.configured</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Llama.cpp List -->
-            <div class="model-list-container">
-                <div class="model-list-header">
-                    <h2 data-i18n="page.llamacpp.section.list">page.llamacpp.section.list</h2>
-                    <button class="btn btn-primary" onclick="openAddLlamaCppModal()">
-                        <i class="fas fa-plus"></i> <span data-i18n="common.add_path">common.add_path</span>
-                    </button>
-                </div>
-                <div id="llamacppList">
-                    <div class="loading-spinner">
-                        <div class="spinner"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </main>
-
     <main class="main-area" id="main-model-path-setting" style="display: none">
         <!-- Top Bar -->
         <div class="top-bar">
@@ -622,9 +575,44 @@
                                          </div>
                                      </div>
                                  </div>
-                                 <div class="settings-actions-row">
-                                     <button class="btn btn-primary" id="saveServerPortsBtn" data-i18n="common.save">common.save</button>
+                                 <hr style="margin: 1rem 0; border-color: var(--border-color);">
+                                 <div class="form-group" style="margin: 0;">
+                                     <label class="form-label" style="font-size: 1rem; cursor: pointer; user-select: none;" onclick="toggleLlamaCppSection()">
+                                         <i class="fas fa-microchip"></i>
+                                         <span data-i18n="page.settings.server.llamacpp_section">Llama.cpp 路径管理</span>
+                                         <i class="fas fa-chevron-down" id="llamacppSectionChevron" style="margin-left: 0.5rem; font-size: 0.75rem; transition: transform 0.2s;"></i>
+                                     </label>
+                                     <small class="form-text" data-i18n="page.settings.server.llamacpp_section_desc">
+                                         管理 llama-cli/llama-server 可执行文件所在目录，用于启动模型子进程。
+                                     </small>
                                  </div>
+                                 <div id="llamacppSectionContent">
+                                 <div style="margin-top: 0.75rem;">
+                                     <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                         <span style="font-size: 0.85rem; color: var(--text-secondary);">
+                                             <span data-i18n="page.settings.server.llamacpp_stats"></span>
+                                             <strong id="llamacppCountSettings">0</strong>
+                                         </span>
+                                     </div>
+                                     <div id="llamacppListSettings">
+                                         <div class="empty-state" style="padding: 1rem;">
+                                             <div class="empty-state-icon"><i class="fas fa-folder-open"></i></div>
+                                             <div class="empty-state-text" data-i18n="page.llamacpp.empty">尚未配置任何 Llama.cpp 路径</div>
+                                         </div>
+                                     </div>
+                                     <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                         <button class="btn btn-primary btn-sm" onclick="openAddLlamaCppModal()">
+                                             <i class="fas fa-plus"></i> <span data-i18n="common.add_path">添加路径</span>
+                                         </button>
+                                         <button class="btn btn-secondary btn-sm" onclick="loadLlamaCppList()">
+                                             <i class="fas fa-sync-alt"></i> <span data-i18n="common.refresh">刷新</span>
+                                         </button>
+                                     </div>
+                                  </div>
+                                  <div class="settings-actions-row">
+                                      <button class="btn btn-primary" id="saveServerPortsBtn" data-i18n="common.save">common.save</button>
+                                  </div>
+                                  </div>
                             </div>
                         </div>
                     </div>
@@ -1501,7 +1489,6 @@
     <script src="js/i18n.js"></script>
     <script src="js/websocket.js"></script>
     <script src="js/console-modal.js"></script>
-    <script src="js/model-llamacpp-setting.js"></script>
     <script src="js/hf.js"></script>
     <script src="js/download.js"></script>
     
@@ -2726,7 +2713,6 @@
         // 显示模型列表页面
         function showModelList() {
             document.getElementById('main-model-list').style.display = '';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
@@ -2747,30 +2733,27 @@
 
         // 显示 Llama.cpp 设置页面
         function showLlamaCppSetting() {
-            document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = '';
-            document.getElementById('main-model-path-setting').style.display = 'none';
-            document.getElementById('main-settings').style.display = 'none';
-            document.getElementById('main-hf').style.display = 'none';
-            document.getElementById('main-download').style.display = 'none';
-            document.getElementById('main-console').style.display = 'none';
-            document.getElementById('main-device-status').style.display = 'none';
-            document.getElementById('main-benchmark-v3').style.display = 'none';
-            document.getElementById('main-usage-report').style.display = 'none';
-            //stopConsoleAuto();
-            stopDeviceStatusAuto();
-            loadLlamaCppList();
-            // 更新导航项高亮
-            const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
-            navItems.forEach(item => item.classList.remove('active'));
-            const nav = document.getElementById('nav-llamacpp');
-            if (nav) nav.classList.add('active');
+            showSettingsPage();
+            var serverTab = document.querySelector('.settings-tab[data-tab="server"]');
+            if (serverTab) serverTab.click();
+            setTimeout(function() {
+                if (typeof loadLlamaCppList === 'function') loadLlamaCppList();
+            }, 50);
+        }
+
+        function toggleLlamaCppSection() {
+            var content = document.getElementById('llamacppSectionContent');
+            var chevron = document.getElementById('llamacppSectionChevron');
+            if (content) {
+                var collapsed = content.style.display === 'none';
+                content.style.display = collapsed ? '' : 'none';
+                if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+            }
         }
 
         // 显示模型路径配置页面
         function showModelPathSetting() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = '';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
@@ -2791,7 +2774,6 @@
 
         function showConsolePage() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
@@ -2811,7 +2793,6 @@
         // 显示HugginggFace模型页面
         function showHuggingFace() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = '';
@@ -2831,7 +2812,6 @@
         // 显示下载管理器
         function showDownloadManager() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
@@ -2855,7 +2835,6 @@
 
         function showSettingsPage() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
@@ -2923,7 +2902,6 @@
 
         function showDeviceStatus() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
@@ -3035,7 +3013,6 @@
 
         function showBenchmarkV3() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
@@ -3055,7 +3032,6 @@
 
         function showUsageReport() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-llamacpp-setting').style.display = 'none';
             document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';

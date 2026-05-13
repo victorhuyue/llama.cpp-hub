@@ -136,6 +136,20 @@ public class LetsUpdate {
 	public Map<String, Object> doUpdate(File zip) {
 		Map<String, Object> result = new ConcurrentHashMap<>();
 		UpdateStatus current = status.get();
+		// Sync from UpdateDownloader — download may have completed without explicit status transition
+		if (current == UpdateStatus.DOWNLOADING) {
+			UpdateDownloadStatus dl = UpdateDownloader.getInstance().getStatus();
+			if (dl == UpdateDownloadStatus.READY) {
+				if (status.compareAndSet(UpdateStatus.DOWNLOADING, UpdateStatus.READY)) {
+					current = UpdateStatus.READY;
+				}
+			} else if (dl == UpdateDownloadStatus.FAILED) {
+				result.put("success", false);
+				result.put("error", "下载失败，无法应用更新");
+				result.put("status", UpdateStatus.IDLE.getLabel());
+				return result;
+			}
+		}
 		if (current == UpdateStatus.READY) {
 			if (!status.compareAndSet(UpdateStatus.READY, UpdateStatus.APPLYING)) {
 				current = status.get();

@@ -2343,10 +2343,11 @@
         #main-settings .settings-hint {
             padding: 0.85rem 0.95rem;
             border-radius: 0.85rem;
-            background: #fafafa;
             border: 1px solid #e5e7eb;
-            color: var(--text-secondary);
             line-height: 1.5;
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fbbf24;
         }
         #main-settings .dir-browse-input-row {
             display: flex;

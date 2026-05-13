@@ -657,7 +657,11 @@
             if (bodyEl && release && release.body) {
                 var bodyText = release.body;
                 if (bodyText.length > 2000) bodyText = bodyText.substring(0, 2000) + '...';
-                bodyEl.textContent = bodyText;
+                if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                    bodyEl.innerHTML = marked.parse(bodyText);
+                } else {
+                    bodyEl.textContent = bodyText;
+                }
             } else if (bodyEl) {
                 bodyEl.textContent = '-';
             }

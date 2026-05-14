@@ -263,7 +263,7 @@
                 <i class="fas fa-terminal"></i>
                 <span data-i18n="nav.console">nav.console</span>
             </a>
-            <a href="#" class="nav-item" id="nav-model-path" onclick="showModelPathSetting(); return false;">
+            <a href="#" class="nav-item" id="nav-model-path" onclick="showModelPathSetting(); return false;" style="display: none">
                 <i class="fas fa-folder-open"></i>
                 <span data-i18n="nav.model_path">nav.model_path</span>
             </a>
@@ -465,49 +465,6 @@
     </main>
 
 
-    <main class="main-area" id="main-model-path-setting" style="display: none">
-        <!-- Top Bar -->
-        <div class="top-bar">
-            <h1 class="page-title" data-i18n="page.model_path.title">page.model_path.title</h1>
-            <div class="top-actions">
-                <button class="btn btn-secondary" onclick="loadModelPathList()" title="common.refresh" data-i18n="common.refresh" data-i18n-attr="title">
-                    <i class="fas fa-sync-alt"></i>
-                </button>
-            </div>
-        </div>
-
-        <!-- Scrollable Content -->
-        <div class="content-scrollable">
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-folder-open"></i>
-                    </div>
-                    <div class="stat-info">
-                        <h3 id="modelPathCount">0</h3>
-                        <p data-i18n="page.model_path.stats.configured">page.model_path.stats.configured</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Model Path List -->
-            <div class="model-list-container">
-                <div class="model-list-header">
-                    <h2 data-i18n="page.model_path.section.list">page.model_path.section.list</h2>
-                    <button class="btn btn-primary" onclick="openAddModelPathModal()">
-                        <i class="fas fa-plus"></i> <span data-i18n="common.add_path">common.add_path</span>
-                    </button>
-                </div>
-                <div id="modelPathList">
-                    <div class="loading-spinner">
-                        <div class="spinner"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </main>
-
     <main class="main-area" id="main-settings" style="display: none">
         <div class="top-bar">
             <h1 class="page-title" data-i18n="page.settings.title">page.settings.title</h1>
@@ -586,7 +543,7 @@
                                          管理 llama-cli/llama-server 可执行文件所在目录，用于启动模型子进程。
                                      </small>
                                  </div>
-                                 <div id="llamacppSectionContent">
+                                  <div id="llamacppSectionContent" style="display: none;">
                                  <div style="margin-top: 0.75rem;">
                                      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
                                          <span style="font-size: 0.85rem; color: var(--text-secondary);">
@@ -609,13 +566,47 @@
                                          </button>
                                      </div>
                                   </div>
-                                  <div class="settings-actions-row">
-                                      <button class="btn btn-primary" id="saveServerPortsBtn" data-i18n="common.save">common.save</button>
-                                  </div>
-                                  </div>
-                            </div>
-                        </div>
-                    </div>
+                                   <div class="settings-actions-row">
+                                       <button class="btn btn-primary" id="saveServerPortsBtn" data-i18n="common.save">common.save</button>
+                                   </div>
+                                   </div>
+                                   <hr style="margin: 1rem 0; border-color: var(--border-color);">
+                                   <div class="form-group" style="margin: 0;">
+                                       <label class="form-label" style="font-size: 1rem; cursor: pointer; user-select: none;" onclick="toggleModelPathSection()">
+                                           <i class="fas fa-folder-open"></i>
+                                           <span data-i18n="page.settings.server.modelpath_section">模型路径管理</span>
+                                           <i class="fas fa-chevron-down" id="modelPathSectionChevron" style="margin-left: 0.5rem; font-size: 0.75rem; transition: transform 0.2s;"></i>
+                                       </label>
+                                       <small class="form-text" data-i18n="page.settings.server.modelpath_section_desc">
+                                           管理模型文件所在目录，用于自动扫描和发现 GGUF 模型。
+                                       </small>
+                                   </div>
+                                    <div id="modelPathSectionContent" style="display: none;">
+                                   <div style="margin-top: 0.75rem;">
+                                      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                          <span style="font-size: 0.85rem; color: var(--text-secondary);">
+                                              <span data-i18n="page.settings.server.modelpath_stats"></span>
+                                              <strong id="modelPathCountSettings">0</strong>
+                                          </span>
+                                      </div>
+                                       <div id="modelPathListSettings">
+                                           <div class="empty-state" style="padding: 1rem;">
+                                               <div class="empty-state-icon"><i class="fas fa-folder-open"></i></div>
+                                               <div class="empty-state-text" data-i18n="page.model_path.empty">尚未配置任何模型路径</div>
+                                           </div>
+                                       </div>
+                                       <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                           <button class="btn btn-primary btn-sm" onclick="openAddModelPathModal()">
+                                               <i class="fas fa-plus"></i> <span data-i18n="common.add_path">添加路径</span>
+                                           </button>
+                                           <button class="btn btn-secondary btn-sm" onclick="loadModelPathList()">
+                                               <i class="fas fa-sync-alt"></i> <span data-i18n="common.refresh">刷新</span>
+                                           </button>
+                                       </div>
+                                    </div>
+                              </div>
+                          </div>
+                      </div>
 
                     <!-- Tab: Compatibility -->
                     <div class="settings-tab-panel" data-tab-panel="compat">
@@ -2371,88 +2362,6 @@
         }
         
         // Settings Logic (simplified)
-        let editingModelPath = null;
-        function openAddModelPathModal() {
-            editingModelPath = null;
-            const nameEl = document.getElementById('addModelPathNameInput');
-            const pathEl = document.getElementById('addModelPathInput');
-            const descEl = document.getElementById('addModelPathDescInput');
-            if (nameEl) nameEl.value = '';
-            if (pathEl) pathEl.value = '';
-            if (descEl) descEl.value = '';
-            const titleEl = document.querySelector('#addModelPathModal .modal-title');
-            if (titleEl) titleEl.textContent = t('modal.model_path_add.title.add', '添加模型目录');
-            document.getElementById('addModelPathModal').classList.add('show');
-        }
-        function refreshModelPathUi() {
-            if (document.getElementById('modelPathList')) {
-                loadModelPathList();
-            }
-        }
-        function editModelPath(path, name, desc) {
-            editingModelPath = path;
-            document.getElementById('addModelPathInput').value = path || '';
-            document.getElementById('addModelPathNameInput').value = name || '';
-            document.getElementById('addModelPathDescInput').value = desc || '';
-            const titleEl = document.querySelector('#addModelPathModal .modal-title');
-            if (titleEl) titleEl.textContent = t('modal.model_path_add.title.edit', '编辑模型目录');
-            document.getElementById('addModelPathModal').classList.add('show');
-        }
-        async function addModelPath() {
-            const path = document.getElementById('addModelPathInput').value.trim();
-            const name = document.getElementById('addModelPathNameInput').value.trim();
-            const description = document.getElementById('addModelPathDescInput').value.trim();
-            if (path) {
-                const payload = { path };
-                if (name) payload.name = name;
-                if (description) payload.description = description;
-                try {
-                    if (editingModelPath) {
-                        const response = await fetch('/api/model/path/update', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ originalPath: editingModelPath, ...payload })
-                        });
-                        const data = await response.json();
-                        if (data.success) {
-                            showToast(t('toast.success', '成功'), t('toast.model_path.update_success', '更新成功'), 'success');
-                            editingModelPath = null;
-                            document.getElementById('addModelPathInput').value = '';
-                            document.getElementById('addModelPathNameInput').value = '';
-                            document.getElementById('addModelPathDescInput').value = '';
-                            closeModal('addModelPathModal');
-                            refreshModelPathUi();
-                        } else {
-                            showToast(t('toast.error', '错误'), data.error || t('toast.model_path.update_failed', '更新失败'), 'error');
-                        }
-                        return;
-                    }
-
-                    const response = await fetch('/api/model/path/add', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    const data = await response.json();
-                    if (data.success) {
-                        showToast(t('toast.success', '成功'), t('toast.model_path.add_success', '添加成功'), 'success');
-                        editingModelPath = null;
-                        document.getElementById('addModelPathInput').value = '';
-                        document.getElementById('addModelPathNameInput').value = '';
-                        document.getElementById('addModelPathDescInput').value = '';
-                        closeModal('addModelPathModal');
-                        refreshModelPathUi();
-                    } else {
-                        showToast(t('toast.error', '错误'), data.error || t('toast.model_path.add_failed', '添加失败'), 'error');
-                    }
-                } catch (error) {
-                    showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
-                }
-            } else {
-                showToast(t('toast.error', '错误'), t('page.model_path.path_required', '目录路径不能为空'), 'error');
-            }
-        }
-        
         function shutdownService() {
             if (confirm(t('confirm.shutdown', '确定要停止服务吗？'))) {
                 fetch('/api/shutdown', { method: 'POST' }).then(r=>r.json()).then(d => {
@@ -2713,7 +2622,6 @@
         // 显示模型列表页面
         function showModelList() {
             document.getElementById('main-model-list').style.display = '';
-            document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
@@ -2751,30 +2659,19 @@
             }
         }
 
-        // 显示模型路径配置页面
         function showModelPathSetting() {
-            document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-model-path-setting').style.display = '';
-            document.getElementById('main-settings').style.display = 'none';
-            document.getElementById('main-hf').style.display = 'none';
-            document.getElementById('main-download').style.display = 'none';
-            document.getElementById('main-console').style.display = 'none';
-            document.getElementById('main-device-status').style.display = 'none';
-            document.getElementById('main-benchmark-v3').style.display = 'none';
-            document.getElementById('main-usage-report').style.display = 'none';
-            //stopConsoleAuto();
-            stopDeviceStatusAuto();
-            loadModelPathList();
-            // 更新导航项高亮
-            const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
-            navItems.forEach(item => item.classList.remove('active'));
-            const nav = document.getElementById('nav-model-path');
-            if (nav) nav.classList.add('active');
+            showSettingsPage();
+            if (typeof SettingsPage !== 'undefined' && SettingsPage.switchTab) {
+                SettingsPage.switchTab('server');
+            }
+            var content = document.getElementById('modelPathSectionContent');
+            if (content && content.style.display === 'none') {
+                toggleModelPathSection();
+            }
         }
 
         function showConsolePage() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
@@ -2793,7 +2690,6 @@
         // 显示HugginggFace模型页面
         function showHuggingFace() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = '';
             document.getElementById('main-download').style.display = 'none';
@@ -2812,7 +2708,6 @@
         // 显示下载管理器
         function showDownloadManager() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-console').style.display = 'none';
@@ -2835,7 +2730,6 @@
 
         function showSettingsPage() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
             document.getElementById('main-console').style.display = 'none';
@@ -2902,7 +2796,6 @@
 
         function showDeviceStatus() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
@@ -2924,96 +2817,8 @@
             if (nav) nav.classList.add('active');
         }
 
-        // 加载模型路径列表
-        function loadModelPathList() {
-            const container = document.getElementById('modelPathList');
-            container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
-            fetch('/api/model/path/list')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        const items = data.data.items || [];
-                        document.getElementById('modelPathCount').textContent = data.data.count || 0;
-                        renderModelPathListContent(items);
-                    } else {
-                        container.innerHTML = `<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="empty-state-title">${t('common.load_failed', '加载失败')}</div><div class="empty-state-text">${data.error || t('page.model_path.unable_load', '无法加载模型路径列表')}</div></div>`;
-                    }
-                })
-                .catch(error => {
-                    console.error(t('log.model_path.load_error', '加载模型路径列表出错:'), error);
-                    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="empty-state-title">${t('common.network_error', '网络错误')}</div><div class="empty-state-text">${t('common.unable_connect_server', '无法连接到服务器')}</div></div>`;
-                });
-        }
-
-        // 渲染模型路径列表内容
-        function renderModelPathListContent(items) {
-            const container = document.getElementById('modelPathList');
-            if (!items || items.length === 0) {
-                container.innerHTML = `<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-folder-open"></i></div><div class="empty-state-title">${t('page.model_path.empty_title', '暂无路径')}</div><div class="empty-state-text">${t('page.model_path.empty_desc', '尚未配置任何模型路径')}</div></div>`;
-                return;
-            }
-
-            let html = '';
-            items.forEach((item, index) => {
-                const path = item.path || '';
-                const name = item.name || '';
-                const desc = item.description || '';
-                const displayName = name || path;
-                const escapedPath = path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                const escapedName = name ? name.replace(/'/g, "\\'") : '';
-                const escapedDesc = desc ? desc.replace(/'/g, "\\'") : '';
-                html += `
-                    <div class="model-item">
-                        <div class="model-icon-wrapper">
-                            <i class="fas fa-folder-open"></i>
-                        </div>
-                        <div class="model-details">
-                            <div class="model-name" title="${displayName}">${displayName}</div>
-                            <div class="model-meta">
-                                <span><i class="fas fa-folder"></i> ${path}</span>
-                            </div>
-                            ${desc ? `<div class="model-desc" title="${desc}"><i class="fas fa-info-circle"></i> ${desc}</div>` : ''}
-                        </div>
-                        <div class="model-actions">
-                            <button class="btn-icon" onclick="editModelPath('${escapedPath}', '${escapedName}', '${escapedDesc}')" title="${t('common.edit', '编辑')}">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button class="btn-icon danger" onclick="removeModelPath('${escapedPath}')" title="${t('common.delete', '删除')}">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>                        
-                    </div>
-                `;
-            });
-            container.innerHTML = html;
-        }
-
-        // 删除模型路径
-        function removeModelPath(path) {
-            if (confirm(t('confirm.model_path.remove', '确定要删除此路径吗？'))) {
-                fetch('/api/model/path/remove', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: path })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showToast(t('toast.success', '成功'), t('page.model_path.removed', '路径已删除'), 'success');
-                        refreshModelPathUi();
-                    } else {
-                        showToast(t('toast.error', '错误'), data.error || t('common.delete_failed', '删除失败'), 'error');
-                    }
-                })
-                .catch(error => {
-                    showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
-                });
-            }
-        }
-
         function showBenchmarkV3() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
@@ -3032,7 +2837,6 @@
 
         function showUsageReport() {
             document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-model-path-setting').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';

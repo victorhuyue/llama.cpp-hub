@@ -3,6 +3,8 @@
 
     let llamaCppItems = [];
     let editingLlamaCppPath = null;
+    let modelPathItems = [];
+    let editingModelPath = null;
 
     function toast(title, msg, type) {
         if (typeof window.showToast === 'function') window.showToast(title, msg, type);
@@ -982,6 +984,190 @@
         }
     }
 
+    // --- Model path management ---
+    function toggleModelPathSection() {
+        const content = byId('modelPathSectionContent');
+        const chevron = byId('modelPathSectionChevron');
+        if (content) {
+            const collapsed = content.style.display === 'none';
+            content.style.display = collapsed ? '' : 'none';
+            if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+        }
+    }
+
+    function loadModelPathList() {
+        const container = byId('modelPathListSettings');
+        if (!container) return;
+        container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
+
+        fetch('/api/model/path/list')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    modelPathItems = data.data.items || [];
+                    const countEl = byId('modelPathCountSettings');
+                    if (countEl) countEl.textContent = data.data.count || modelPathItems.length;
+                    renderModelPathList();
+                } else {
+                    showToast(t('toast.error', '错误'), data.error || t('common.load_failed', '加载失败'), 'error');
+                    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="empty-state-title">' + t('common.load_failed', '加载失败') + '</div><div class="empty-state-text">' + (data.error || t('common.unknown_error', '未知错误')) + '</div></div>';
+                }
+            })
+            .catch(error => {
+                console.error(t('log.model_path.load_error', '加载模型路径列表出错:'), error);
+                showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="empty-state-title">' + t('common.network_error', '网络错误') + '</div><div class="empty-state-text">' + t('common.unable_connect_server', '无法连接到服务器') + '</div></div>';
+            });
+    }
+
+    function renderModelPathList() {
+        const container = byId('modelPathListSettings');
+        if (!container) return;
+
+        if (!modelPathItems || modelPathItems.length === 0) {
+            container.innerHTML = '<div class="empty-state" style="padding: 1rem;"><div class="empty-state-icon"><i class="fas fa-folder-open"></i></div><div class="empty-state-title">' + t('page.model_path.empty_title', '暂无路径') + '</div><div class="empty-state-text">' + t('page.model_path.empty_desc', '尚未配置任何模型路径') + '</div></div>';
+            return;
+        }
+
+        var html = '';
+        modelPathItems.forEach(function(item) {
+            const path = item.path || '';
+            const name = item.name || '';
+            const desc = item.description || '';
+            const displayName = name || path;
+            const escapedPath = path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const escapedName = name ? name.replace(/'/g, "\\'") : '';
+            const escapedDesc = desc ? desc.replace(/'/g, "\\'") : '';
+
+            html += ''
+                + '<div class="model-item" style="padding: 0.5rem 0.625rem;">'
+                + '<div class="model-icon-wrapper">'
+                + '<i class="fas fa-folder-open"></i>'
+                + '</div>'
+                + '<div class="model-details">'
+                + '<div class="model-name" title="' + displayName.replace(/"/g, '&quot;') + '">' + displayName.replace(/"/g, '&quot;') + '</div>'
+                + '<div class="model-meta">'
+                + '<span><i class="fas fa-folder"></i> ' + path.replace(/"/g, '&quot;') + '</span>'
+                + '</div>'
+                + (desc ? '<div class="model-desc" title="' + desc.replace(/"/g, '&quot;') + '"><i class="fas fa-info-circle"></i> ' + desc.replace(/"/g, '&quot;') + '</div>' : '')
+                + '</div>'
+                + '<div class="model-actions">'
+                + '<button class="btn-icon" onclick="window.editModelPath(\'' + escapedPath + '\', \'' + escapedName + '\', \'' + escapedDesc + '\')" title="' + t('common.edit', '编辑') + '">'
+                + '<i class="fas fa-edit"></i>'
+                + '</button>'
+                + '<button class="btn-icon danger" onclick="window.removeModelPath(\'' + escapedPath + '\')" title="' + t('common.delete', '删除') + '">'
+                + '<i class="fas fa-trash"></i>'
+                + '</button>'
+                + '</div>'
+                + '</div>';
+        });
+        container.innerHTML = html;
+    }
+
+    function openAddModelPathModal() {
+        editingModelPath = null;
+        const nameInput = byId('addModelPathNameInput');
+        const pathInput = byId('addModelPathInput');
+        const descInput = byId('addModelPathDescInput');
+        if (nameInput) nameInput.value = '';
+        if (pathInput) pathInput.value = '';
+        if (descInput) descInput.value = '';
+        const titleEl = document.querySelector('#addModelPathModal .modal-title');
+        if (titleEl) titleEl.innerHTML = '<i class="fas fa-plus"></i> ' + t('modal.model_path_add.title.add', '添加模型目录');
+        const modal = byId('addModelPathModal');
+        if (modal) modal.classList.add('show');
+    }
+
+    function editModelPath(path, name, desc) {
+        editingModelPath = path;
+        const nameInput = byId('addModelPathNameInput');
+        const pathInput = byId('addModelPathInput');
+        const descInput = byId('addModelPathDescInput');
+        if (nameInput) nameInput.value = name || '';
+        if (pathInput) pathInput.value = path || '';
+        if (descInput) descInput.value = desc || '';
+        const titleEl = document.querySelector('#addModelPathModal .modal-title');
+        if (titleEl) titleEl.innerHTML = '<i class="fas fa-edit"></i> ' + t('modal.model_path_add.title.edit', '编辑模型目录');
+        const modal = byId('addModelPathModal');
+        if (modal) modal.classList.add('show');
+    }
+
+    async function addModelPath() {
+        const path = byId('addModelPathInput') ? String(byId('addModelPathInput').value).trim() : '';
+        const name = byId('addModelPathNameInput') ? String(byId('addModelPathNameInput').value).trim() : '';
+        const description = byId('addModelPathDescInput') ? String(byId('addModelPathDescInput').value).trim() : '';
+
+        if (!path) {
+            showToast(t('toast.error', '错误'), t('page.model_path.path_required', '目录路径不能为空'), 'error');
+            return;
+        }
+
+        const payload = { path: path };
+        if (name) payload.name = name;
+        if (description) payload.description = description;
+
+        try {
+            if (editingModelPath) {
+                const resp = await fetch('/api/model/path/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ originalPath: editingModelPath, ...payload })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showToast(t('toast.success', '成功'), t('toast.model_path.update_success', '更新成功'), 'success');
+                    editingModelPath = null;
+                    if (typeof window.closeModal === 'function') window.closeModal('addModelPathModal');
+                    loadModelPathList();
+                } else {
+                    showToast(t('toast.error', '错误'), data.error || t('toast.model_path.update_failed', '更新失败'), 'error');
+                }
+                return;
+            }
+
+            const resp = await fetch('/api/model/path/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast(t('toast.success', '成功'), t('toast.model_path.add_success', '添加成功'), 'success');
+                editingModelPath = null;
+                if (typeof window.closeModal === 'function') window.closeModal('addModelPathModal');
+                loadModelPathList();
+            } else {
+                showToast(t('toast.error', '错误'), data.error || t('toast.model_path.add_failed', '添加失败'), 'error');
+            }
+        } catch (e) {
+            console.error(t('log.model_path.save_error', '保存模型路径出错:'), e);
+            showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        }
+    }
+
+    function removeModelPath(path) {
+        if (!confirm(t('confirm.model_path.remove', '确定要删除此路径吗？'))) return;
+
+        fetch('/api/model/path/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        })
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showToast(t('toast.success', '成功'), t('page.model_path.removed', '路径已删除'), 'success');
+                loadModelPathList();
+            } else {
+                showToast(t('toast.error', '错误'), data.error || t('common.delete_failed', '删除失败'), 'error');
+            }
+        })
+        .catch(function(error) {
+            console.error(t('log.model_path.delete_error', '删除模型路径出错:'), error);
+            showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        });
+    }
+
     function loadLlamaCppList() {
         const container = byId('llamacppListSettings');
         if (!container) return;
@@ -1283,6 +1469,7 @@
         if (serverTab) {
             serverTab.addEventListener('click', function() {
                 loadLlamaCppList();
+                loadModelPathList();
             });
         }
 
@@ -1345,6 +1532,7 @@
         loadSettings();
         loadNodes();
         loadLlamaCppList();
+        loadModelPathList();
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -1356,7 +1544,7 @@
     window.applyUpdate = applyUpdate;
     window.cancelUpdateDownload = cancelUpdateDownload;
     window.onAppUpdateEvent = handleAppUpdateEvent;
-    window.SettingsPage = { init, load, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode };
+    window.SettingsPage = { init, load, switchTab, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode };
     window.loadLlamaCppList = loadLlamaCppList;
     window.addLlamaCpp = addLlamaCpp;
     window.editLlamaCpp = editLlamaCpp;
@@ -1364,4 +1552,10 @@
     window.testLlamaCpp = testLlamaCpp;
     window.openAddLlamaCppModal = openAddLlamaCppModal;
     window.toggleLlamaCppSection = toggleLlamaCppSection;
+    window.loadModelPathList = loadModelPathList;
+    window.addModelPath = addModelPath;
+    window.editModelPath = editModelPath;
+    window.removeModelPath = removeModelPath;
+    window.openAddModelPathModal = openAddModelPathModal;
+    window.toggleModelPathSection = toggleModelPathSection;
 })();

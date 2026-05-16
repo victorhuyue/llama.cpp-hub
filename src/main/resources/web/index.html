@@ -222,6 +222,36 @@
         .https-setup-content blockquote p { margin:0.15rem 0; }
         .https-setup-content a { color:var(--accent-color); }
         .https-setup-content strong { font-weight:600; }
+        /* === Update Tab Sub-tabs === */
+        #main-settings .update-sub-tab-bar { display:flex; gap:4px; background:var(--sidebar-bg); border:1px solid var(--border-color); border-radius:10px; padding:3px; margin-bottom:0.75rem; flex-shrink:0; }
+        #main-settings .update-sub-tab-btn { flex:1; padding:8px 12px; border:none; border-radius:7px; background:transparent; color:#6b7280; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s; font-family:inherit; display:flex; align-items:center; justify-content:center; gap:6px; }
+        #main-settings .update-sub-tab-btn:hover { color:#4f46e5; background:rgba(99,102,241,0.06); }
+        #main-settings .update-sub-tab-btn.active { background:rgba(99,102,241,0.12); color:#4f46e5; font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,0.12); }
+        #main-settings .update-sub-container { position:relative; flex:1; min-height:0; display:flex; flex-direction:column; }
+        #main-settings .update-sub-panel { display:none; flex:1; min-height:0; overflow:hidden; flex-direction:column; }
+        #main-settings .update-sub-panel.active { display:flex; }
+        #main-settings .llamacpp-asset-list { flex:1; overflow-y:auto; min-height:0; }
+        /* === llama.cpp Download === */
+        #main-settings .llamacpp-header-row { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.5rem; }
+        #main-settings .llamacpp-version-info { display:flex; align-items:baseline; gap:0.5rem; flex-wrap:wrap; }
+        #main-settings .llamacpp-version-label { font-size:0.85rem; color:var(--text-secondary); }
+        #main-settings .llamacpp-version-tag { font-size:1rem; font-weight:700; color:var(--primary-color); }
+        #main-settings .llamacpp-published-at { font-size:0.8rem; color:var(--text-secondary); }
+        #main-settings .llamacpp-header-actions { display:flex; gap:0.5rem; }
+        #main-settings .llamacpp-proxy-row { display:flex; align-items:center; gap:0.75rem; }
+        #main-settings .llamacpp-proxy-label { font-size:0.85rem; color:var(--text-secondary); display:flex; align-items:center; gap:4px; }
+        #main-settings .update-proxy-select { padding:4px 8px; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg); color:var(--text-primary); font-size:12px; font-family:inherit; }
+        #main-settings .llamacpp-asset-list { display:flex; flex-direction:column; gap:6px; }
+        #main-settings .llamacpp-asset-row { background:var(--card-bg); border:1px solid var(--border-color); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:6px; box-shadow:0 2px 8px rgba(0,0,0,0.04); }
+        #main-settings .llamacpp-asset-info { display:flex; align-items:baseline; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; }
+        #main-settings .llamacpp-asset-name { font-size:0.85rem; font-weight:600; color:var(--text-primary); word-break:break-all; }
+        #main-settings .llamacpp-asset-meta { display:flex; gap:0.75rem; font-size:0.8rem; color:var(--text-secondary); flex-shrink:0; }
+        #main-settings .llamacpp-asset-progress { display:flex; align-items:center; gap:8px; }
+        #main-settings .llamacpp-asset-progress .update-progress-bar-outer { flex:1; height:6px; background:var(--sidebar-bg); border-radius:3px; overflow:hidden; }
+        #main-settings .llamacpp-asset-progress .update-progress-bar-inner { height:100%; background:var(--primary-color); border-radius:3px; transition:width 0.3s; }
+        #main-settings .llamacpp-progress-text { font-size:0.8rem; color:var(--text-secondary); min-width:36px; text-align:right; }
+        #main-settings .llamacpp-asset-actions { display:flex; justify-content:flex-end; }
+        #main-settings .llamacpp-installed-badge { display:inline-flex; align-items:center; gap:4px; font-size:0.8rem; font-weight:600; color:#10b981; padding:4px 10px; border-radius:6px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); }
     </style>
 </head>
 <body>
@@ -844,92 +874,152 @@
                     <div class="settings-tab-panel" data-tab-panel="update">
                         <div class="settings-panel">
                             <div class="settings-panel-body">
-                                <div class="update-header-row">
-                                    <div class="update-current-info">
-                                        <span class="update-current-label" data-i18n="page.settings.update.current_version">当前版本</span>
-                                        <span id="updateCurrentVersion" class="update-current-version">-</span>
-                                    </div>
-                                    <button class="btn btn-primary" id="checkUpdateBtn">
-                                        <i class="fas fa-sync-alt"></i> <span data-i18n="page.settings.update.check_btn">检查更新</span>
+                                <div class="update-sub-tab-bar">
+                                    <button class="update-sub-tab-btn active" data-sub-tab="app-update">
+                                        <i class="fas fa-sync-alt"></i> <span data-i18n="page.settings.update.sub.app_update">版本更新</span>
+                                    </button>
+                                    <button class="update-sub-tab-btn" data-sub-tab="llamacpp-download">
+                                        <i class="fas fa-microchip"></i> <span data-i18n="page.settings.update.sub.llamacpp">llama.cpp 下载</span>
                                     </button>
                                 </div>
 
-                                <div id="updateLoadingArea" style="display:none;">
-                                    <div class="update-loading">
-                                        <div class="spinner"></div>
-                                        <span data-i18n="page.settings.update.status.checking">检查中...</span>
-                                    </div>
-                                </div>
-
-                                <div id="updateErrorArea" class="update-error" style="display:none;"></div>
-
-                                <div id="updateProgressArea" style="display:none;">
-                                    <div class="update-progress-card">
-                                        <div class="update-progress-header">
-                                            <span id="updateProgressText" class="update-progress-text">准备下载...</span>
-                                            <span id="updateProgressPercent" class="update-progress-percent">0%</span>
-                                        </div>
-                                        <div class="update-progress-bar-outer">
-                                            <div id="updateProgressBar" class="update-progress-bar-inner" style="width:0%;"></div>
-                                        </div>
-                                        <div class="update-progress-detail">
-                                            <span id="updateProgressSpeed" class="update-progress-speed"></span>
-                                            <span id="updateProgressSize" class="update-progress-size"></span>
-                                        </div>
-                                        <div class="update-progress-actions">
-                                            <button class="btn btn-secondary btn-sm" id="updateCancelBtn" onclick="cancelUpdateDownload()">
-                                                <i class="fas fa-times"></i> 取消
+                                <div class="update-sub-container">
+                                    <div class="update-sub-panel active" data-sub-panel="app-update">
+                                        <div class="update-header-row">
+                                            <div class="update-current-info">
+                                                <span class="update-current-label" data-i18n="page.settings.update.current_version">当前版本</span>
+                                                <span id="updateCurrentVersion" class="update-current-version">-</span>
+                                            </div>
+                                            <button class="btn btn-primary" id="checkUpdateBtn">
+                                                <i class="fas fa-sync-alt"></i> <span data-i18n="page.settings.update.check_btn">检查更新</span>
                                             </button>
                                         </div>
-                                    </div>
-                                </div>
 
-                                <div id="updateResultArea" style="display:none;">
-                                    <div class="update-result-card">
-                                        <div class="update-result-header">
-                                            <div class="update-result-title-group">
-                                                <span class="update-result-icon"><i class="fas fa-tag"></i></span>
-                                                <div>
-                                                    <span class="update-result-label" data-i18n="page.settings.update.latest_version">最新版本</span>
-                                                    <span id="updateLatestVersion" class="update-result-value">-</span>
+                                        <div id="updateLoadingArea" style="display:none;">
+                                            <div class="update-loading">
+                                                <div class="spinner"></div>
+                                                <span data-i18n="page.settings.update.status.checking">检查中...</span>
+                                            </div>
+                                        </div>
+
+                                        <div id="updateErrorArea" class="update-error" style="display:none;"></div>
+
+                                        <div id="updateProgressArea" style="display:none;">
+                                            <div class="update-progress-card">
+                                                <div class="update-progress-header">
+                                                    <span id="updateProgressText" class="update-progress-text">准备下载...</span>
+                                                    <span id="updateProgressPercent" class="update-progress-percent">0%</span>
+                                                </div>
+                                                <div class="update-progress-bar-outer">
+                                                    <div id="updateProgressBar" class="update-progress-bar-inner" style="width:0%;"></div>
+                                                </div>
+                                                <div class="update-progress-detail">
+                                                    <span id="updateProgressSpeed" class="update-progress-speed"></span>
+                                                    <span id="updateProgressSize" class="update-progress-size"></span>
+                                                </div>
+                                                <div class="update-progress-actions">
+                                                    <button class="btn btn-secondary btn-sm" id="updateCancelBtn" onclick="cancelUpdateDownload()">
+                                                        <i class="fas fa-times"></i> 取消
+                                                    </button>
                                                 </div>
                                             </div>
-                                            <div id="updateStatusBadge" class="update-status-badge"></div>
                                         </div>
-                                        <div class="update-result-meta">
-                                            <div class="update-meta-item">
-                                                <i class="far fa-calendar-alt"></i>
-                                                <span class="update-meta-label" data-i18n="page.settings.update.published_at">发布时间</span>
-                                                <span id="updatePublishedAt">-</span>
+
+                                        <div id="updateResultArea" style="display:none;">
+                                            <div class="update-result-card">
+                                                <div class="update-result-header">
+                                                    <div class="update-result-title-group">
+                                                        <span class="update-result-icon"><i class="fas fa-tag"></i></span>
+                                                        <div>
+                                                            <span class="update-result-label" data-i18n="page.settings.update.latest_version">最新版本</span>
+                                                            <span id="updateLatestVersion" class="update-result-value">-</span>
+                                                        </div>
+                                                    </div>
+                                                    <div id="updateStatusBadge" class="update-status-badge"></div>
+                                                </div>
+                                                <div class="update-result-meta">
+                                                    <div class="update-meta-item">
+                                                        <i class="far fa-calendar-alt"></i>
+                                                        <span class="update-meta-label" data-i18n="page.settings.update.published_at">发布时间</span>
+                                                        <span id="updatePublishedAt">-</span>
+                                                    </div>
+                                                </div>
+                                                <div class="update-result-actions">
+                                                    <div class="update-proxy-row" id="updateProxyRow" style="display:none;">
+                                                        <span class="update-proxy-label"><i class="fas fa-bolt"></i> <span data-i18n="page.settings.update.proxy.label">加速地址</span></span>
+                                                        <select id="updateProxySelect" class="update-proxy-select">
+                                                            <option value="" data-i18n="page.settings.update.proxy.off">关闭</option>
+                                                            <option value="https://gh.llkk.cc/">gh.llkk.cc</option>
+                                                        </select>
+                                                    </div>
+                                                    <button class="btn btn-primary" id="updateDownloadBtn" style="display:none;" onclick="downloadUpdate()">
+                                                        <i class="fas fa-download"></i> <span data-i18n="page.settings.update.action.download">下载安装包</span>
+                                                    </button>
+                                                    <button class="btn btn-success" id="updateApplyBtn" style="display:none;" onclick="applyUpdate()">
+                                                        <i class="fas fa-check"></i> <span data-i18n="page.settings.update.action.apply">应用更新</span>
+                                                    </button>
+                                                    <a id="updateReleaseUrl" href="#" target="_blank" rel="noopener" class="update-release-link" style="display:none;">
+                                                        <i class="fas fa-external-link-alt"></i>
+                                                        <span data-i18n="page.settings.update.view_release">查看 Release 页面</span>
+                                                    </a>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div class="update-result-actions">
-                                            <div class="update-proxy-row" id="updateProxyRow" style="display:none;">
-                                                <span class="update-proxy-label"><i class="fas fa-bolt"></i> <span data-i18n="page.settings.update.proxy.label">加速地址</span></span>
-                                                <select id="updateProxySelect" class="update-proxy-select">
-                                                    <option value="" data-i18n="page.settings.update.proxy.off">关闭</option>
-                                                    <option value="https://gh.llkk.cc/">gh.llkk.cc</option>
-                                                </select>
+
+                                            <div class="update-release-notes">
+                                                <div class="update-release-notes-header">
+                                                    <i class="fas fa-clipboard-list"></i>
+                                                    <span data-i18n="page.settings.update.release_notes">更新日志</span>
+                                                </div>
+                                                <div id="updateReleaseBody" class="update-release-body"></div>
                                             </div>
-                                            <button class="btn btn-primary" id="updateDownloadBtn" style="display:none;" onclick="downloadUpdate()">
-                                                <i class="fas fa-download"></i> <span data-i18n="page.settings.update.action.download">下载安装包</span>
-                                            </button>
-                                            <button class="btn btn-success" id="updateApplyBtn" style="display:none;" onclick="applyUpdate()">
-                                                <i class="fas fa-check"></i> <span data-i18n="page.settings.update.action.apply">应用更新</span>
-                                            </button>
-                                            <a id="updateReleaseUrl" href="#" target="_blank" rel="noopener" class="update-release-link" style="display:none;">
-                                                <i class="fas fa-external-link-alt"></i>
-                                                <span data-i18n="page.settings.update.view_release">查看 Release 页面</span>
-                                            </a>
                                         </div>
                                     </div>
 
-                                    <div class="update-release-notes">
-                                        <div class="update-release-notes-header">
-                                            <i class="fas fa-clipboard-list"></i>
-                                            <span data-i18n="page.settings.update.release_notes">更新日志</span>
+                                    <div class="update-sub-panel" data-sub-panel="llamacpp-download">
+                                        <div class="llamacpp-header-row">
+                                            <div class="llamacpp-version-info">
+                                                <span class="llamacpp-version-label" data-i18n="page.settings.llamacpp.latest_version">最新版本</span>
+                                                <span id="llamacppVersionTag" class="llamacpp-version-tag">-</span>
+                                                <span id="llamacppPublishedAt" class="llamacpp-published-at"></span>
+                                            </div>
+                                            <div class="llamacpp-header-actions">
+                                                <a id="llamacppReleaseUrl" href="#" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="display:none;">
+                                                    <i class="fas fa-external-link-alt"></i>
+                                                    <span data-i18n="page.settings.llamacpp.view_release">查看 Release</span>
+                                                </a>
+                                                <button class="btn btn-primary btn-sm" id="llamacppRefreshBtn" onclick="SettingsPage.loadLlamaCppReleases()">
+                                                    <i class="fas fa-sync-alt"></i>
+                                                    <span data-i18n="page.settings.llamacpp.refresh">检查更新</span>
+                                                </button>
+                                            </div>
                                         </div>
-                                        <div id="updateReleaseBody" class="update-release-body"></div>
+
+                                        <div id="llamacppLoadingArea" style="display:none;">
+                                            <div class="update-loading">
+                                                <div class="spinner"></div>
+                                                <span data-i18n="page.settings.llamacpp.loading">加载中...</span>
+                                            </div>
+                                        </div>
+
+                                        <div id="llamacppErrorArea" class="update-error" style="display:none;"></div>
+
+                                        <div class="llamacpp-proxy-row" style="margin-top:0.75rem;">
+                                            <span class="llamacpp-proxy-label">
+                                                <i class="fas fa-bolt"></i>
+                                                <span data-i18n="page.settings.llamacpp.proxy.label">加速地址</span>
+                                            </span>
+                                            <select id="llamacppProxySelect" class="update-proxy-select">
+                                                <option value="" data-i18n="page.settings.llamacpp.proxy.off">关闭</option>
+                                                <option value="https://gh.llkk.cc/">gh.llkk.cc</option>
+                                            </select>
+                                        </div>
+
+                                        <div id="llamacppAssetList" class="llamacpp-asset-list" style="margin-top:0.75rem;"></div>
+
+                                        <div id="llamacppEmptyState" class="empty-state" style="display:none;">
+                                            <div class="empty-state-icon"><i class="fas fa-microchip"></i></div>
+                                            <div class="empty-state-text" data-i18n="page.settings.llamacpp.no_releases">暂无版本信息</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

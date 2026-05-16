@@ -118,6 +118,19 @@ public class DownloadTaskManager implements Closeable {
 					snapshot = task.copy();
 				}
 				notifyStateChanged(snapshot, DownloadTaskStatus.RUNNING, DownloadTaskStatus.COMPLETED);
+				try {
+					handlePostDownloadExtraction(snapshot);
+				} catch (Exception ex) {
+					// Non-fatal: extraction failure shouldn't mark the download as failed
+				}
+				// Clean up llama.cpp download tasks after extraction
+				try {
+					if (targetPath.toString().contains("llamacpp")) {
+						this.taskStore.remove(task.getTaskId());
+						persistToCache();
+					}
+				} catch (Exception ignored) {
+				}
 			} catch (IOException e) {
 				DownloadTaskInfo snapshot;
 				DownloadTaskStatus newStatus;
@@ -329,6 +342,214 @@ public class DownloadTaskManager implements Closeable {
 				listener.onTaskResumed(task);
 			} catch (Exception ignored) {
 			}
+		}
+	}
+
+	private void handlePostDownloadExtraction(DownloadTaskInfo task) {
+		Path target = Path.of(task.getTargetPath());
+		String fileName = target.getFileName() == null ? "" : target.getFileName().toString().toLowerCase();
+		if (!fileName.endsWith(".zip") && !fileName.endsWith(".tar.gz") && !fileName.endsWith(".tgz")) {
+			return;
+		}
+		Path parent = target.getParent();
+		if (parent == null) return;
+		// Check if the target is under the llamacpp/ directory
+		String parentPathStr = parent.toString();
+		if (!parentPathStr.contains("llamacpp")) return;
+		try {
+			if (fileName.endsWith(".zip")) {
+				extractZip(target, parent);
+			} else {
+				extractTarGz(target, parent);
+			}
+			// Delete the archive first so flatten sees only the extracted directory
+			Files.deleteIfExists(target);
+			// Flatten the single top-level directory created by the archive
+			flattenSingleTopDir(parent);
+			// Fallback: if llama-server is still not found, try flattening once more
+			if (!hasLlamaServer(parent)) {
+				flattenSingleTopDir(parent);
+			}
+		} catch (Exception ignored) {
+		}
+	}
+
+	/**
+	 * Flatten a single top-level directory. After extracting a release ZIP into
+	 * llamacpp/{backendDir}/, the archive usually contains one top-level directory
+	 * with the same name. Move its contents up so llama-server.exe ends up directly
+	 * in the backend directory, allowing {@code scanLlamaCpp()} to discover it.
+	 */
+	private void flattenSingleTopDir(Path destDir) throws IOException {
+		List<Path> entries = Files.list(destDir).collect(java.util.stream.Collectors.toList());
+		if (entries.size() != 1) return;
+		Path single = entries.get(0);
+		if (!Files.isDirectory(single)) return;
+		Files.list(single).forEach(child -> {
+			try {
+				Path tgt = destDir.resolve(child.getFileName());
+				Files.move(child, tgt, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+			} catch (IOException ignored) {
+			}
+		});
+		Files.deleteIfExists(single);
+	}
+
+	private boolean hasLlamaServer(Path dir) throws IOException {
+		for (Path p : Files.list(dir).collect(java.util.stream.Collectors.toList())) {
+			String name = p.getFileName().toString().toLowerCase();
+			if (name.equals("llama-server")) return true;
+		}
+		return false;
+	}
+
+	private void extractZip(Path zipFile, Path destDir) throws IOException {
+		try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(zipFile.toFile())) {
+			java.util.Enumeration<? extends java.util.zip.ZipEntry> entries = zip.entries();
+			while (entries.hasMoreElements()) {
+				java.util.zip.ZipEntry entry = entries.nextElement();
+				Path entryPath = destDir.resolve(entry.getName()).normalize();
+				if (!entryPath.startsWith(destDir)) continue;
+				if (entry.isDirectory()) {
+					Files.createDirectories(entryPath);
+				} else {
+					Files.createDirectories(entryPath.getParent());
+					try (java.io.InputStream in = zip.getInputStream(entry)) {
+						Files.copy(in, entryPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+					}
+				}
+			}
+		}
+	}
+
+	private void extractTarGz(Path tarGzFile, Path destDir) throws IOException {
+		try (java.io.InputStream fis = Files.newInputStream(tarGzFile);
+				java.util.zip.GZIPInputStream gis = new java.util.zip.GZIPInputStream(fis)) {
+			extractTar(gis, destDir);
+		}
+	}
+
+	private void extractTar(java.io.InputStream tarStream, Path destDir) throws IOException {
+		byte[] header = new byte[512];
+		String longName = null;
+		while (true) {
+			int read = readFully(tarStream, header);
+			if (read == 0) break;
+			if (isAllZeros(header)) break;
+			String name = readTarHeaderName(header);
+			long size = readTarHeaderSize(header);
+			byte type = header[156];
+			if (type == 'L') {
+				// GNU LongName extension — read the name from the entry content
+				if (size > 0) {
+					byte[] nameBuf = new byte[(int) size];
+					readFully(tarStream, nameBuf);
+					longName = new String(nameBuf, java.nio.charset.StandardCharsets.UTF_8).trim();
+					long padding = (512 - (size % 512)) % 512;
+					if (padding > 0) consumeN(tarStream, padding);
+				}
+				continue;
+			}
+			if (type == 'x') {
+				// pax extended header — skip
+				consumeN(tarStream, size);
+				long padding = (512 - (size % 512)) % 512;
+				if (padding > 0) consumeN(tarStream, padding);
+				continue;
+			}
+			String entryName = (name != null && !name.isEmpty()) ? name : longName;
+			if (entryName == null || entryName.isEmpty()) {
+				consumeN(tarStream, size);
+				long padding = (512 - (size % 512)) % 512;
+				if (padding > 0) consumeN(tarStream, padding);
+				continue;
+			}
+			Path entryPath = destDir.resolve(entryName).normalize();
+			if (!entryPath.startsWith(destDir)) {
+				consumeN(tarStream, size);
+				long padding = (512 - (size % 512)) % 512;
+				if (padding > 0) consumeN(tarStream, padding);
+				continue;
+			}
+			if (type == '5') {
+				Files.createDirectories(entryPath);
+			} else if (size > 0) {
+				Files.createDirectories(entryPath.getParent());
+				try (java.io.OutputStream out = Files.newOutputStream(entryPath)) {
+					copyN(tarStream, out, size);
+				}
+				// Skip padding to align to 512-byte block boundary
+				long padding = (512 - (size % 512)) % 512;
+				if (padding > 0) consumeN(tarStream, padding);
+			}
+			// Reset longName after use
+			longName = null;
+		}
+	}
+
+	private int readFully(java.io.InputStream in, byte[] buf) throws IOException {
+		int pos = 0;
+		while (pos < buf.length) {
+			int n = in.read(buf, pos, buf.length - pos);
+			if (n == -1) break;
+			pos += n;
+		}
+		return pos;
+	}
+
+	private boolean isAllZeros(byte[] buf) {
+		for (byte b : buf) {
+			if (b != 0) return false;
+		}
+		return true;
+	}
+
+	private String readTarHeaderName(byte[] header) {
+		try {
+			int end = 100;
+			while (end > 0 && header[end - 1] == 0) end--;
+			return new String(header, 0, end, java.nio.charset.StandardCharsets.US_ASCII).trim();
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private long readTarHeaderSize(byte[] header) {
+		try {
+			String sizeStr = new String(header, 124, 12, java.nio.charset.StandardCharsets.US_ASCII).trim();
+			if (sizeStr.isEmpty()) return 0;
+			if (sizeStr.getBytes(java.nio.charset.StandardCharsets.US_ASCII)[0] == 0xFF || sizeStr.getBytes(java.nio.charset.StandardCharsets.US_ASCII)[0] == 0x80) {
+				long val = 0;
+				boolean negative = (header[124] & 0x80) != 0;
+				for (int i = 125; i < 136; i++) {
+					val = (val << 8) | (header[i] & 0xFF);
+				}
+				return negative ? -val : val;
+			}
+			return Long.parseLong(sizeStr, 8);
+		} catch (Exception e) {
+			return 0;
+		}
+	}
+
+	private void consumeN(java.io.InputStream in, long n) throws IOException {
+		byte[] buf = new byte[8192];
+		while (n > 0) {
+			int toRead = (int) Math.min(buf.length, n);
+			int r = in.read(buf, 0, toRead);
+			if (r == -1) break;
+			n -= r;
+		}
+	}
+
+	private void copyN(java.io.InputStream in, java.io.OutputStream out, long n) throws IOException {
+		byte[] buf = new byte[8192];
+		while (n > 0) {
+			int toRead = (int) Math.min(buf.length, n);
+			int r = in.read(buf, 0, toRead);
+			if (r == -1) break;
+			out.write(buf, 0, r);
+			n -= r;
 		}
 	}
 

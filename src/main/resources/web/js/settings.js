@@ -24,6 +24,254 @@
         });
     }
 
+    function switchUpdateSubTab(subName) {
+        document.querySelectorAll('.update-sub-tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-sub-tab') === subName);
+        });
+        document.querySelectorAll('.update-sub-panel').forEach(panel => {
+            panel.classList.toggle('active', panel.getAttribute('data-sub-panel') === subName);
+        });
+        if (subName === 'llamacpp-download' && !_llamacppLoaded) {
+            loadLlamaCppReleases();
+        }
+    }
+
+    let _llamacppLoaded = false;
+    let _llamacppReleaseData = null;
+    let _llamacppDownloading = {};
+    let _llamacppLocalBackends = [];
+
+    function escapeHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    /**
+     * Get the directory name created after extracting a release archive.
+     * The ZIP is extracted into llamacpp/, keeping its top-level directory name.
+     */
+    function parseLlamaCppBackendName(fileName) {
+        if (!fileName) return '';
+        var base = fileName;
+        var dotIdx = base.lastIndexOf('.');
+        if (dotIdx > 0) base = base.substring(0, dotIdx);
+        if (base.endsWith('.tar')) {
+            dotIdx = base.lastIndexOf('.');
+            if (dotIdx > 0) base = base.substring(0, dotIdx);
+        }
+        return base;
+    }
+
+    async function loadLlamaCppReleases() {
+        var loadingEl = byId('llamacppLoadingArea');
+        var errorEl = byId('llamacppErrorArea');
+        var listEl = byId('llamacppAssetList');
+        var emptyEl = byId('llamacppEmptyState');
+        var refreshBtn = byId('llamacppRefreshBtn');
+
+        if (loadingEl) loadingEl.style.display = '';
+        if (errorEl) errorEl.style.display = 'none';
+        if (listEl) listEl.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (refreshBtn) refreshBtn.disabled = true;
+
+        try {
+            var proxy = byId('llamacppProxySelect');
+            var proxyVal = proxy ? proxy.value : '';
+            var url = '/api/llamacpp/release/latest';
+            if (proxyVal) url += '?proxy=' + encodeURIComponent(proxyVal);
+
+            var resp = await fetch(url, { method: 'GET' });
+            var result = await resp.json();
+
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (refreshBtn) refreshBtn.disabled = false;
+
+            if (!result || !result.success || !result.data) {
+                if (errorEl) {
+                    errorEl.style.display = '';
+                    errorEl.textContent = (result && result.error) ? result.error : t('page.settings.llamacpp.load_failed', '加载失败');
+                }
+                if (emptyEl) emptyEl.style.display = '';
+                return;
+            }
+
+            _llamacppLoaded = true;
+            _llamacppReleaseData = result.data;
+            _llamacppLocalBackends = Array.isArray(result.data.localBackends) ? result.data.localBackends : [];
+            renderLlamaCppRelease(result.data);
+
+        } catch (e) {
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (refreshBtn) refreshBtn.disabled = false;
+            if (errorEl) {
+                errorEl.style.display = '';
+                errorEl.textContent = t('common.network_request_failed', '网络请求失败');
+            }
+            if (emptyEl) emptyEl.style.display = '';
+        }
+    }
+
+    function renderLlamaCppRelease(data) {
+        var tagEl = byId('llamacppVersionTag');
+        if (tagEl) tagEl.textContent = data.tag_name || '-';
+
+        var pubEl = byId('llamacppPublishedAt');
+        if (pubEl) {
+            if (data.published_at) {
+                try {
+                    var d = new Date(data.published_at);
+                    pubEl.textContent = d.toLocaleString();
+                } catch (e) {
+                    pubEl.textContent = data.published_at;
+                }
+            } else {
+                pubEl.textContent = '';
+            }
+        }
+
+        var urlEl = byId('llamacppReleaseUrl');
+        if (urlEl && data.html_url) {
+            urlEl.href = data.html_url;
+            urlEl.style.display = '';
+        } else if (urlEl) {
+            urlEl.style.display = 'none';
+        }
+
+        var listEl = byId('llamacppAssetList');
+        var emptyEl = byId('llamacppEmptyState');
+        if (!listEl) return;
+
+        var assets = data.assets || [];
+        if (!assets.length) {
+            listEl.innerHTML = '';
+            if (emptyEl) emptyEl.style.display = '';
+            return;
+        }
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        var html = '';
+        for (var i = 0; i < assets.length; i++) {
+            var a = assets[i];
+            var sizeText = formatBytes(a.size);
+            var dlCount = a.download_count || 0;
+            var isDownloading = _llamacppDownloading[a.name];
+            var backendName = parseLlamaCppBackendName(a.name);
+            var isInstalled = _llamacppLocalBackends.indexOf(backendName) >= 0;
+
+            html += '<div class="llamacpp-asset-row" data-asset-name="' + escapeHtml(a.name) + '">';
+            html += '  <div class="llamacpp-asset-info">';
+            html += '    <span class="llamacpp-asset-name">' + escapeHtml(a.name) + '</span>';
+            html += '    <span class="llamacpp-asset-meta">';
+            html += '      <span class="llamacpp-asset-size">' + sizeText + '</span>';
+            html += '      <span class="llamacpp-asset-downloads">↓ ' + dlCount + '</span>';
+            html += '    </span>';
+            html += '  </div>';
+
+            if (isDownloading) {
+                html += '  <div class="llamacpp-asset-progress" style="display:flex;">';
+                html += '    <div class="update-progress-bar-outer"><div class="update-progress-bar-inner" style="width:0%;"></div></div>';
+                html += '    <span class="llamacpp-progress-text">0%</span>';
+                html += '  </div>';
+            } else {
+                html += '  <div class="llamacpp-asset-progress" style="display:none;">';
+                html += '    <div class="update-progress-bar-outer"><div class="update-progress-bar-inner" style="width:0%;"></div></div>';
+                html += '    <span class="llamacpp-progress-text">0%</span>';
+                html += '  </div>';
+            }
+
+            html += '  <div class="llamacpp-asset-actions">';
+            if (isDownloading) {
+                html += '    <button class="btn btn-secondary btn-sm" disabled><i class="fas fa-spinner fa-spin"></i> ' + t('page.settings.llamacpp.downloading', '下载中...') + '</button>';
+            } else if (isInstalled) {
+                html += '    <span class="llamacpp-installed-badge"><i class="fas fa-check-circle"></i> ' + t('page.settings.llamacpp.installed', '已安装') + '</span>';
+            } else {
+                html += '    <button class="btn btn-primary btn-sm" onclick="SettingsPage.downloadLlamaCppAsset(\'' + escapeHtml(a.name) + '\', \'' + escapeHtml(a.browser_download_url) + '\')"><i class="fas fa-download"></i> ' + t('page.settings.llamacpp.download_btn', '下载') + '</button>';
+            }
+            html += '  </div>';
+            html += '</div>';
+        }
+        listEl.innerHTML = html;
+    }
+
+    async function downloadLlamaCppAsset(assetName, downloadUrl) {
+        var proxy = byId('llamacppProxySelect');
+        var proxyVal = proxy ? proxy.value : '';
+        if (proxyVal) {
+            downloadUrl = proxyVal + downloadUrl;
+        }
+
+        _llamacppDownloading[assetName] = true;
+
+        try {
+            var resp = await fetch('/api/downloads/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: downloadUrl,
+                    path: 'llamacpp',
+                    fileName: assetName
+                })
+            });
+            var result = await resp.json();
+
+            if (result && result.success && result.taskId) {
+                _llamacppDownloading[assetName] = result.taskId;
+                if (_llamacppReleaseData) renderLlamaCppRelease(_llamacppReleaseData);
+            } else {
+                delete _llamacppDownloading[assetName];
+                toast(t('toast.error', '错误'), (result && result.error) || t('page.settings.llamacpp.download_failed', '下载创建失败'), 'error');
+            }
+        } catch (e) {
+            delete _llamacppDownloading[assetName];
+            toast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        }
+    }
+
+    function onLlamaCppDownloadProgress(eventData) {
+        if (!eventData || !eventData.taskId) return;
+        var taskId = eventData.taskId;
+        for (var name in _llamacppDownloading) {
+            if (_llamacppDownloading[name] === taskId) {
+                updateAssetProgress(name, eventData);
+                break;
+            }
+        }
+    }
+
+    function updateAssetProgress(assetName, eventData) {
+        var row = document.querySelector('.llamacpp-asset-row[data-asset-name="' + assetName + '"]');
+        if (!row) return;
+
+        var progressEl = row.querySelector('.llamacpp-asset-progress');
+        var barInner = row.querySelector('.update-progress-bar-inner');
+        var textEl = row.querySelector('.llamacpp-progress-text');
+
+        if (progressEl) progressEl.style.display = 'flex';
+
+        if (eventData.progress !== undefined && barInner) {
+            var pct = Math.round(eventData.progress * 100);
+            barInner.style.width = pct + '%';
+            if (textEl) textEl.textContent = pct + '%';
+        } else if (eventData.progressRatio !== undefined && barInner) {
+            var pct2 = Math.round(eventData.progressRatio * 100);
+            barInner.style.width = pct2 + '%';
+            if (textEl) textEl.textContent = pct2 + '%';
+        }
+
+        if (eventData.state === 'COMPLETED' || eventData.state === 'FAILED') {
+            delete _llamacppDownloading[assetName];
+            if (eventData.state === 'COMPLETED') {
+                // Reload after a delay to let the backend finish extraction and flatten
+                setTimeout(function () {
+                    loadLlamaCppReleases();
+                }, 1500);
+            } else {
+                if (_llamacppReleaseData) renderLlamaCppRelease(_llamacppReleaseData);
+            }
+        }
+    }
+
     function formatBytes(bytes) {
         if (bytes <= 0) return '0 B';
         var units = ['B', 'KB', 'MB', 'GB'];
@@ -1207,11 +1455,12 @@
             const path = item.path || '';
             const name = item.name || '';
             const desc = item.description || '';
+            const source = item.source || 'configured';
             const displayName = name || path;
             const escapedPath = path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             const escapedName = name ? name.replace(/'/g, "\\'") : '';
             const escapedDesc = desc ? desc.replace(/'/g, "\\'") : '';
-
+            const isScanned = source === 'scanned';
             html += ''
                 + '<div class="model-item" style="padding: 0.5rem 0.625rem;">'
                 + '<div class="model-icon-wrapper">'
@@ -1228,10 +1477,10 @@
                 + '<button class="btn-icon" onclick="window.testLlamaCpp(\'' + escapedPath + '\', \'' + escapedName + '\', \'' + escapedDesc + '\')" title="' + t('common.test', '测试') + '">'
                 + '<i class="fas fa-vial"></i>'
                 + '</button>'
-                + '<button class="btn-icon" onclick="window.editLlamaCpp(\'' + escapedPath + '\', \'' + escapedName + '\', \'' + escapedDesc + '\')" title="' + t('common.edit', '编辑') + '">'
+                + (isScanned ? '' : '<button class="btn-icon" onclick="window.editLlamaCpp(\'' + escapedPath + '\', \'' + escapedName + '\', \'' + escapedDesc + '\')" title="' + t('common.edit', '编辑') + '">'
                 + '<i class="fas fa-edit"></i>'
-                + '</button>'
-                + '<button class="btn-icon danger" onclick="window.removeLlamaCpp(\'' + escapedPath + '\')" title="' + t('common.delete', '删除') + '">'
+                + '</button>')
+                + '<button class="btn-icon danger" onclick="window.removeLlamaCpp(\'' + escapedPath + '\', ' + isScanned + ')" title="' + t('common.delete', '删除') + '">'
                 + '<i class="fas fa-trash"></i>'
                 + '</button>'
                 + '</div>'
@@ -1310,9 +1559,18 @@
         }
     }
 
-    function removeLlamaCpp(path) {
-        if (!confirm(t('confirm.llamacpp.remove', '确定要删除此路径吗？'))) return;
+    function removeLlamaCpp(path, isScanned) {
+        if (isScanned) {
+            showDeleteDirectoryConfirm(path, function() {
+                doRemoveLlamaCpp(path);
+            });
+        } else {
+            if (!confirm(t('confirm.llamacpp.remove', '确定要删除此路径吗？'))) return;
+            doRemoveLlamaCpp(path);
+        }
+    }
 
+    function doRemoveLlamaCpp(path) {
         fetch('/api/llamacpp/remove', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1331,6 +1589,42 @@
             console.error(t('log.llamacpp.delete_error', '删除 Llama.cpp 出错:'), error);
             showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
         });
+    }
+
+    function showDeleteDirectoryConfirm(path, onConfirm) {
+        const existingModal = byId('llamacppDeleteConfirmModal');
+        if (existingModal) existingModal.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'llamacppDeleteConfirmModal';
+        modal.className = 'modal';
+        modal.innerHTML = ''
+            + '<div class="modal-content" style="max-width: 520px;">'
+            + '<div class="modal-header" style="border-bottom: 1px solid rgba(239,68,68,0.2);">'
+            + '<h3 class="modal-title" style="color: rgb(239,68,68);"><i class="fas fa-exclamation-triangle"></i> ' + t('confirm.llamacpp.remove_directory.title', '删除磁盘目录') + '</h3>'
+            + '<button class="modal-close" onclick="closeModal(\'llamacppDeleteConfirmModal\')">&times;</button>'
+            + '</div>'
+            + '<div class="modal-body">'
+            + '<p style="margin-bottom: 0.75rem;">' + t('confirm.llamacpp.remove_directory.warning', '此操作将永久删除以下磁盘目录及其所有内容，且不可恢复：') + '</p>'
+            + '<div style="background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 0.5rem; padding: 0.6rem 0.75rem; word-break: break-all; font-family: monospace; font-size: 0.875rem; color: rgb(239,68,68);">' + path.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>'
+            + '</div>'
+            + '<div class="modal-footer">'
+            + '<button class="btn btn-secondary" onclick="closeModal(\'llamacppDeleteConfirmModal\')">' + t('common.cancel', 'Cancel') + '</button>'
+            + '<button class="btn btn-danger" id="llamacppDeleteConfirmBtn" style="background: rgb(239,68,68); border-color: rgb(239,68,68);">' + t('confirm.llamacpp.remove_directory.confirm_btn', '确认删除') + '</button>'
+            + '</div>'
+            + '</div>';
+
+        const root = byId('dynamicModalRoot') || document.body;
+        root.appendChild(modal);
+        modal.classList.add('show');
+
+        const confirmBtn = byId('llamacppDeleteConfirmBtn');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', function() {
+                closeModal('llamacppDeleteConfirmModal');
+                onConfirm();
+            });
+        }
     }
 
     function ensureLlamaCppTestModal() {
@@ -1464,6 +1758,13 @@
             });
         });
 
+        // Update sub-tab switching
+        document.querySelector('.update-sub-tab-bar')?.addEventListener('click', function (e) {
+            var btn = e.target.closest('.update-sub-tab-btn');
+            if (!btn) return;
+            switchUpdateSubTab(btn.getAttribute('data-sub-tab'));
+        });
+
         // Server tab - load llama.cpp list on switch
         const serverTab = document.querySelector('.settings-tab[data-tab="server"]');
         if (serverTab) {
@@ -1544,7 +1845,7 @@
     window.applyUpdate = applyUpdate;
     window.cancelUpdateDownload = cancelUpdateDownload;
     window.onAppUpdateEvent = handleAppUpdateEvent;
-    window.SettingsPage = { init, load, switchTab, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode };
+    window.SettingsPage = { init, load, switchTab, switchUpdateSubTab, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode, loadLlamaCppReleases, downloadLlamaCppAsset, onLlamaCppDownloadProgress };
     window.loadLlamaCppList = loadLlamaCppList;
     window.addLlamaCpp = addLlamaCpp;
     window.editLlamaCpp = editLlamaCpp;

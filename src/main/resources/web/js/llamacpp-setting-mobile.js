@@ -51,6 +51,8 @@
             const path = safeText(it && it.path).trim();
             const name = safeText(it && it.name).trim();
             const desc = safeText(it && it.description).trim();
+            const source = safeText(it && it.source).trim() || 'configured';
+            const isScanned = source === 'scanned';
             const title = name || path || '未命名';
             const subtitle = path ? path : '未提供目录路径';
             const tag = encodeURIComponent(path);
@@ -59,8 +61,10 @@
                 ? `<div style="margin-top: 0.35rem; font-size: 0.875rem; color: var(--text-secondary); line-height: 1.35;">${escapeHtml(desc)}</div>`
                 : '';
 
+            const editBtn = isScanned ? '' : '<button class="btn btn-secondary btn-sm" data-llama-act="edit"><i class="fas fa-edit"></i> 编辑</button>';
+
             return [
-                `<div class="model-item" data-llama-item="${tag}">`,
+                `<div class="model-item" data-llama-item="${tag}" data-llama-scanned="${isScanned}">`,
                 '<div style="display:flex; align-items:flex-start; gap: 0.75rem; width:100%;">',
                 '<div style="width: 40px; height: 40px; border-radius: 0.75rem; display:flex; align-items:center; justify-content:center; background: rgba(37, 99, 235, 0.12); flex: 0 0 auto;">',
                 '<i class="fas fa-microchip" style="color: var(--primary-color);"></i>',
@@ -73,7 +77,7 @@
                 '</div>',
                 '<div style="display:flex; gap: 0.5rem; margin-top: 0.75rem; width:100%; justify-content:flex-end; flex-wrap: wrap;">',
                 '<button class="btn btn-secondary btn-sm" data-llama-act="test"><i class="fas fa-vial"></i> 测试</button>',
-                '<button class="btn btn-secondary btn-sm" data-llama-act="edit"><i class="fas fa-edit"></i> 编辑</button>',
+                editBtn,
                 '<button class="btn btn-secondary btn-sm" data-llama-act="delete" style="border-color: rgba(239,68,68,0.35); color: rgb(239,68,68);"><i class="fas fa-trash"></i> 删除</button>',
                 '</div>',
                 '</div>'
@@ -181,15 +185,25 @@
         }
     }
 
-    async function removeOne(path) {
+    async function removeOne(path, isScanned) {
         const p = safeText(path).trim();
         if (!p) return;
-        if (!confirm('确定要删除这条路径吗？')) return;
+        if (isScanned) {
+            showMobileDeleteConfirm(p, function() {
+                doMobileRemove(p);
+            });
+        } else {
+            if (!confirm('确定要删除这条路径吗？')) return;
+            doMobileRemove(p);
+        }
+    }
+
+    async function doMobileRemove(path) {
         try {
             const resp = await fetch('/api/llamacpp/remove', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: p })
+                body: JSON.stringify({ path: path })
             });
             const data = await resp.json();
             if (data && data.success) {
@@ -200,6 +214,43 @@
             }
         } catch (e) {
             toast('错误', '网络请求失败', 'error');
+        }
+    }
+
+    function showMobileDeleteConfirm(path, onConfirm) {
+        const existingModal = byId('mobileLlamaCppDeleteConfirmModal');
+        if (existingModal) existingModal.remove();
+
+        const modal = document.createElement('div');
+        modal.id = 'mobileLlamaCppDeleteConfirmModal';
+        modal.className = 'modal';
+        modal.innerHTML = [
+            '<div class="modal-content" style="max-width: 520px;">',
+            '<div class="modal-header" style="border-bottom: 1px solid rgba(239,68,68,0.2);">',
+            '<h3 class="modal-title" style="color: rgb(239,68,68);"><i class="fas fa-exclamation-triangle"></i> 删除磁盘目录</h3>',
+            '<button class="modal-close" onclick="closeModal(\'mobileLlamaCppDeleteConfirmModal\')">&times;</button>',
+            '</div>',
+            '<div class="modal-body">',
+            '<p style="margin-bottom: 0.75rem;">此操作将永久删除以下磁盘目录及其所有内容，且不可恢复：</p>',
+            `<div style="background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 0.5rem; padding: 0.6rem 0.75rem; word-break: break-all; font-family: monospace; font-size: 0.875rem; color: rgb(239,68,68);">${escapeHtml(path)}</div>`,
+            '</div>',
+            '<div class="modal-footer">',
+            '<button class="btn btn-secondary" onclick="closeModal(\'mobileLlamaCppDeleteConfirmModal\')">取消</button>',
+            '<button class="btn" id="mobileLlamaCppDeleteConfirmBtn" style="background: rgb(239,68,68); border-color: rgb(239,68,68); color: #fff;">确认删除</button>',
+            '</div>',
+            '</div>'
+        ].join('');
+
+        const root = byId('dynamicModalRoot') || document.body;
+        root.appendChild(modal);
+        modal.classList.add('show');
+
+        const confirmBtn = byId('mobileLlamaCppDeleteConfirmBtn');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', function() {
+                if (typeof window.closeModal === 'function') window.closeModal('mobileLlamaCppDeleteConfirmModal');
+                onConfirm();
+            });
         }
     }
 
@@ -319,8 +370,9 @@
                 const path = tag ? decodeURIComponent(tag) : '';
                 const item = findRowByPath(path) || { path };
                 const act = btn.getAttribute('data-llama-act');
+                const isScanned = card ? card.getAttribute('data-llama-scanned') === 'true' : false;
                 if (act === 'edit') openEditor('edit', item);
-                else if (act === 'delete') removeOne(path);
+                else if (act === 'delete') removeOne(path, isScanned);
                 else if (act === 'test') testOne(item);
             });
         }

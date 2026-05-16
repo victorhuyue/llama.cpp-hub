@@ -82,6 +82,12 @@ function handleWebSocketMessage(message) {
                         window.onAppUpdateEvent(data);
                     }
                     break;
+                case 'download_progress':
+                case 'download_update':
+                    if (typeof SettingsPage !== 'undefined' && typeof SettingsPage.onLlamaCppDownloadProgress === 'function') {
+                        SettingsPage.onLlamaCppDownloadProgress(data);
+                    }
+                    break;
                 case 'console':
                     {
                         if (!document.getElementById('main-console')) break;

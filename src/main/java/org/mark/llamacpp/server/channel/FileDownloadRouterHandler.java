@@ -10,8 +10,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
 import org.mark.file.downloader.DownloadTaskInfo;
@@ -36,6 +38,8 @@ import io.netty.util.ReferenceCountUtil;
 public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     
     private static final DownloadTaskManager taskManager = createTaskManager();
+
+	private static final ConcurrentHashMap<String, ReentrantLock> downloadLocks = new ConcurrentHashMap<>();
 
 	private static final ExecutorService async = Executors.newVirtualThreadPerTaskExecutor();
     
@@ -376,9 +380,17 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 			String url = (String) requestData.get("url");
 			String fileName = (String) requestData.get("fileName");
 			String folderName = (String) requestData.get("folderName");
+			String path = (String) requestData.get("path");
 
 			if (url == null || url.trim().isEmpty()) {
 				LlamaServer.sendErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "URL不能为空");
+				return;
+			}
+
+			// llama.cpp 下载：特殊处理
+			if ("llamacpp".equalsIgnoreCase(path)) {
+				var result = createAndStartLlamaCppTask(url, fileName);
+				LlamaServer.sendJsonResponse(ctx, result);
 				return;
 			}
 
@@ -621,12 +633,101 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 			Path targetDir = base.resolve(targetFolder);
 			Files.createDirectories(targetDir);
 
-			Path targetFile = targetDir.resolve(selectedName);
-			DownloadTaskInfo created = taskManager.createTask(url, targetFile, 8);
-			taskManager.startTask(created.getTaskId());
-			result.put("success", true);
-			result.put("taskId", created.getTaskId());
-			result.put("message", "下载任务创建成功");
+			Path targetFile = targetDir.resolve(selectedName).toAbsolutePath().normalize();
+			String lockKey = targetFile.toString();
+			ReentrantLock lock = downloadLocks.computeIfAbsent(lockKey, k -> new ReentrantLock());
+			lock.lock();
+			try {
+				if (Files.exists(targetFile)) {
+					result.put("success", false);
+					result.put("error", "文件已存在: " + selectedName);
+					return result;
+				}
+				DownloadTaskInfo created = taskManager.createTask(url, targetFile, 8);
+				taskManager.startTask(created.getTaskId());
+				result.put("success", true);
+				result.put("taskId", created.getTaskId());
+				result.put("message", "下载任务创建成功");
+			} finally {
+				lock.unlock();
+				downloadLocks.remove(lockKey, lock);
+			}
+		} catch (Exception e) {
+			result.put("success", false);
+			result.put("error", "创建下载任务失败: " + e.getMessage());
+		}
+		return result;
+	}
+
+	private Map<String, Object> createAndStartLlamaCppTask(String url, String fileName) {
+		Map<String, Object> result = new HashMap<>();
+		try {
+			String selectedName = trimToNull(fileName);
+			if (selectedName == null) {
+				selectedName = inferFileName(url);
+			}
+			if (selectedName == null || selectedName.isBlank()) {
+				throw new IllegalArgumentException("无法推断文件名");
+			}
+			selectedName = selectedName.replaceAll("[<>:\"/\\\\|?*]", "_").trim();
+			if (selectedName.isEmpty()) {
+				throw new IllegalArgumentException("文件名不合法");
+			}
+
+			// Check for existing task with the same URL
+			for (DownloadTaskInfo existing : taskManager.listTasks()) {
+				if (url.equals(existing.getSourceUrl())) {
+					DownloadTaskStatus st = existing.getStatus();
+					if (st == DownloadTaskStatus.RUNNING || st == DownloadTaskStatus.PENDING || st == DownloadTaskStatus.PAUSED) {
+						result.put("success", false);
+						result.put("error", "该版本已在下载队列中");
+						result.put("taskId", existing.getTaskId());
+						return result;
+					}
+					if (st == DownloadTaskStatus.COMPLETED) {
+						result.put("success", false);
+						result.put("error", "该版本已下载完成");
+						result.put("taskId", existing.getTaskId());
+						return result;
+					}
+					// FAILED — allow retry, continue to create new task
+					break;
+				}
+			}
+
+			// Derive backend directory name from the archive base name (strip .zip / .tar.gz)
+			String baseName = selectedName;
+			int dotIdx = baseName.lastIndexOf('.');
+			if (dotIdx > 0) baseName = baseName.substring(0, dotIdx);
+			if (baseName.endsWith(".tar")) {
+				dotIdx = baseName.lastIndexOf('.');
+				if (dotIdx > 0) baseName = baseName.substring(0, dotIdx);
+			}
+
+			Path llamacppDir = Paths.get("llamacpp").toAbsolutePath().normalize();
+			Path backendDir = llamacppDir.resolve(baseName).toAbsolutePath().normalize();
+			Files.createDirectories(backendDir);
+
+			Path targetFile = backendDir.resolve(selectedName).toAbsolutePath().normalize();
+			String lockKey = targetFile.toString();
+			ReentrantLock lock = downloadLocks.computeIfAbsent(lockKey, k -> new ReentrantLock());
+			lock.lock();
+			try {
+				if (Files.exists(targetFile)) {
+					result.put("success", false);
+					result.put("error", "文件已存在: " + selectedName);
+					return result;
+				}
+				DownloadTaskInfo created = taskManager.createTask(url, targetFile, 8);
+				String taskId = created.getTaskId();
+				taskManager.startTask(taskId);
+				result.put("success", true);
+				result.put("taskId", taskId);
+				result.put("message", "下载任务创建成功");
+			} finally {
+				lock.unlock();
+				downloadLocks.remove(lockKey, lock);
+			}
 		} catch (Exception e) {
 			result.put("success", false);
 			result.put("error", "创建下载任务失败: " + e.getMessage());
@@ -679,5 +780,36 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 		case FAILED -> "FAILED";
 		case PENDING -> "IDLE";
 		};
+	}
+
+	private static class LlamaCppExtractor {
+		static String parseBackendName(String fileName) {
+			String base = fileName;
+			int dotIdx = base.lastIndexOf('.');
+			if (dotIdx > 0) base = base.substring(0, dotIdx);
+			if (base.endsWith(".tar")) {
+				dotIdx = base.lastIndexOf('.');
+				if (dotIdx > 0) base = base.substring(0, dotIdx);
+			}
+			// llama-b9174-bin-win-cuda-13.1-x64 -> win-cuda-13.1-x64
+			// llama-b9174-bin-ubuntu-vulkan-x64 -> ubuntu-vulkan-x64
+			// cudart-llama-bin-win-cuda-12.4-x64 -> win-cuda-12.4-x64-cudart
+			if (base.contains("-bin-")) {
+				int binIdx = base.indexOf("-bin-");
+				String after = base.substring(binIdx + 5);
+				// Check if it starts with os prefix
+				if (after.startsWith("win-") || after.startsWith("ubuntu-") || after.startsWith("linux-") || after.startsWith("macos-")) {
+					return after;
+				}
+			}
+			if (base.contains("-cudart-")) {
+				int cudartIdx = base.indexOf("-cudart-");
+				String after = base.substring(cudartIdx + 8);
+				if (after.startsWith("win-") || after.startsWith("ubuntu-") || after.startsWith("linux-") || after.startsWith("macos-")) {
+					return after + "-cudart";
+				}
+			}
+			return base;
+		}
 	}
 }

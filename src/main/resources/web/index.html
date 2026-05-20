@@ -293,6 +293,82 @@
             margin-bottom: 12px;
             font-family: Consolas, monospace;
         }
+        [data-theme="dark"] .sidebar-quick-link {
+            background: var(--card-bg);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        [data-theme="dark"] .sidebar-quick-link:hover {
+            background-color: var(--hover-bg);
+            border-color: rgba(129, 140, 248, 0.35);
+        }
+        [data-theme="dark"] .console-tab-btn,
+        [data-theme="dark"] .tab-bar button,
+        [data-theme="dark"] #main-usage-report .tab-bar button,
+        [data-theme="dark"] #main-settings .update-sub-tab-btn,
+        [data-theme="dark"] .tab-btn {
+            color: #94a3b8;
+        }
+        [data-theme="dark"] .console-tab-btn:hover,
+        [data-theme="dark"] .tab-bar button:hover,
+        [data-theme="dark"] #main-usage-report .tab-bar button:hover,
+        [data-theme="dark"] #main-settings .update-sub-tab-btn:hover,
+        [data-theme="dark"] .tab-btn:hover {
+            color: #a5b4fc;
+            background: rgba(129, 140, 248, 0.06);
+        }
+        [data-theme="dark"] .console-tab-btn.active,
+        [data-theme="dark"] .tab-bar button.active,
+        [data-theme="dark"] #main-usage-report .tab-bar button.active,
+        [data-theme="dark"] #main-settings .update-sub-tab-btn.active,
+        [data-theme="dark"] .tab-btn.active {
+            background: rgba(129, 140, 248, 0.14);
+            color: #a5b4fc;
+        }
+        [data-theme="dark"] #main-benchmark-v3 .result-table th {
+            background: var(--sidebar-bg);
+        }
+        [data-theme="dark"] #main-benchmark-v3 .result-table tbody tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        [data-theme="dark"] #main-benchmark-v3 .result-table tbody tr:hover {
+            background: rgba(129, 140, 248, 0.06);
+        }
+        [data-theme="dark"] #main-usage-report .report-table th {
+            background: var(--sidebar-bg);
+        }
+        [data-theme="dark"] #main-usage-report .report-table tbody tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.03);
+        }
+        [data-theme="dark"] #main-usage-report .report-table tbody tr:hover {
+            background: rgba(129, 140, 248, 0.06);
+        }
+        [data-theme="dark"] .llamacpp-installed-badge {
+            color: #10b981;
+            background: rgba(16, 185, 129, 0.1);
+            border-color: rgba(16, 185, 129, 0.25);
+        }
+        [data-theme="dark"] #benchParamsModal .param-field:has(.param-enable-toggle:not(:checked)) .form-label,
+        [data-theme="dark"] #benchParamsModal .param-field:has(.param-enable-toggle:not(:checked)) .form-text {
+            color: #6b7280;
+        }
+        [data-theme="dark"] #benchParamsModal .param-field:has(.param-enable-toggle:not(:checked)) .form-control {
+            background: var(--disabled-bg);
+            border-color: var(--border-color);
+            color: #6b7280;
+        }
+        [data-theme="dark"] #main-benchmark-v3 .param-field:has(.param-enable-toggle:not(:checked)) .form-control {
+            background: var(--disabled-bg);
+            border-color: var(--border-color);
+            color: #6b7280;
+        }
+        [data-theme="dark"] .node-master-banner {
+            background: rgba(245, 158, 11, 0.10) !important;
+            border-color: rgba(245, 158, 11, 0.30) !important;
+            color: #fbbf24 !important;
+        }
+        [data-theme="dark"] .param-desc-trigger {
+            color: var(--text-secondary) !important;
+        }
     </style>
 </head>
 <body>
@@ -385,6 +461,12 @@
                     </span>
                     <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
                 </a>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0;">
+                <button id="themeToggle" onclick="toggleTheme()" title="切换夜间模式" style="background: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                    <i id="themeToggleIcon" class="fas fa-moon"></i>
+                    <span id="themeToggleText" style="font-size: 0.75rem;">夜间模式</span>
+                </button>
             </div>
             <div id="appBuildInfo" style="font-size: 0.75rem; color: var(--text-secondary);">
                 <div id="appVersionText">--</div>
@@ -884,7 +966,7 @@
                         <div class="settings-panel">
                             <div class="settings-panel-body">
                                 <div class="settings-hint" data-i18n="page.settings.nodes.hint">管理远程 llama.cpp-hub 节点，将多台机器聚合到统一入口。</div>
-                                <div id="nodeMasterBanner" class="alert alert-warning" style="display:none; margin-bottom:0.75rem; padding:0.5rem 0.75rem; font-size:0.8rem; border-radius:0.5rem; background:#fef3c7; border:1px solid #fbbf24; color:#92400e;">
+                                <div id="nodeMasterBanner" class="alert alert-warning node-master-banner" style="display:none; margin-bottom:0.75rem; padding:0.5rem 0.75rem; font-size:0.8rem; border-radius:0.5rem; background:#fef3c7; border:1px solid #fbbf24; color:#92400e;">
                                     <i class="fas fa-exclamation-triangle"></i>
                                     <span data-i18n="page.settings.nodes.not_master">当前节点未启用 master 模式，无法管理远程节点。请在 application.json 中设置 "nodeRole": "master"。</span>
                                 </div>
@@ -1338,8 +1420,8 @@
                         <div id="basicParamsContainer">
                             <div class="form-group">
                                 <label class="form-label" for="modelId" data-i18n="modal.model_action.model_id">modal.model_action.model_id</label>
-                                <input type="text" class="form-control" id="modelId" name="modelId" readonly style="background-color: #f3f4f6; display: none;">
-                                <input type="text" class="form-control" id="modelName" name="modelName" readonly style="background-color: #f3f4f6;">
+                                <input type="text" class="form-control" id="modelId" name="modelId" readonly style="background-color: var(--disabled-bg); display: none;">
+                                <input type="text" class="form-control" id="modelName" name="modelName" readonly style="background-color: var(--disabled-bg);">
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="modelConfigSelect" data-i18n="modal.model_action.config.switch">配置切换</label>
@@ -1477,7 +1559,7 @@
     </div>
 
     <div class="modal" id="hfGgufModal">
-        <div class="modal-content" style="max-width: 1100px; height: 85vh;background-color: #f9fafb;">
+        <div class="modal-content" style="max-width: 1100px; height: 85vh;background-color: var(--bg-color);">
             <div class="modal-header">
                 <h3 class="modal-title"><i class="fas fa-file"></i> <span data-i18n="modal.hf_gguf.title">modal.hf_gguf.title</span></h3>
                 <button class="modal-close" onclick="closeModal('hfGgufModal')">&times;</button>
@@ -1632,8 +1714,40 @@
     <script src="js/download.js"></script>
     
     <script>
+        // --- Theme ---
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('llama-hub-theme', theme);
+            const icon = document.getElementById('themeToggleIcon');
+            const text = document.getElementById('themeToggleText');
+            if (icon && text) {
+                if (theme === 'dark') {
+                    icon.className = 'fas fa-sun';
+                    text.textContent = '\u767d\u5929\u6a21\u5f0f';
+                } else {
+                    icon.className = 'fas fa-moon';
+                    text.textContent = '\u591c\u95f4\u6a21\u5f0f';
+                }
+            }
+        }
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme');
+            applyTheme(current === 'dark' ? 'light' : 'dark');
+        }
+        function initTheme() {
+            const saved = localStorage.getItem('llama-hub-theme');
+            if (saved === 'dark' || saved === 'light') {
+                applyTheme(saved);
+            } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                applyTheme('dark');
+            } else {
+                applyTheme('light');
+            }
+        }
+
         // --- Initialization ---
         document.addEventListener('DOMContentLoaded', function() {
+            initTheme();
             initWebSocket();
             fetchRemoteNodes();
             initModelSearch();

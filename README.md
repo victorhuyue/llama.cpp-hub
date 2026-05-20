@@ -1,5 +1,7 @@
 # llama.cpp-hub
 
+[🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md)
+
 给 llama.cpp 套个 Web 壳 — 用图形化的Web页面来操作模型和llama.cpp。内置了很多花里胡哨的功能。
 
 ---

@@ -1277,7 +1277,7 @@
                 <div class="report-card">
                     <div class="table-wrap">
                         <table class="report-table">
-                            <thead><tr><th data-i18n="page.usage_report.table.time">page.usage_report.table.time</th><th data-i18n="page.usage_report.table.model">page.usage_report.table.model</th><th data-i18n="page.usage_report.table.endpoint">page.usage_report.table.endpoint</th><th data-i18n="report.cache_tokens">report.cache_tokens</th><th data-i18n="page.usage_report.table.prompt_tokens">page.usage_report.table.prompt_tokens</th><th data-i18n="page.usage_report.table.predicted_tokens">page.usage_report.table.predicted_tokens</th><th data-i18n="page.usage_report.table.total_tokens">page.usage_report.table.total_tokens</th><th data-i18n="page.usage_report.table.elapsed">page.usage_report.table.elapsed</th><th data-i18n="page.usage_report.table.prompt_speed">page.usage_report.table.prompt_speed</th><th data-i18n="page.usage_report.table.predicted_speed">page.usage_report.table.predicted_speed</th><th>投机解码</th></tr></thead>
+                            <thead><tr><th data-i18n="page.usage_report.table.time">page.usage_report.table.time</th><th data-i18n="page.usage_report.table.model">page.usage_report.table.model</th><th data-i18n="page.usage_report.table.endpoint">page.usage_report.table.endpoint</th><th data-i18n="report.cache_tokens">report.cache_tokens</th><th data-i18n="page.usage_report.table.prompt_tokens">page.usage_report.table.prompt_tokens</th><th data-i18n="page.usage_report.table.predicted_tokens">page.usage_report.table.predicted_tokens</th><th data-i18n="page.usage_report.table.total_tokens">page.usage_report.table.total_tokens</th><th data-i18n="page.usage_report.table.elapsed">page.usage_report.table.elapsed</th><th data-i18n="page.usage_report.table.prompt_speed">page.usage_report.table.prompt_speed</th><th data-i18n="page.usage_report.table.predicted_speed">page.usage_report.table.predicted_speed</th><th data-i18n="page.usage_report.table.draft_tokens">page.usage_report.table.draft_tokens</th></tr></thead>
                             <tbody id="requestLogBody"></tbody>
                         </table>
                     </div>
@@ -3067,7 +3067,7 @@
         function renderGpuToolBlock(name, info) {
             var avail = !!info.available;
             var badgeCls = avail ? 'available' : 'unavailable';
-            var badgeText = avail ? '可用' : '不可用';
+            var badgeText = avail ? t('common.available', '可用') : t('common.unavailable', '不可用');
             var html = '<div class="gpu-tool-block">';
             html += '<div class="gpu-tool-header">';
             html += '<span class="gpu-tool-badge ' + badgeCls + '">' + badgeText + '</span>';

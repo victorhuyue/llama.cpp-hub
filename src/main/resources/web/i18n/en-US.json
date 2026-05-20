@@ -1139,5 +1139,21 @@
   "page.llamacpp.tag.configured": "Configured",
   "log.llamacpp.load_error": "Error loading Llama.cpp list:",
   "log.llamacpp.save_error": "Error saving Llama.cpp:",
-  "log.llamacpp.delete_error": "Error deleting Llama.cpp:"
+  "log.llamacpp.delete_error": "Error deleting Llama.cpp:",
+
+  "page.benchmark_v3.table.draft": "Speculative Decoding",
+  "page.usage_report.table.draft_tokens": "Speculative Decoding",
+  "page.benchmark_v2.table.draft": "Speculative Decoding",
+  "common.available": "Available",
+  "common.unavailable": "Unavailable",
+  "modal.model_detail.tab.sampling": "Sampling",
+  "model_detail.usage.cumulative_draft": "Cumulative speculative decoding",
+  "report.total_draft": "Total speculative decoding",
+  "modal.model_detail.sampling.config": "Sampling Config",
+  "modal.model_detail.sampling.add": "Add Config",
+  "modal.model_detail.sampling.save": "Save Settings",
+  "modal.model_detail.sampling.delete": "Delete Config",
+  "modal.model_detail.sampling.desc": "When enabled, the specified sampling configuration will be forced, ignoring sampling parameters from other clients. For example, if you set temperature to 1.0 here but 0.7 in Open WebUI, llama.cpp will ignore 0.7 and use 1.0. This is useful for quickly switching sampling configurations to change model behavior. For instance, Qwen3.5 is highly sensitive to sampling and has many sampling combinations. Instead of repeatedly modifying sampling settings, you can set up configurations here and switch between them easily.",
+  "common.apply": "Apply",
+  "common.clear": "Clear"
 }

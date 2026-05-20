@@ -1139,5 +1139,21 @@
   "page.llamacpp.tag.configured": "已配置",
   "log.llamacpp.load_error": "加载 Llama.cpp 列表出错:",
   "log.llamacpp.save_error": "保存 Llama.cpp 出错:",
-  "log.llamacpp.delete_error": "删除 Llama.cpp 出错:"
+  "log.llamacpp.delete_error": "删除 Llama.cpp 出错:",
+
+  "page.benchmark_v3.table.draft": "投机解码",
+  "page.usage_report.table.draft_tokens": "投机解码",
+  "page.benchmark_v2.table.draft": "投机解码",
+  "common.available": "可用",
+  "common.unavailable": "不可用",
+  "modal.model_detail.tab.sampling": "采样设置",
+  "model_detail.usage.cumulative_draft": "累计投机解码",
+  "report.total_draft": "总投机解码",
+  "modal.model_detail.sampling.config": "采样配置",
+  "modal.model_detail.sampling.add": "新增配置",
+  "modal.model_detail.sampling.save": "保存设定",
+  "modal.model_detail.sampling.delete": "删除配置",
+  "modal.model_detail.sampling.desc": "开启该功能后，将强制使用指定的采样配置，而忽略其它客户端中的采样。比如你在这里强制设置温度为1.0，而在openwebui中设置温度为0.7，此时llamacpp将忽略0.7，使用1.0。这个功能的意义是为了快速切换采样来变更模型的工作模式，比如Qwen3.5，它对采样的敏感度非常高，而且有多种采样搭配，为了避免反复修改采样配置，在这里设置并切换更加方便。",
+  "common.apply": "应用",
+  "common.clear": "清空"
 }

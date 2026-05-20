@@ -1,0 +1,216 @@
+![image](./screenshot/laika.jpg)
+
+
+
+# llama.cpp-hub
+
+这是一个个人自用的 llama.cpp 集成+模型管理 WebUI 工具，用来统一接入不同版本的 llama.cpp，并提供完整的模型加载、管理和交互功能，尽量提供不同 API 的兼容性。
+本质上是 llama.cpp 的启动器，但是集成了一些方便使用的功能。不建议非专业用户使用，对大部分用户来说，llama-swap更适合。
+我为什么要做这个：个人需求比较诡异，经常会用不同分支的llama.cpp进行测试，切换不同模型工作，一个‘云端’的聊天前端，而且还需要简单易用的benchmark。以及同样很重要的：采样参数覆盖，便于快速更换不同采样以测试模型输出质量。
+
+遗憾的是，目前没有做困惑度测试（Coding Plan额度不足，空闲时间不是很想自己古法编程）。
+
+如果你觉得有什么好用的功能可以添加，请告诉我你的想法，我会尽力去增加、改善。
+
+AI使用说明：由于前端功能较多，后端代码逻辑又不复杂，因此大量用到了：Qwen3.6 27B FP8、DeepSeek V4 Flash、DeepSeek V4 Pro 和 ChatGPT 5.3 codex协助开发
+
+> **重要**：本应用需要读写文件的权限，无读写权限会导致无法进入网页、无法正常使用功能！。如Windows 11的C盘，有用户发现应用放在C盘根目录会导致无法读取文件。
+---
+> **提醒**：模型目录的结构需要稍微注意一下，每个模型设置一个单独的文件夹，文件夹内存放GGUF文件，如分片，mmproj文件等，确保每个模型都单独放在一个文件夹内，不能将不同模型的gguf放到同一个文件夹下！模型只有加载后，才会在/v1/models中显示出来，务必注意！
+---
+> **重要**：下载功能 不好用，不建议用，因为国内用户只能访问hf-mirror.com（我不能假定所有人都可以访问huggingface.co），而这个镜像站总是429。为啥不用魔塔社区？它的爬虫不太好做，不做了，自己能工智人手动下载吧。
+---
+> **注意**：对于‘手动GPU分层’的功能暂不考虑开发（反正llama.cpp也会自动使用fit功能计算CPU和GPU的最佳配比，我觉得这个手动分层不是必须的）。
+---
+> **注意**：关于编译脚本，请注意JAVA_HOME的配置，默认使用系统环境变量中配置的值，如果你有多个不同版本的JDK，请确认脚本可以找到大于等于21的版本。如果系统环境变量中配置的值不是JDK21，请修改脚本，更改为正确的路径再进行编译，并且修改时请务必注意：Windows 使用 CRLF（\r\n）作为换行符，而 Linux 使用 LF（\n）。Java程序的编译是比较简单的，如果编译脚本存在问题，你也可以将它作为Maven项目拉进IDE操作。实在不行还以用release傻瓜包。
+---
+> **提醒**：目前支持英语版本，会根据浏览器的语言设置自动切换，也可以在url中通过lang参数手动指定英语（如：http:127.0.0.1:8080/?lang=en）。
+---
+
+## API兼容情况（llamacpp自身支持OpenAI Compatible和Anthropic API）
+| 类型 | 接口路径 | 说明 |
+|------|----------|------|
+| 兼容 Ollama | `/api/tags`<br>`/api/show`<br>`/api/chat`<br>`/api/embed`<br>`/api/ps` | 支持 Ollama 兼容接口，可用于模型查看、聊天、嵌入向量等操作 |
+| 不兼容 Ollama | `/api/copy`<br>`/api/delete`<br>`/api/pull`<br>`/api/push`<br>`/api/generate` | 不支持 Ollama 的相关操作，如模型复制、删除、拉取、推送和生成 |
+| 兼容 LM Studio | `/api/v0/models`<br>`/api/v0/chat/completions`<br>`/api/v0/completions`<br>`/api/v0/embeddings` | 支持 LM Studio 的模型查询、对话、嵌入和生成功能 |
+
+
+
+## 主要功能
+
+### 🖥️ 模型管理
+
+- **模型扫描与管理**：自动扫描指定目录下的所有 GGUF 格式模型，支持多个模型根目录，直观展示所有模型，支持搜索、排序（按名称、大小、参数量）（思来想去，没有做删除功能）
+- **模型收藏与别名**：为常用模型设置收藏标记和自定义别名，方便快速识别
+- **加载配置**：配置模型启动参数，包括上下文大小、批处理、温度、Top-P、Top-K 等
+- **模型详情查看**：查看模型的详细信息，设置采样信息、查看并修改聊天模板、设定Kwargs和查看slots状态（关于聊天模板：在模型的详细信息中，聊天模板默认不会自动加载，需要手动点击‘默认’按钮才会加载。如果点击加载后依然是空值，说明GGUF模型中可能不包含默认的聊天模板，需要在‘内置聊天模板’中选择适合的模板，或者自己手动设置一个模板）
+- **分卷模型支持**：自动识别和处理分卷模型文件（如 `*-00001-of-*.gguf`）
+- **多模态模型支持**：支持带视觉组件和音频组件的模型（mmproj 文件，同时需要llama.cpp本身的支持）
+- **对话界面**：内置聊天界面，可直接与加载的模型进行对话，用于快捷测试和验证
+- **控制台日志**：实时查看系统日志，支持自动刷新
+- **用量报表**：查看模型的用量，处理和生成了多少token，累计进行了多少次请求
+- **系统设置**：配置模型目录和 llama.cpp 可执行文件路径，设置Ollama和LM Studio兼容API，设置API Key，下载和日志：目前属于无效设置，请忽略
+
+![image](./screenshot/index.png)
+![image](./screenshot/launch-config.png)
+![image](./screenshot/model-detail.png)
+![image](./screenshot/sampling.png)
+![image](./screenshot/easy-chat.png)
+![image](./screenshot/path.png)
+![image](./screenshot/setting.png)
+
+
+### 🔌 API 兼容性
+
+- **OpenAI API**：兼容 OpenAI API 格式（默认端口 8080），可直接接入现有应用使用
+- **Anthropic API**：兼容 Anthropic API 格式（端口 8080），必须在请求头中添加对应的Key，哪怕是任意的字符串，因为后端需要通过‘请求头中是否包含Key’来区分OpenAI和Anthropic
+- **Ollama API**： 兼容Ollama部分API，可以用于那些只支持Ollama的应用，意义不大
+- **LM Studio**：兼容LM Studio的/api/v0/** API，目前实际意义不明，意义不大
+
+### ⚡ 性能测试
+
+- **模型基准测试**：对模型进行性能测试，评估推理速度
+- **多参数配置**：支持配置重复次数、提示长度、生成长度、批量大小等测试参数
+- **测试结果管理**：查看、追加、删除测试结果文件
+
+![image](./screenshot/benchmark.png)
+
+### 📊 系统监控
+
+- **实时状态**：通过 WebSocket 实时推送模型加载/停止事件
+- **控制台日志**：实时查看系统日志，支持自动刷新
+
+![image](./screenshot/console-log.png)
+
+### 🌐 远程节点（服务聚合）
+
+支持将多个 llama.cpp-hub 服务实例聚合到一起统一管理，通过主从节点架构将多台服务器的模型列表、运行状态聚合到主节点前端。
+
+**节点角色：**
+- **主节点（master）**：管理所有从节点的 WebSocket 连接，运行 30 秒健康检查，中继日志和事件
+- **从节点（slave）**：接受主节点管理，本身不主动连接其他节点。默认 `nodeRole` 为 null 即视为从节点
+
+**远程路由（3 层查找）：**
+1. 请求体中显式指定 `nodeId` → 直接路由到该节点
+2. 本地已加载模型 → 本地处理
+3. 全节点回退 → 遍历所有已启用的远程节点查询 `/v1/models`，找到匹配的模型后转发请求
+
+**WebSocket 事件中继：**
+- 远程节点的控制台日志、模型加载/停止事件、模型繁忙状态等自动中继到主节点前端
+- 远程日志行显示 `[nodeId/modelId]` 前缀
+- 前端模型列表支持节点筛选下拉框（全部/本地/远程）
+
+**支持的远程操作：**
+- 远程查看模型列表、加载/停止模型
+- 远程聊天补全（OpenAI、Anthropic、Ollama 格式均支持，流式+非流式）
+- 远程嵌入向量、重排序
+- 远程基准测试
+- 远程 VRAM 估算、设备列表查询
+
+**配置方式：**
+- 主节点：`config/application.json` 中设置 `"nodeRole": "master"`
+- 添加节点：通过 WebUI 系统设置 → 节点管理，或调用 `/api/node/add` API
+- 节点信息：每个节点需配置 `nodeId`、`name`、`baseUrl`、可选的 `apiKey`
+- 支持的协议：HTTP 和 HTTPS（自动信任自签名证书）
+
+![image](./screenshot/console-log.png)
+
+
+### ⚙️ 配置管理
+
+- **启动配置保存**：为每个模型保存独立的启动参数配置
+- **多版本支持**：支持配置多个 llama.cpp 版本路径，加载时选择
+- **多目录支持**：支持配置多个模型目录，自动合并检索
+- **配置持久化**：所有配置自动保存到本地文件
+
+### 📱 移动端适配
+
+一定程度上照顾手机的竖屏使用体验，但是适配优先级比较低，但是能用。
+
+### 🔧 其它功能
+
+- **显存估算**：根据上下文大小、批处理等参数估算所需的显存占用（对于视觉模型不准确）
+---
+
+## 第三方资源声明
+
+- `src/main/resources/web/favicon.ico`
+- `src/main/resources/web/llama1-icon-transparent.png`
+
+以上图标资源来自 [llama.cpp](https://github.com/ggml-org/llama.cpp)，按其 MIT License 分发。
+本仓库已在 [LICENSE](./LICENSE) 中补充对应的第三方许可声明。
+
+## 使用说明
+
+### 手动编译
+
+```bash
+# Windows
+javac-win.bat
+
+# Linux
+javac-linux.sh
+```
+
+> **注意**：关于Linux的编译脚本，请注意JAVA_HOME的配置，默认使用该路径：/opt/jdk-24.0.2/。请修改为你所使用的路径再进行编译，并且修改时请务必注意：Windows 使用 CRLF（\r\n）作为换行符，而 Linux 使用 LF（\n）。
+---
+
+### 直接下载
+直接从release下载编译好的程序使用
+
+### 启动程序
+编译成功后，在build目录下找到启动脚本：run.sh或者run.bat，运行即可。
+- 注意：默认会占用8080和8070端口，如果这两个端口不可以，请手动在**application.json**中修改监听的端口。
+### 访问 Web 界面
+
+启动成功后，在浏览器中访问：
+
+- 主界面：`http://localhost:8080`
+- 对话界面：`http://localhost:8080/chat/easy-chat.html`
+
+### 配置模型目录和 llama.cpp 路径
+
+1. 打开 Web 界面
+2. 点击左侧菜单的「系统设置」
+3. 添加模型目录（可添加多个）
+4. 添加 llama.cpp 可执行文件路径（可添加多个版本）
+
+### 加载模型
+
+1. 在模型列表中找到要加载的模型
+2. 点击「加载」按钮
+3. 配置启动参数（可使用已保存的配置）
+4. 点击「加载模型」开始加载
+
+### 使用 API
+
+加载模型后，可通过以下方式调用：
+
+- **OpenAI API**：`http://localhost:8080/v1/chat/completions`
+- **Anthropic API**：`http://localhost:8080/v1/messages`
+- **Completion API**：`http://localhost:8080/completion`
+
+
+### 模型目录注意
+
+每个模型使用单独的文件夹存放，不同模型的GGUF文件不要放在相同的目录下。
+
+### 嵌入模型 & 重排序模型
+
+需要手动在加载页面开启对应的功能！！！
+![image](./screenshot/embedding-rerank.png)
+
+### 远程节点配置
+
+1. **主节点**：在 `config/application.json` 中设置 `"nodeRole": "master"`，重启生效
+2. **添加远程节点**：打开 WebUI → 系统设置 → 节点管理 → 添加节点，填入 `nodeId`、`name`、`baseUrl`（如 `http://10.0.0.2:8080`）和可选的 `apiKey`
+3. **直接指定节点**：调用 API 时在请求 JSON 体中添加 `"nodeId": "your-node-id"`，请求将直接路由到该节点处理
+4. **自动回退**：如果本地未加载模型，系统自动在所有已启用的远程节点中查找匹配的模型
+
+
+---
+
+## 系统要求
+
+- Java 21 运行环境
+- 已编译的 llama.cpp 可执行文件

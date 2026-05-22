@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Stream;
 
 public class UsageReportService {
@@ -108,19 +110,22 @@ public class UsageReportService {
 	}
 
 	/**
-	 * 基于请求日志，聚合最近7天（含今天）的每日 Token 用量。
+	 * 基于请求日志，聚合指定月份的每日 Token 用量。
 	 */
-	public List<DailyTokenEntry> getDailyTokenUsage() {
-		List<DailyTokenEntry> result = new ArrayList<>();
+	public List<DailyTokenEntry> getDailyTokenUsage(int year, int month) {
+		LocalDate firstDay = LocalDate.of(year, month, 1);
+		LocalDate lastDay = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
 		List<RequestLogEntry> logs = getRequestLogs();
 		if (logs.isEmpty()) {
-			return buildEmptyDailyEntries(result);
+			return buildEmptyMonthlyEntries(firstDay, lastDay);
 		}
 
 		Map<String, DailyTokenEntry> dayMap = new LinkedHashMap<>();
 		for (RequestLogEntry log : logs) {
 			if (log.getStartTime() <= 0) continue;
 			LocalDate day = Instant.ofEpochMilli(log.getStartTime()).atZone(ZoneId.systemDefault()).toLocalDate();
+			if (day.isBefore(firstDay) || day.isAfter(lastDay)) continue;
 			DailyTokenEntry entry = dayMap.get(day.toString());
 			if (entry == null) {
 				entry = new DailyTokenEntry();
@@ -132,9 +137,8 @@ public class UsageReportService {
 			entry.setCacheTokens(entry.getCacheTokens() + log.getCacheTokens());
 		}
 
-		LocalDate today = LocalDate.now();
-		for (int i = 6; i >= 0; i--) {
-			LocalDate d = today.minusDays(i);
+		List<DailyTokenEntry> result = new ArrayList<>();
+		for (LocalDate d = firstDay; !d.isAfter(lastDay); d = d.plusDays(1)) {
 			String key = d.toString();
 			if (dayMap.containsKey(key)) {
 				result.add(dayMap.get(key));
@@ -147,11 +151,27 @@ public class UsageReportService {
 		return result;
 	}
 
-	private List<DailyTokenEntry> buildEmptyDailyEntries(List<DailyTokenEntry> result) {
-		LocalDate today = LocalDate.now();
-		for (int i = 6; i >= 0; i--) {
+	/**
+	 * 获取有数据的所有年份（去重，升序）。
+	 */
+	public List<Integer> getAvailableYears() {
+		List<RequestLogEntry> logs = getRequestLogs();
+		Set<Integer> years = new TreeSet<>();
+		for (RequestLogEntry log : logs) {
+			if (log.getStartTime() <= 0) continue;
+			LocalDate day = Instant.ofEpochMilli(log.getStartTime()).atZone(ZoneId.systemDefault()).toLocalDate();
+			years.add(day.getYear());
+		}
+		// 确保包含当前年份
+		years.add(LocalDate.now().getYear());
+		return new ArrayList<>(years);
+	}
+
+	private List<DailyTokenEntry> buildEmptyMonthlyEntries(LocalDate firstDay, LocalDate lastDay) {
+		List<DailyTokenEntry> result = new ArrayList<>();
+		for (LocalDate d = firstDay; !d.isAfter(lastDay); d = d.plusDays(1)) {
 			DailyTokenEntry entry = new DailyTokenEntry();
-			entry.setDate(today.minusDays(i).toString());
+			entry.setDate(d.toString());
 			result.add(entry);
 		}
 		return result;

@@ -23,7 +23,14 @@
     }
 
     async function load() {
+        await initMonthSelectors();
         await Promise.all([fetchTokenSummary(), fetchRequestLogs(), fetchDailyTokens()]);
+
+        // Bind change events for month selectors
+        const yearSel = document.getElementById('dailyYearSelect');
+        const monthSel = document.getElementById('dailyMonthSelect');
+        if (yearSel) yearSel.onchange = fetchDailyTokens;
+        if (monthSel) monthSel.onchange = fetchDailyTokens;
     }
 
     async function fetchTokenSummary() {
@@ -42,8 +49,10 @@
     }
 
     async function fetchDailyTokens() {
+        const year = document.getElementById('dailyYearSelect').value;
+        const month = document.getElementById('dailyMonthSelect').value;
         try {
-            const resp = await fetch('/api/report/daily-tokens');
+            const resp = await fetch('/api/report/daily-tokens?year=' + year + '&month=' + month);
             const result = await resp.json();
             if (!result || !result.success) {
                 dailyTokenData = [];
@@ -53,7 +62,57 @@
         } catch (e) {
             dailyTokenData = [];
         }
+        updateDailyTitle(year, month);
         renderDailyChart();
+    }
+
+    async function initMonthSelectors() {
+        const yearSel = document.getElementById('dailyYearSelect');
+        const monthSel = document.getElementById('dailyMonthSelect');
+        if (!yearSel || !monthSel) return;
+
+        // Populate months
+        monthSel.innerHTML = '';
+        for (let m = 1; m <= 12; m++) {
+            const opt = document.createElement('option');
+            opt.value = m;
+            opt.textContent = m + '月';
+            monthSel.appendChild(opt);
+        }
+
+        // Fetch available years
+        try {
+            const resp = await fetch('/api/report/available-years');
+            const result = await resp.json();
+            if (result && result.success && Array.isArray(result.data)) {
+                yearSel.innerHTML = '';
+                for (const y of result.data) {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y + '年';
+                    yearSel.appendChild(opt);
+                }
+            }
+        } catch (e) {
+            // Fallback to current year
+            yearSel.innerHTML = '';
+            const opt = document.createElement('option');
+            opt.value = new Date().getFullYear();
+            opt.textContent = new Date().getFullYear() + '年';
+            yearSel.appendChild(opt);
+        }
+
+        // Default to current year/month
+        const now = new Date();
+        yearSel.value = now.getFullYear();
+        monthSel.value = now.getMonth() + 1;
+    }
+
+    function updateDailyTitle(year, month) {
+        const titleEl = document.getElementById('dailyChartTitle');
+        if (titleEl) {
+            titleEl.textContent = year + '年' + month + '月用量';
+        }
     }
 
     async function fetchRequestLogs() {
@@ -72,10 +131,9 @@
         applyFilter();
     }
 
-    // --- Shared tooltip draw helper ---
+    // --- Shared tooltip draw helper (overlaid bars) ---
     function drawBarsChart(ctx, w, h, pad, cw, ch, bars, maxV, colors, tc, bc, hoverIdx, labelFn, valFn) {
         const barW = bars[0] ? bars[0].barW : 0;
-        const gap = bars[0] ? bars[0].gap : 0;
         const gw = bars[0] ? bars[0].gw : 0;
         const count = bars.length;
 
@@ -96,7 +154,7 @@
             ctx.globalAlpha = 1;
         }
 
-        // bars
+        // bars (overlaid: larger drawn behind, smaller on top)
         for (let i = 0; i < count; i++) {
             const b = bars[i];
             const pf = valFn(b, 0);
@@ -105,16 +163,43 @@
             const pfH = (pf / maxV) * ch;
             const dgH = (dg / maxV) * ch;
 
+            // Skip drawing bars when both values are 0
+            if (pf === 0 && dg === 0) {
+                ctx.fillStyle = tc; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+                ctx.fillText(labelFn(i), x + gw / 2, pad.top + ch + 4);
+                continue;
+            }
+
             // Highlight bar group on hover
             if (i === hoverIdx) {
                 ctx.fillStyle = 'rgba(99,102,241,0.15)';
                 ctx.fillRect(x - 2, pad.top, gw + 4, ch);
             }
 
-            ctx.fillStyle = colors[0];
-            ctx.fillRect(x, pad.top + ch - pfH, barW, pfH);
-            ctx.fillStyle = colors[1];
-            ctx.fillRect(x + barW + gap, pad.top + ch - dgH, barW, dgH);
+            // Draw larger bar behind, smaller on top (both solid color + border)
+            if (pf >= dg) {
+                ctx.fillStyle = colors[0];
+                ctx.fillRect(x, pad.top + ch - pfH, barW, pfH);
+                ctx.strokeStyle = colors[0].replace('0.8', '1');
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x, pad.top + ch - pfH, barW, pfH);
+                ctx.fillStyle = colors[1];
+                ctx.fillRect(x, pad.top + ch - dgH, barW, dgH);
+                ctx.strokeStyle = colors[1].replace('0.8', '1');
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x, pad.top + ch - dgH, barW, dgH);
+            } else {
+                ctx.fillStyle = colors[1];
+                ctx.fillRect(x, pad.top + ch - dgH, barW, dgH);
+                ctx.strokeStyle = colors[1].replace('0.8', '1');
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x, pad.top + ch - dgH, barW, dgH);
+                ctx.fillStyle = colors[0];
+                ctx.fillRect(x, pad.top + ch - pfH, barW, pfH);
+                ctx.strokeStyle = colors[0].replace('0.8', '1');
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x, pad.top + ch - pfH, barW, pfH);
+            }
 
             ctx.fillStyle = tc; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
             ctx.fillText(labelFn(i), x + gw / 2, pad.top + ch + 4);
@@ -199,7 +284,7 @@
         let totalDraftAccepted = 0;
         let cardHtml = '';
         const sorted = tokenSummaryData.slice().sort((a, b) => (b.totalTokens || 0) - (a.totalTokens || 0));
-        for (const m of sorted) {
+        sorted.forEach((m, idx) => {
             totalPrompt += m.totalPromptTokens || 0;
             totalPredicted += m.totalPredictedTokens || 0;
             totalCache += m.totalCacheTokens || 0;
@@ -211,7 +296,7 @@
                 draftHtml = '<span class="tk-draft">' + t('report.draft_label', '投机') + ' ' + (m.totalDraftAccepted || 0) + '/' + m.totalDraftTokens + ' (' + draftPct + '%)</span>';
             }
             cardHtml += '<div class="token-card">'
-                + '<div class="tk-model">' + escapeHtml(m.modelId || '') + '</div>'
+                + '<div class="tk-model"><span class="tk-badge">' + (idx + 1) + '</span>' + escapeHtml(m.modelId || '') + '</div>'
                 + '<div class="tk-tokens">'
                 + '<span>' + t('report.prompt_label', '输入') + ' ' + (m.totalPromptTokens || 0).toLocaleString() + '</span>'
                 + '<span>' + t('report.output_label', '输出') + ' ' + (m.totalPredictedTokens || 0).toLocaleString() + '</span>'
@@ -219,7 +304,7 @@
                 + draftHtml
                 + '</div>'
                 + '</div>';
-        }
+        });
         if (!cardHtml) {
             cardHtml = '<div class="empty">' + t('page.usage_report.chart_empty', '暂无数据') + '</div>';
         }
@@ -233,12 +318,6 @@
             + (totalDraftTokens > 0 ? '<div class="stat-card"><div class="stat-value">' + totalDraftAccepted.toLocaleString() + '/' + totalDraftTokens.toLocaleString() + '</div><div class="stat-label">' + t('report.total_draft', '总投机解码') + '</div></div>' : '');
 
         if (!canvasEl || !emptyEl || !wrapEl) return;
-        if (!tokenSummaryData.length) {
-            emptyEl.style.display = 'flex';
-            tokenBars = [];
-            return;
-        }
-        emptyEl.style.display = 'none';
 
         const data = tokenSummaryData.slice().sort((a, b) => (b.totalTokens || 0) - (a.totalTokens || 0));
         const ctx = canvasEl.getContext('2d');
@@ -250,13 +329,22 @@
         canvasEl.style.width = w + 'px'; canvasEl.style.height = h + 'px';
         ctx.scale(dpr, dpr);
 
+        if (!tokenSummaryData.length) {
+            ctx.clearRect(0, 0, w, h);
+            emptyEl.style.display = 'flex';
+            tokenBars = [];
+            canvasEl.onmousemove = null;
+            canvasEl.onmouseleave = null;
+            return;
+        }
+        emptyEl.style.display = 'none';
+
         const count = data.length;
         const pad = { top: 14, bottom: 30, left: 64, right: 14 };
         const cw = w - pad.left - pad.right;
         const ch = h - pad.top - pad.bottom;
-        const barW = Math.min(cw / count * 0.28, 28);
-        const gap = barW * 0.4;
-        const gw = barW * 2 + gap;
+        const barW = Math.min(cw / count * 0.45, 28);
+        const gw = barW;
 
         let maxV = 0;
         data.forEach(d => maxV = Math.max(maxV, d.totalPromptTokens || 0, d.totalPredictedTokens || 0));
@@ -267,7 +355,7 @@
         const bc = style.getPropertyValue('--border-color').trim() || '#333';
         const colors = ['rgba(99,102,241,0.8)', 'rgba(16,185,129,0.8)'];
 
-        // Build bar geometry
+        // Build bar geometry (overlaid)
         tokenBars = [];
         for (let i = 0; i < count; i++) {
             const d = data[i];
@@ -279,7 +367,7 @@
             const barTop = pad.top + ch - Math.max(pfH, dgH);
             tokenBars.push({
                 x: x, y: barTop, w: gw, h: Math.max(pfH, dgH),
-                barW: barW, gap: gap, gw: gw,
+                barW: barW, gw: gw,
                 label: d.modelId || ('#' + (i + 1)),
                 promptVal: pf, predictedVal: dg
             });
@@ -291,29 +379,16 @@
             function(b, which) { return which === 0 ? b.promptVal : b.predictedVal; }
         );
 
-        // Marker legend
-        const parentCol = wrapEl.parentNode;
-        let legendEl = parentCol.querySelector('.chart-marker-legend');
-        if (!legendEl) {
-            legendEl = document.createElement('div');
-            legendEl.className = 'chart-marker-legend';
-            parentCol.appendChild(legendEl);
-        }
-        let legendHtml = '';
-        for (let i = 0; i < count; i++) {
-            legendHtml += '<span class="ml-item"><span class="ml-marker">' + (i + 1) + '</span> ' + escapeHtml(data[i].modelId || '#' + (i + 1)) + '</span>';
-        }
-        legendEl.innerHTML = legendHtml;
-
-        // Mouse events
+        // Mouse events (hover entire column slot for easier hit)
         canvasEl.onmousemove = function (e) {
             const r = canvasEl.getBoundingClientRect();
             const mx = e.clientX - r.left;
             const my = e.clientY - r.top;
             let found = -1;
+            const slotW = cw / count;
             for (let i = 0; i < tokenBars.length; i++) {
-                const b = tokenBars[i];
-                if (mx >= b.x - 2 && mx <= b.x + b.w + 2 && my >= b.y - 2 && my <= b.y + b.h + 2) {
+                const slotX = pad.left + slotW * i;
+                if (mx >= slotX && mx <= slotX + slotW && my >= pad.top && my <= pad.top + ch) {
                     found = i;
                     break;
                 }
@@ -344,20 +419,6 @@
         const wrapEl = document.getElementById('dailyChartWrap');
         if (!canvasEl || !emptyEl || !wrapEl) return;
 
-        if (!dailyTokenData.length) {
-            emptyEl.style.display = 'flex';
-            dailyBars = [];
-            return;
-        }
-
-        const hasData = dailyTokenData.some(d => d.promptTokens > 0 || d.predictedTokens > 0);
-        if (!hasData) {
-            emptyEl.style.display = 'flex';
-            dailyBars = [];
-            return;
-        }
-        emptyEl.style.display = 'none';
-
         const ctx = canvasEl.getContext('2d');
         const rect = wrapEl.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
@@ -367,14 +428,33 @@
         canvasEl.style.width = w + 'px'; canvasEl.style.height = h + 'px';
         ctx.scale(dpr, dpr);
 
+        if (!dailyTokenData.length) {
+            ctx.clearRect(0, 0, w, h);
+            emptyEl.style.display = 'flex';
+            dailyBars = [];
+            canvasEl.onmousemove = null;
+            canvasEl.onmouseleave = null;
+            return;
+        }
+
+        const hasData = dailyTokenData.some(d => d.promptTokens > 0 || d.predictedTokens > 0);
+        if (!hasData) {
+            ctx.clearRect(0, 0, w, h);
+            emptyEl.style.display = 'flex';
+            dailyBars = [];
+            canvasEl.onmousemove = null;
+            canvasEl.onmouseleave = null;
+            return;
+        }
+        emptyEl.style.display = 'none';
+
         const data = dailyTokenData;
         const count = data.length;
         const pad = { top: 14, bottom: 30, left: 64, right: 14 };
         const cw = w - pad.left - pad.right;
         const ch = h - pad.top - pad.bottom;
-        const barW = Math.min(cw / count * 0.28, 28);
-        const gap = barW * 0.4;
-        const gw = barW * 2 + gap;
+        const barW = Math.min(cw / count * 0.25, 18);
+        const gw = barW;
 
         let maxV = 0;
         data.forEach(d => maxV = Math.max(maxV, d.promptTokens || 0, d.predictedTokens || 0));
@@ -385,7 +465,7 @@
         const bc = style.getPropertyValue('--border-color').trim() || '#333';
         const colors = ['rgba(99,102,241,0.8)', 'rgba(16,185,129,0.8)'];
 
-        // Build bar geometry
+        // Build bar geometry (overlaid)
         dailyBars = [];
         for (let i = 0; i < count; i++) {
             const d = data[i];
@@ -397,27 +477,35 @@
             const barTop = pad.top + ch - Math.max(pfH, dgH);
             dailyBars.push({
                 x: x, y: barTop, w: gw, h: Math.max(pfH, dgH),
-                barW: barW, gap: gap, gw: gw,
+                barW: barW, gw: gw,
                 label: d.date ? d.date.substring(5) : '',
                 promptVal: pf, predictedVal: dg
             });
         }
 
+        // X-axis label: only first, middle, last
+        const midIdx = Math.floor(count / 2);
+        function dailyLabelFn(i) {
+            if (i === 0 || i === midIdx || i === count - 1) return dailyBars[i].label;
+            return '';
+        }
+
         // Draw
         drawBarsChart(ctx, w, h, pad, cw, ch, dailyBars, maxV, colors, tc, bc, dailyHoverIdx,
-            function(i) { return dailyBars[i].label; },
+            dailyLabelFn,
             function(b, which) { return which === 0 ? b.promptVal : b.predictedVal; }
         );
 
-        // Mouse events
+        // Mouse events (hover entire column slot for easier hit)
         canvasEl.onmousemove = function (e) {
             const r = canvasEl.getBoundingClientRect();
             const mx = e.clientX - r.left;
             const my = e.clientY - r.top;
             let found = -1;
+            const slotW = cw / count;
             for (let i = 0; i < dailyBars.length; i++) {
-                const b = dailyBars[i];
-                if (mx >= b.x - 2 && mx <= b.x + b.w + 2 && my >= b.y - 2 && my <= b.y + b.h + 2) {
+                const slotX = pad.left + slotW * i;
+                if (mx >= slotX && mx <= slotX + slotW && my >= pad.top && my <= pad.top + ch) {
                     found = i;
                     break;
                 }
@@ -425,7 +513,7 @@
             if (found !== dailyHoverIdx) {
                 dailyHoverIdx = found;
                 drawBarsChart(ctx, w, h, pad, cw, ch, dailyBars, maxV, colors, tc, bc, dailyHoverIdx,
-                    function(i) { return dailyBars[i].label; },
+                    dailyLabelFn,
                     function(b, which) { return which === 0 ? b.promptVal : b.predictedVal; }
                 );
             }
@@ -434,7 +522,7 @@
             if (dailyHoverIdx !== -1) {
                 dailyHoverIdx = -1;
                 drawBarsChart(ctx, w, h, pad, cw, ch, dailyBars, maxV, colors, tc, bc, dailyHoverIdx,
-                    function(i) { return dailyBars[i].label; },
+                    dailyLabelFn,
                     function(b, which) { return which === 0 ? b.promptVal : b.predictedVal; }
                 );
             }

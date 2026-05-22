@@ -174,7 +174,8 @@
         #main-usage-report .table-wrap { flex:1; overflow:auto; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-color); }
         #main-usage-report .token-card { background:var(--card-bg); border:1px solid var(--border-color); border-radius:8px; padding:8px 10px; margin-bottom:6px; }
         #main-usage-report .token-card:last-child { margin-bottom:0; }
-        #main-usage-report .token-card .tk-model { font-weight:600; font-size:13px; margin-bottom:4px; color:var(--text-primary); }
+        #main-usage-report .token-card .tk-model { font-weight:600; font-size:13px; margin-bottom:4px; color:var(--text-primary); display:flex; align-items:center; gap:6px; }
+        #main-usage-report .token-card .tk-badge { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; background:var(--primary-color); color:#fff; font-size:11px; font-weight:700; flex-shrink:0; }
         #main-usage-report .token-card .tk-tokens { font-size:12px; color:var(--text-secondary); }
         #main-usage-report .token-card .tk-tokens span { margin-right:12px; }
         #main-usage-report .token-card .tk-cache { color:var(--accent-color); }
@@ -190,12 +191,12 @@
         #main-usage-report .report-pagination button:hover { border-color:var(--primary-color); color:var(--primary-color); }
         #main-usage-report .report-pagination button:disabled { opacity:0.4; cursor:default; }
         #main-usage-report .chart-title { font-size:12px; font-weight:600; color:var(--text-secondary); padding:6px 0 4px; flex-shrink:0; }
+        #main-usage-report .chart-title-row { display:flex; align-items:center; justify-content:space-between; padding:6px 0 4px; flex-shrink:0; gap:8px; }
+        #main-usage-report .chart-month-select { padding:2px 6px; border:1px solid var(--border-color); border-radius:5px; background:var(--card-bg); color:var(--text-primary); font-size:11px; font-family:inherit; cursor:pointer; }
         #main-usage-report .chart-wrap { flex:1; position:relative; border:1px solid var(--border-color); border-radius:8px; padding:6px; background:var(--bg-color); overflow:hidden; min-height:100px; max-height:200px; }
         #main-usage-report .chart-wrap canvas { width:100%; height:100%; display:block; }
         #main-usage-report .chart-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--text-secondary); pointer-events:none; }
-        #main-usage-report .chart-marker-legend { flex-shrink:0; padding:6px 0 0; display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; line-height:1.6; }
-        #main-usage-report .chart-marker-legend .ml-item { color:var(--text-primary); white-space:nowrap; }
-        #main-usage-report .chart-marker-legend .ml-marker { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:3px; background:var(--primary-color); color:#fff; font-size:10px; font-weight:700; margin-right:4px; vertical-align:middle; }
+
         @media (max-width:768px) {
             #main-usage-report .report-summary { flex-direction:column; }
             #main-usage-report .tab-bar { margin:0 12px; }
@@ -463,10 +464,14 @@
                     <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
                 </a>
             </div>
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0;">
-                <button id="themeToggle" onclick="toggleTheme()" title="切换夜间模式" style="background: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.5rem 0;">
+                <button id="themeToggle" onclick="toggleTheme()" title="common.theme.toggle_title" data-i18n="common.theme.toggle_title" data-i18n-attr="title" style="background: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
                     <i id="themeToggleIcon" class="fas fa-moon"></i>
-                    <span id="themeToggleText" style="font-size: 0.75rem;">夜间模式</span>
+                    <span id="themeToggleText" data-i18n="common.theme.dark" style="font-size: 0.75rem;">common.theme.dark</span>
+                </button>
+                <button id="langToggle" onclick="toggleLang()" title="Switch Language" style="background: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                    <i class="fas fa-language"></i>
+                    <span id="langToggleText" style="font-size: 0.75rem;">EN</span>
                 </button>
             </div>
             <div id="appBuildInfo" style="font-size: 0.75rem; color: var(--text-secondary);">
@@ -1342,7 +1347,13 @@
                             <canvas id="tokenChartCanvas"></canvas>
                             <div id="tokenChartEmpty" class="chart-empty" data-i18n="page.usage_report.chart_empty">page.usage_report.chart_empty</div>
                         </div>
-                        <div class="chart-title" data-i18n="page.usage_report.chart.daily_title">page.usage_report.chart.daily_title</div>
+                        <div class="chart-title-row">
+                            <div class="chart-title" id="dailyChartTitle" data-i18n="page.usage_report.chart.daily_title">page.usage_report.chart.daily_title</div>
+                            <div style="display:flex; gap:4px;">
+                                <select id="dailyYearSelect" class="chart-month-select"></select>
+                                <select id="dailyMonthSelect" class="chart-month-select"></select>
+                            </div>
+                        </div>
                         <div class="chart-wrap" id="dailyChartWrap">
                             <canvas id="dailyChartCanvas"></canvas>
                             <div id="dailyChartEmpty" class="chart-empty" data-i18n="page.usage_report.chart_empty">page.usage_report.chart_empty</div>
@@ -1727,13 +1738,24 @@
             localStorage.setItem('llama-hub-theme', theme);
             const icon = document.getElementById('themeToggleIcon');
             const text = document.getElementById('themeToggleText');
+            const btn = document.getElementById('themeToggle');
             if (icon && text) {
                 if (theme === 'dark') {
                     icon.className = 'fas fa-sun';
-                    text.textContent = '\u767d\u5929\u6a21\u5f0f';
+                    text.setAttribute('data-i18n', 'common.theme.light');
+                    text.textContent = t('common.theme.light', '\u767d\u5929\u6a21\u5f0f');
+                    if (btn) {
+                        btn.setAttribute('data-i18n', 'common.theme.toggle_title_light');
+                        btn.setAttribute('title', t('common.theme.toggle_title_light', '\u5207\u6362\u767d\u5929\u6a21\u5f0f'));
+                    }
                 } else {
                     icon.className = 'fas fa-moon';
-                    text.textContent = '\u591c\u95f4\u6a21\u5f0f';
+                    text.setAttribute('data-i18n', 'common.theme.dark');
+                    text.textContent = t('common.theme.dark', '\u591c\u95f4\u6a21\u5f0f');
+                    if (btn) {
+                        btn.setAttribute('data-i18n', 'common.theme.toggle_title');
+                        btn.setAttribute('title', t('common.theme.toggle_title', '\u5207\u6362\u591c\u95f4\u6a21\u5f0f'));
+                    }
                 }
             }
         }
@@ -1752,6 +1774,29 @@
             }
         }
 
+        // --- Language Toggle ---
+        function updateLangToggle() {
+            const text = document.getElementById('langToggleText');
+            const btn = document.getElementById('langToggle');
+            if (!text || !btn) return;
+            const lang = (window.I18N && window.I18N.lang) || 'zh-CN';
+            if (lang.startsWith('zh')) {
+                text.textContent = t('common.lang.toggle_text_en', 'EN');
+                btn.setAttribute('title', t('common.lang.toggle_title', '\u5207\u6362\u8bed\u8a00'));
+            } else {
+                text.textContent = t('common.lang.toggle_text_cn', '\u4e2d\u6587');
+                btn.setAttribute('title', t('common.lang.toggle_title', 'Switch language'));
+            }
+        }
+        function toggleLang() {
+            const lang = (window.I18N && window.I18N.lang) || 'zh-CN';
+            if (lang.startsWith('zh')) {
+                window.setLang('en-US');
+            } else {
+                window.setLang('zh-CN');
+            }
+        }
+
         // --- Initialization ---
         document.addEventListener('DOMContentLoaded', function() {
             initTheme();
@@ -1761,6 +1806,10 @@
             loadParamConfig();
             loadBuildInfo();
             updateChatCompletionLinkForDevice();
+        });
+
+        window.addEventListener('i18n:ready', function(e) {
+            updateLangToggle();
         });
 
         function t(key, fallback) {

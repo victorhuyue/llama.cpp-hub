@@ -219,31 +219,35 @@ jobs:
           try_download() {
             local backend="$1"
             local asset_template="$2"
-            local archive_name="$3"
-            local out_dir="$4"
-            local extract_kind="$5"
-            local optional_extra_asset="$6"
-            local optional_extra_archive="$7"
+            local extract_kind="$3"
+            local optional_extra_asset_template="$4"
             for tag in $TAGS; do
               local asset="${asset_template/\{tag\}/$tag}"
               local url="https://github.com/ggml-org/llama.cpp/releases/download/${tag}/${asset}"
               echo "[$backend] 尝试下载: $url"
-              if curl -fL -o "$archive_name" "$url"; then
+              if curl -fL -o "$asset" "$url"; then
+                local out_dir
+                if [[ "$asset" == *.tar.gz ]]; then
+                  out_dir="${asset%.tar.gz}"
+                else
+                  out_dir="${asset%.*}"
+                fi
                 mkdir -p "$out_dir"
                 if [ "$extract_kind" = "zip" ]; then
-                  unzip -q "$archive_name" -d "$out_dir"
+                  unzip -q "$asset" -d "$out_dir"
                 else
-                  tar -xzf "$archive_name" -C "$out_dir"
+                  tar -xzf "$asset" -C "$out_dir"
                 fi
-                rm -f "$archive_name"
+                rm -f "$asset"
                 flatten_one_level_dir "$out_dir"
-                if [ -n "$optional_extra_asset" ] && [ -n "$optional_extra_archive" ]; then
-                  local extra_url="https://github.com/ggml-org/llama.cpp/releases/download/${tag}/${optional_extra_asset}"
+                if [ -n "$optional_extra_asset_template" ]; then
+                  local extra_asset="${optional_extra_asset_template/\{tag\}/$tag}"
+                  local extra_url="https://github.com/ggml-org/llama.cpp/releases/download/${tag}/${extra_asset}"
                   echo "[$backend] 尝试下载附加依赖: $extra_url"
-                  if curl -fL -o "$optional_extra_archive" "$extra_url"; then
+                  if curl -fL -o "$extra_asset" "$extra_url"; then
                     mkdir -p "${out_dir}-tmp-extra"
-                    unzip -q "$optional_extra_archive" -d "${out_dir}-tmp-extra"
-                    rm -f "$optional_extra_archive"
+                    unzip -q "$extra_asset" -d "${out_dir}-tmp-extra"
+                    rm -f "$extra_asset"
                     local extra_inner
                     extra_inner=$(find "${out_dir}-tmp-extra" -maxdepth 1 -mindepth 1 -type d | head -1 || true)
                     shopt -s dotglob
@@ -258,21 +262,22 @@ jobs:
                 fi
                 echo "${backend}_TAG=$tag" >> $GITHUB_ENV
                 echo "${backend}_AVAILABLE=1" >> $GITHUB_ENV
+                echo "${backend}_DIR=$out_dir" >> $GITHUB_ENV
                 echo "[$backend] 下载完成，使用 tag: $tag"
                 return 0
               fi
-              rm -f "$archive_name" || true
+              rm -f "$asset" || true
             done
             echo "${backend}_AVAILABLE=0" >> $GITHUB_ENV
             echo "[$backend] 未找到可下载的版本，已跳过"
             return 0
           }
-          try_download "WIN_CUDA12" "llama-{tag}-bin-win-cuda-12.4-x64.zip" "llama-win-cuda12.zip" "win-cuda12" "zip" "cudart-llama-bin-win-cuda-12.4-x64.zip" "cudart-win-cuda12.zip"
-          try_download "WIN_CUDA13" "llama-{tag}-bin-win-cuda-13.1-x64.zip" "llama-win-cuda13.zip" "win-cuda13" "zip" "cudart-llama-bin-win-cuda-13.1-x64.zip" "cudart-win-cuda13.zip"
-          try_download "WIN_VULKAN" "llama-{tag}-bin-win-vulkan-x64.zip" "llama-win-vulkan.zip" "win-vulkan" "zip" "" ""
-          try_download "WIN_HIP" "llama-{tag}-bin-win-hip-radeon-x64.zip" "llama-win-hip.zip" "win-hip" "zip" "" ""
-          try_download "UBUNTU_VULKAN" "llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz" "llama-ubuntu-vulkan.tar.gz" "ubuntu-vulkan" "tar" "" ""
-          try_download "UBUNTU_ROCM72" "llama-{tag}-bin-ubuntu-rocm-7.2-x64.tar.gz" "llama-ubuntu-rocm72.tar.gz" "ubuntu-rocm72" "tar" "" ""
+          try_download "WIN_CUDA12" "llama-{tag}-bin-win-cuda-12.4-x64.zip" "zip" "cudart-llama-bin-win-cuda-12.4-x64.zip"
+          try_download "WIN_CUDA13" "llama-{tag}-bin-win-cuda-13.1-x64.zip" "zip" "cudart-llama-bin-win-cuda-13.1-x64.zip"
+          try_download "WIN_VULKAN" "llama-{tag}-bin-win-vulkan-x64.zip" "zip" ""
+          try_download "WIN_HIP" "llama-{tag}-bin-win-hip-radeon-x64.zip" "zip" ""
+          try_download "UBUNTU_VULKAN" "llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz" "tar" ""
+          try_download "UBUNTU_ROCM72" "llama-{tag}-bin-ubuntu-rocm-7.2-x64.tar.gz" "tar" ""
 
       - name: 打包（按实际下载到的后端动态生成）
         id: package
@@ -300,42 +305,42 @@ jobs:
             cp -r build build-linux-vulkan
             cp -r jre-linux/jre build-linux-vulkan/jre
             mkdir -p build-linux-vulkan/llamacpp
-            cp -r ubuntu-vulkan build-linux-vulkan/llamacpp/
+            cp -r "${UBUNTU_VULKAN_DIR}" build-linux-vulkan/llamacpp/
             make_zip "build-linux-vulkan" "llama.cpp-hub-${VERSION}-${UBUNTU_VULKAN_TAG}-linux-vulkan" "llama.cpp-hub-${VERSION}-${UBUNTU_VULKAN_TAG}-linux-vulkan.zip"
           fi
           if [ "${UBUNTU_ROCM72_AVAILABLE:-0}" = "1" ]; then
             cp -r build build-linux-rocm72
             cp -r jre-linux/jre build-linux-rocm72/jre
             mkdir -p build-linux-rocm72/llamacpp
-            cp -r ubuntu-rocm72 build-linux-rocm72/llamacpp/
+            cp -r "${UBUNTU_ROCM72_DIR}" build-linux-rocm72/llamacpp/
             make_zip "build-linux-rocm72" "llama.cpp-hub-${VERSION}-${UBUNTU_ROCM72_TAG}-linux-rocm-7.2" "llama.cpp-hub-${VERSION}-${UBUNTU_ROCM72_TAG}-linux-rocm-7.2.zip"
           fi
           if [ "${WIN_CUDA12_AVAILABLE:-0}" = "1" ]; then
             cp -r build build-win-cuda12
             cp -r jre-win/jre build-win-cuda12/jre
             mkdir -p build-win-cuda12/llamacpp
-            cp -r win-cuda12 build-win-cuda12/llamacpp/
+            cp -r "${WIN_CUDA12_DIR}" build-win-cuda12/llamacpp/
             make_zip "build-win-cuda12" "llama.cpp-hub-${VERSION}-${WIN_CUDA12_TAG}-windows-cuda12" "llama.cpp-hub-${VERSION}-${WIN_CUDA12_TAG}-windows-cuda12.zip"
           fi
           if [ "${WIN_CUDA13_AVAILABLE:-0}" = "1" ]; then
             cp -r build build-win-cuda13
             cp -r jre-win/jre build-win-cuda13/jre
             mkdir -p build-win-cuda13/llamacpp
-            cp -r win-cuda13 build-win-cuda13/llamacpp/
+            cp -r "${WIN_CUDA13_DIR}" build-win-cuda13/llamacpp/
             make_zip "build-win-cuda13" "llama.cpp-hub-${VERSION}-${WIN_CUDA13_TAG}-windows-cuda13" "llama.cpp-hub-${VERSION}-${WIN_CUDA13_TAG}-windows-cuda13.zip"
           fi
           if [ "${WIN_VULKAN_AVAILABLE:-0}" = "1" ]; then
             cp -r build build-win-vulkan
             cp -r jre-win/jre build-win-vulkan/jre
             mkdir -p build-win-vulkan/llamacpp
-            cp -r win-vulkan build-win-vulkan/llamacpp/
+            cp -r "${WIN_VULKAN_DIR}" build-win-vulkan/llamacpp/
             make_zip "build-win-vulkan" "llama.cpp-hub-${VERSION}-${WIN_VULKAN_TAG}-windows-vulkan" "llama.cpp-hub-${VERSION}-${WIN_VULKAN_TAG}-windows-vulkan.zip"
           fi
           if [ "${WIN_HIP_AVAILABLE:-0}" = "1" ]; then
             cp -r build build-win-hip
             cp -r jre-win/jre build-win-hip/jre
             mkdir -p build-win-hip/llamacpp
-            cp -r win-hip build-win-hip/llamacpp/
+            cp -r "${WIN_HIP_DIR}" build-win-hip/llamacpp/
             make_zip "build-win-hip" "llama.cpp-hub-${VERSION}-${WIN_HIP_TAG}-windows-hip" "llama.cpp-hub-${VERSION}-${WIN_HIP_TAG}-windows-hip.zip"
           fi
 

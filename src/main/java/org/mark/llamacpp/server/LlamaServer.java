@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.RandomAccessFile;
+import java.lang.management.ManagementFactory;
+import java.lang.management.RuntimeMXBean;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,6 +47,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -81,6 +84,12 @@ public class LlamaServer {
 	
 	@SuppressWarnings("unchecked")
 	public static void main(String[] args) {
+		// 先输出一下启动参数助助兴。
+		RuntimeMXBean runtimeMxBean = ManagementFactory.getRuntimeMXBean();
+        List<String> arguments = runtimeMxBean.getInputArguments();
+        for (String arg : arguments) {
+        	logger.info("JVM argument: " + arg);
+        }
 		// 这里重定向输出流
 		try {
 			Files.createDirectories(LOG_DIR);
@@ -298,6 +307,8 @@ public class LlamaServer {
 	private static final int CONSOLE_BUFFER_MAX_BYTES = 2 * 1024 * 1024;
 	private static final Object CONSOLE_BUFFER_LOCK = new Object();
 	private static final StringBuilder CONSOLE_BUFFER = new StringBuilder();
+
+
 	
 	/**
 	 * 	WebSocket地址
@@ -339,6 +350,36 @@ public class LlamaServer {
 	private static volatile String httpsKeyPath = "ssl/keystore.p12";
 	private static volatile String httpsPassword = "changeit";
 	private static volatile SslContext httpsSslContext;
+
+	/**
+	 * 	Windows 重启功能：所有 Web 服务 Netty ServerChannel 集合，
+	 * 	重启时统一关闭释放端口
+	 */
+	private static final List<Channel> webServerChannels = new ArrayList<>();
+	private static final Object CHANNEL_LOCK = new Object();
+	private static final Object RESTART_LOCK = new Object();
+
+	private static void registerWebServerChannel(Channel ch) {
+		synchronized (CHANNEL_LOCK) {
+			webServerChannels.add(ch);
+		}
+	}
+
+	/**
+	 * 	Windows 重启功能：关闭所有已注册的 Web 服务端口。
+	 */
+	private static void closeAllWebServerChannels() {
+		synchronized (CHANNEL_LOCK) {
+			for (Channel ch : webServerChannels) {
+				try {
+					ch.close().await();
+				} catch (Exception e) {
+					logger.error("关闭 Web 服务通道失败", e);
+				}
+			}
+			webServerChannels.clear();
+		}
+	}
 
 	private static volatile String nodeRole = null;
 
@@ -1053,6 +1094,7 @@ public static String getDefaultModelsPath() {
             logger.info("OpenAI服务启动成功，端口: {}", port);
             String protocol = httpsSslContext != null ? "https" : "http";
             logger.info("访问地址: {}://localhost:{}", protocol, port);
+            registerWebServerChannel(future.channel());
             
             future.channel().closeFuture().sync();
         } catch (InterruptedException e) {
@@ -1580,6 +1622,53 @@ public static String getDefaultModelsPath() {
 	}
 	
 	/**
+	 * 	Windows 重启功能：先停止 Web 服务（释放端口 + 断开远程节点），
+	 * 	再停止全部模型，最后通过 ProcessBuilder 自举一个新 JVM 进程
+	 * 	并退出当前 JVM。使用 RESTART_LOCK 防止并发调用。
+	 */
+	public static void restartApplication() {
+		synchronized (RESTART_LOCK) {
+			logger.info("准备重启程序...");
+			try {
+				// 1. 关闭所有 Web 服务端口
+				LlamaServer.closeAllWebServerChannels();
+				// 停掉动态兼容服务
+				Ollama.getInstance().stop();
+				LMStudio.getInstance().stop();
+				LlamaServer.stopMcpServerListener();
+				// 断开远程节点连接
+				NodeManager.getInstance().shutdown();
+
+				// 2. 停止所有模型（阻塞等待）
+				LlamaServerManager.getInstance().shutdownAll();
+
+				// 3. 拉起新进程
+				RuntimeMXBean mx = ManagementFactory.getRuntimeMXBean();
+				List<String> jvmArgs = mx.getInputArguments();
+				String classpath = System.getProperty("java.class.path");
+				boolean isWindows = System.getProperty("os.name").toLowerCase().startsWith("windows");
+				String javaBin = System.getProperty("java.home") + File.separator + "bin"
+						+ File.separator + (isWindows ? "java.exe" : "java");
+
+				List<String> cmd = new ArrayList<>();
+				cmd.add(javaBin);
+				cmd.addAll(jvmArgs);
+				cmd.add("-classpath");
+				cmd.add(classpath);
+				cmd.add("org.mark.llamacpp.server.LlamaServer");
+
+				new ProcessBuilder(cmd).inheritIO().start();
+				logger.info("重启进程已启动");
+			} catch (Exception e) {
+				// 失败了就别重启了
+				logger.error("重启失败", e);
+				return;
+			}
+			System.exit(0);
+		}
+	}
+
+	/**
 	 * 	创建系统托盘。
 	 */
 	private static void createWindowsSystemTray() {
@@ -1598,6 +1687,9 @@ public static String getDefaultModelsPath() {
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
+			});
+			tray.addButton("重启程序", () -> {
+				LlamaServer.restartApplication();
 			});
 			tray.addSeparator();
 			tray.addButton("退出程序", () -> {

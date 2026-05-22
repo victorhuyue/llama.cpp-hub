@@ -16,13 +16,12 @@ import java.awt.Rectangle;
 import java.awt.SystemTray;
 import java.awt.Toolkit;
 import java.awt.TrayIcon;
-import java.awt.Window;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.awt.image.BufferedImage;
 import java.awt.geom.AffineTransform;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.URL;
 import java.util.Map;
@@ -32,12 +31,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.imageio.ImageIO;
+import javax.swing.JDialog;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
-import javax.swing.JWindow;
 import javax.swing.SwingUtilities;
-import javax.swing.event.PopupMenuEvent;
-import javax.swing.event.PopupMenuListener;
 
 public class WindowsTray {
 
@@ -51,7 +48,7 @@ public class WindowsTray {
     private final Map<String, JMenuItem> menuItems = new ConcurrentHashMap<>();
 
     private volatile TrayIcon trayIcon;
-    private volatile JWindow popupHost;
+    private volatile JDialog popupHost;
     private volatile JPopupMenu popupMenu;
     private volatile Runnable defaultAction;
 
@@ -108,7 +105,7 @@ public class WindowsTray {
 
     public void addSeparator() {
         runOnEdt(() -> {
-            ensureSwingInitialized();
+            ensureInitialized();
             popupMenu.addSeparator();
         });
     }
@@ -124,7 +121,7 @@ public class WindowsTray {
     }
 
     private void addButtonInternal(String id, String text, Runnable onClick) {
-        ensureSwingInitialized();
+        ensureInitialized();
         JMenuItem item = new JMenuItem(text);
         item.addActionListener(e -> onClick.run());
         JMenuItem previous = menuItems.put(id, item);
@@ -132,34 +129,28 @@ public class WindowsTray {
             popupMenu.remove(previous);
         }
         popupMenu.add(item);
-        popupMenu.revalidate();
-        popupMenu.repaint();
     }
 
     private void removeButtonInternal(String id) {
-        ensureSwingInitialized();
+        ensureInitialized();
         JMenuItem item = menuItems.remove(id);
         if (item == null) {
             return;
         }
         popupMenu.remove(item);
-        popupMenu.revalidate();
-        popupMenu.repaint();
     }
 
     private void clearButtonsInternal() {
-        ensureSwingInitialized();
+        ensureInitialized();
         popupMenu.removeAll();
         menuItems.clear();
-        popupMenu.revalidate();
-        popupMenu.repaint();
     }
 
     private void startInternal(String tooltip) {
         if (!started.compareAndSet(false, true)) {
             return;
         }
-        ensureSwingInitialized();
+        ensureInitialized();
 
         Image iconImage;
         try {
@@ -174,12 +165,16 @@ public class WindowsTray {
         newTrayIcon.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                handleMouseEvent(e);
+                if (e.isPopupTrigger()) {
+                    showPopupAt(e.getXOnScreen(), e.getYOnScreen());
+                }
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                handleMouseEvent(e);
+                if (e.isPopupTrigger()) {
+                    showPopupAt(e.getXOnScreen(), e.getYOnScreen());
+                }
             }
 
             @Override
@@ -189,13 +184,6 @@ public class WindowsTray {
                     if (action != null) {
                         SwingUtilities.invokeLater(action);
                     }
-                }
-            }
-
-            private void handleMouseEvent(MouseEvent e) {
-                if (e.isPopupTrigger() || e.getButton() == MouseEvent.BUTTON3) {
-                    Point p = getPopupAnchorPoint(e);
-                    showPopupAt(p.x, p.y);
                 }
             }
         });
@@ -217,7 +205,7 @@ public class WindowsTray {
         this.trayIcon = null;
         this.started.set(false);
 
-        JWindow host = this.popupHost;
+        JDialog host = this.popupHost;
         if (host != null) {
             host.setVisible(false);
             host.dispose();
@@ -227,19 +215,18 @@ public class WindowsTray {
         this.menuItems.clear();
     }
 
-    private void ensureSwingInitialized() {
+    private void ensureInitialized() {
         if (popupMenu != null && popupHost != null) {
             return;
         }
         popupMenu = new JPopupMenu();
 
-        JWindow host = new JWindow((Window) null);
-        host.setAlwaysOnTop(true);
+        JDialog host = new JDialog();
+        host.setUndecorated(true);
         host.setFocusableWindowState(true);
-        host.setAutoRequestFocus(true);
-        host.setType(Window.Type.POPUP);
+        host.setAlwaysOnTop(true);
+        host.setContentPane(new javax.swing.JPanel());
         host.getContentPane().setLayout(new BorderLayout());
-        host.setSize(1, 1);
 
         host.addWindowFocusListener(new WindowAdapter() {
             @Override
@@ -248,50 +235,34 @@ public class WindowsTray {
             }
         });
 
-        popupMenu.addPopupMenuListener(new PopupMenuListener() {
-            @Override
-            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
-            }
-
-            @Override
-            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
-                host.setVisible(false);
-            }
-
-            @Override
-            public void popupMenuCanceled(PopupMenuEvent e) {
-                host.setVisible(false);
-            }
-        });
-
         this.popupHost = host;
     }
 
-    private void showPopupAt(int screenX, int screenY) {
-        ensureSwingInitialized();
-        JWindow host = this.popupHost;
+    private void showPopupAt(int rawX, int rawY) {
+        ensureInitialized();
+        JDialog host = this.popupHost;
         JPopupMenu menu = this.popupMenu;
         if (host == null || menu == null) {
             return;
         }
 
+        Point adjusted = adjustDpi(rawX, rawY);
         Dimension menuSize = menu.getPreferredSize();
-        Point location = calculatePopupLocation(screenX, screenY, menuSize);
+        Point location = clampToScreen(adjusted.x, adjusted.y, menuSize);
+
         host.setLocation(location);
+        host.setSize(menuSize.width + 4, menuSize.height + 4);
         host.setVisible(true);
         host.toFront();
-        menu.show(host.getContentPane(), 0, 0);
-        menu.requestFocusInWindow();
+        host.requestFocusInWindow();
+        menu.show(host.getContentPane(), 2, 2);
     }
 
-    private static Point getPopupAnchorPoint(MouseEvent e) {
-        int ex = e.getXOnScreen();
-        int ey = e.getYOnScreen();
-
+    private static Point adjustDpi(int rawX, int rawY) {
         PointerInfo pointerInfo = MouseInfo.getPointerInfo();
         Point mousePoint = pointerInfo == null ? null : pointerInfo.getLocation();
         if (mousePoint == null) {
-            return new Point(ex, ey);
+            return new Point(rawX, rawY);
         }
 
         GraphicsConfiguration gc = findGraphicsConfiguration(mousePoint.x, mousePoint.y);
@@ -302,18 +273,18 @@ public class WindowsTray {
             return mousePoint;
         }
 
-        Point eventAsUser = new Point((int) Math.round(ex / sx), (int) Math.round(ey / sy));
+        Point eventAsUser = new Point((int) Math.round(rawX / sx), (int) Math.round(rawY / sy));
         double dUser = mousePoint.distance(eventAsUser);
-        double dRaw = mousePoint.distance(ex, ey);
+        double dRaw = mousePoint.distance(rawX, rawY);
 
-        return dUser <= dRaw ? eventAsUser : new Point(ex, ey);
+        return dUser <= dRaw ? eventAsUser : new Point(rawX, rawY);
     }
 
-    private static Point calculatePopupLocation(int screenX, int screenY, Dimension popupSize) {
-        int width = popupSize == null ? 0 : popupSize.width;
-        int height = popupSize == null ? 0 : popupSize.height;
+    private static Point clampToScreen(int x, int y, Dimension size) {
+        int w = size == null ? 0 : size.width;
+        int h = size == null ? 0 : size.height;
 
-        GraphicsConfiguration gc = findGraphicsConfiguration(screenX, screenY);
+        GraphicsConfiguration gc = findGraphicsConfiguration(x, y);
         Rectangle bounds = gc.getBounds();
         Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(gc);
 
@@ -322,24 +293,21 @@ public class WindowsTray {
         int usableW = bounds.width - insets.left - insets.right;
         int usableH = bounds.height - insets.top - insets.bottom;
 
-        int x = screenX;
-        int y = screenY;
-
-        if (width > 0) {
-            x = Math.min(x, usableX + usableW - width);
-        }
-        if (height > 0) {
-            y = Math.min(y, usableY + usableH - height);
-        }
-
         x = Math.max(x, usableX);
         y = Math.max(y, usableY);
+
+        if (w > 0) {
+            x = Math.min(x, usableX + usableW - w);
+        }
+        if (h > 0) {
+            y = Math.min(y, usableY + usableH - h);
+        }
 
         return new Point(x, y);
     }
 
-    private static GraphicsConfiguration findGraphicsConfiguration(int screenX, int screenY) {
-        Point p = new Point(screenX, screenY);
+    private static GraphicsConfiguration findGraphicsConfiguration(int x, int y) {
+        Point p = new Point(x, y);
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
         for (GraphicsDevice device : ge.getScreenDevices()) {
             GraphicsConfiguration gc = device.getDefaultConfiguration();

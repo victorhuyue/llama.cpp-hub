@@ -104,15 +104,38 @@ public class ModelPathController implements BaseController {
 				return;
 			}
 			normalized = validated.toString();
-			boolean exists = false;
+			if (this.isVolumeRoot(validated)) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("不允许添加卷根目录"));
+				return;
+			}
+			boolean conflict = false;
 			for (ModelPathDataStruct i : items) {
-				if (i != null && i.getPath() != null && this.isSamePath(normalized, i.getPath().trim())) {
-					exists = true;
+				if (i == null || i.getPath() == null) continue;
+				String existing = i.getPath().trim();
+				Path existingPath = Paths.get(existing).toAbsolutePath().normalize();
+				if (this.isSamePath(normalized, existing)) {
+					conflict = true;
 					break;
 				}
+				try {
+					if (validated.startsWith(existingPath) || existingPath.startsWith(validated)) {
+						conflict = true;
+						break;
+					}
+				} catch (Exception ignore) {
+				}
 			}
-			if (exists) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("路径已存在"));
+			if (!conflict) {
+				Path defaultModelsPath = Paths.get(LlamaServer.getDefaultModelsPath()).toAbsolutePath().normalize();
+				try {
+					if (validated.equals(defaultModelsPath) || validated.startsWith(defaultModelsPath) || defaultModelsPath.startsWith(validated)) {
+						conflict = true;
+					}
+				} catch (Exception ignore) {
+				}
+			}
+			if (conflict) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("路径已存在或与其他路径重叠"));
 				return;
 			}
 			ModelPathDataStruct item = new ModelPathDataStruct();
@@ -261,17 +284,39 @@ public class ModelPathController implements BaseController {
 
 			boolean pathChanged = !this.isSamePath(originalNormalized, newNormalized);
 			if (pathChanged) {
+				if (this.isVolumeRoot(validated)) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("不允许添加卷根目录"));
+					return;
+				}
 				for (ModelPathDataStruct i : items) {
 					if (i == null || i.getPath() == null) continue;
 					if (i == target) continue;
-					if (this.isSamePath(newNormalized, i.getPath().trim())) {
+					String existing = i.getPath().trim();
+					Path existingPath = Paths.get(existing).toAbsolutePath().normalize();
+					if (this.isSamePath(newNormalized, existing)) {
 						LlamaServer.sendJsonResponse(ctx, ApiResponse.error("路径已存在"));
 						return;
+				}
+				try {
+					if (validated.startsWith(existingPath) || existingPath.startsWith(validated)) {
+						LlamaServer.sendJsonResponse(ctx, ApiResponse.error("路径与其他路径重叠"));
+						return;
 					}
+				} catch (Exception ignore) {
 				}
 			}
+			// 也检查默认模型路径
+			Path defaultModelsPath = Paths.get(LlamaServer.getDefaultModelsPath()).toAbsolutePath().normalize();
+			try {
+				if (validated.equals(defaultModelsPath) || validated.startsWith(defaultModelsPath) || defaultModelsPath.startsWith(validated)) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("路径与其他路径重叠"));
+					return;
+				}
+			} catch (Exception ignore) {
+			}
+		}
 
-			target.setPath(newNormalized);
+		target.setPath(newNormalized);
 			if (name == null || name.trim().isEmpty()) {
 				try {
 					name = Paths.get(newNormalized).getFileName().toString();
@@ -393,14 +438,37 @@ public class ModelPathController implements BaseController {
 					continue;
 				}
 				String p = i.getPath().trim();
-				boolean exists = false;
+				Path candidate = Paths.get(p).toAbsolutePath().normalize();
+				if (this.isVolumeRoot(candidate)) {
+					continue;
+				}
+				boolean conflict = false;
 				for (ModelPathDataStruct e : paths) {
-					if (this.isSamePath(p, e.getPath().trim())) {
-						exists = true;
+					String ep = e.getPath().trim();
+					Path existingPath = Paths.get(ep).toAbsolutePath().normalize();
+					if (this.isSamePath(p, ep)) {
+						conflict = true;
 						break;
 					}
+					try {
+						if (candidate.startsWith(existingPath) || existingPath.startsWith(candidate)) {
+							conflict = true;
+							break;
+						}
+					} catch (Exception ignore) {
+					}
 				}
-				if (!exists) {
+				if (!conflict) {
+					// 也检查默认模型路径
+					Path defaultModelsPath = Paths.get(LlamaServer.getDefaultModelsPath()).toAbsolutePath().normalize();
+					try {
+						if (candidate.equals(defaultModelsPath) || candidate.startsWith(defaultModelsPath) || defaultModelsPath.startsWith(candidate)) {
+							conflict = true;
+						}
+					} catch (Exception ignore) {
+					}
+				}
+				if (!conflict) {
 					paths.add(i);
 				}
 			}
@@ -487,6 +555,12 @@ public class ModelPathController implements BaseController {
 		}
 	}
 	
+	private boolean isVolumeRoot(Path p) {
+		if (p == null) return false;
+		Path root = p.getRoot();
+		return root != null && p.equals(root);
+	}
+
 	private boolean pathHasSymlink(Path p) {
 		if (p == null) return false;
 		try {

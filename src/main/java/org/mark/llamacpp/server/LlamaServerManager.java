@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -160,7 +161,23 @@ public class LlamaServerManager {
 						if (item == null || item.getPath() == null) continue;
 						String p = item.getPath().trim();
 						if (p.isEmpty()) continue;
-						// 判断路径是否存在
+						try {
+							Path candidate = Paths.get(p).toAbsolutePath().normalize();
+							// 拒绝卷根目录
+							Path root = candidate.getRoot();
+							if (root != null && candidate.equals(root)) continue;
+							// 拒绝与已添加路径重叠
+							boolean conflict = false;
+							for (ModelPathDataStruct existing : paths) {
+								String ep = existing.getPath().trim();
+								Path existingPath = Paths.get(ep).toAbsolutePath().normalize();
+								if (candidate.equals(existingPath)) { conflict = true; break; }
+								if (candidate.startsWith(existingPath) || existingPath.startsWith(candidate)) { conflict = true; break; }
+							}
+							if (conflict) continue;
+						} catch (Exception e) {
+							continue;
+						}
 						paths.add(item);
 					}
 				}
@@ -275,14 +292,42 @@ public class LlamaServerManager {
                 List<ModelPathDataStruct> list = new ArrayList<>(this.modelPaths);
                 // 扫描默认目录
                 list.add(new ModelPathDataStruct(LlamaServer.getDefaultModelsPath(), "", ""));
-                
+
+                // 归一化路径，去重（卷根、重复、子目录重叠）
+                List<Path> scannedRoots = new ArrayList<>();
                 for (ModelPathDataStruct root : list) {
                     if (root == null || root.getPath().trim().isEmpty()) continue;
-                    Path modelDir = Paths.get(root.getPath().trim());
+                    Path modelDir;
+                    try {
+                        modelDir = Paths.get(root.getPath().trim()).toAbsolutePath().normalize();
+                    } catch (Exception e) {
+                        continue;
+                    }
                     if (!Files.exists(modelDir) || !Files.isDirectory(modelDir)) {
                         continue;
                     }
-                    try (Stream<Path> paths = Files.walk(modelDir)) {
+                    // 拒绝卷根
+                    Path r = modelDir.getRoot();
+                    if (r != null && modelDir.equals(r)) {
+                        continue;
+                    }
+                    // 跳过是已扫描路径子目录的路径
+                    boolean dominated = false;
+                    for (Path scanned : scannedRoots) {
+                        if (modelDir.equals(scanned) || modelDir.startsWith(scanned)) {
+                            dominated = true;
+                            break;
+                        }
+                    }
+                    if (dominated) continue;
+                    scannedRoots.add(modelDir);
+                }
+
+                // 按路径长度升序排列，短路径优先扫描
+                scannedRoots.sort(Comparator.comparing(p -> p.toString().length()));
+
+                for (Path modelDir : scannedRoots) {
+                    try (Stream<Path> paths = Files.walk(modelDir, 5)) {
                         List<Path> files = paths.filter(Files::isDirectory).sorted().toList();
                         for (Path e : files) {
                             GGUFModel model = this.handleDirectory(e);

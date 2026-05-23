@@ -345,7 +345,7 @@ public class CommandLineRunner {
 			// 一般来说，ROCm会装在这里：C:\Program Files\AMD\ROCm
 			addExistingDir(paths, exeDir.getAbsolutePath());
 			addWindowsRocmDirs(paths);
-			addWindowsCudartDirs(paths, exeDir.getAbsolutePath());
+			addWindowsCudartDirs(paths, exeDir.getAbsolutePath(), env);
 			prependWindowsPath(env, paths);
 			
 			return;
@@ -442,7 +442,7 @@ public class CommandLineRunner {
 		}
 	}
 
-	private static void addWindowsCudartDirs(List<String> paths, String exeDirPath) {
+	private static void addWindowsCudartDirs(List<String> paths, String exeDirPath, Map<String, String> env) {
 		if (exeDirPath != null && hasCudartDlls(exeDirPath)) {
 			return;
 		}
@@ -463,6 +463,23 @@ public class CommandLineRunner {
 			}
 		} catch (IOException e) {
 			// 扫描 cudart 目录失败，静默跳过
+		}
+
+		String cudaPathKey = findKeyIgnoreCase(env, "CUDA_PATH");
+		if (cudaPathKey != null) {
+			String cudaPath = env.get(cudaPathKey);
+			if (cudaPath != null && !cudaPath.isBlank()) {
+				addExistingDir(paths, new File(cudaPath, "bin").getAbsolutePath());
+			}
+		}
+
+		File nvidiaCudaRoot = new File("C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA");
+		File[] cudaVersions = nvidiaCudaRoot.listFiles(File::isDirectory);
+		if (cudaVersions != null) {
+			Arrays.sort(cudaVersions, Comparator.comparing(File::getName).reversed());
+			for (File ver : cudaVersions) {
+				addExistingDir(paths, new File(ver, "bin").getAbsolutePath());
+			}
 		}
 	}
 

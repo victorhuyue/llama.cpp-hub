@@ -23,6 +23,7 @@
     }
 
     async function load() {
+        init();
         await initMonthSelectors();
         await Promise.all([fetchTokenSummary(), fetchRequestLogs(), fetchDailyTokens()]);
 
@@ -323,7 +324,7 @@
         const ctx = canvasEl.getContext('2d');
         const rect = wrapEl.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        const w = rect.width - 16, h = rect.height - 16;
+        const w = rect.width, h = rect.height;
         if (w <= 0 || h <= 0) return;
         canvasEl.width = w * dpr; canvasEl.height = h * dpr;
         canvasEl.style.width = w + 'px'; canvasEl.style.height = h + 'px';
@@ -422,7 +423,7 @@
         const ctx = canvasEl.getContext('2d');
         const rect = wrapEl.getBoundingClientRect();
         const dpr = window.devicePixelRatio || 1;
-        const w = rect.width - 16, h = rect.height - 16;
+        const w = rect.width, h = rect.height;
         if (w <= 0 || h <= 0) return;
         canvasEl.width = w * dpr; canvasEl.height = h * dpr;
         canvasEl.style.width = w + 'px'; canvasEl.style.height = h + 'px';
@@ -654,6 +655,17 @@
     function init() {
         if (_initialized) return;
         _initialized = true;
+
+        const observer = new ResizeObserver(() => {
+            if (document.getElementById('panel-token-summary')?.classList.contains('active')) {
+                renderTokenSummary();
+                renderDailyChart();
+            }
+        });
+        const tw = document.getElementById('tokenChartWrap');
+        const dw = document.getElementById('dailyChartWrap');
+        if (tw) observer.observe(tw);
+        if (dw) observer.observe(dw);
     }
 
     window.UsageReport = {

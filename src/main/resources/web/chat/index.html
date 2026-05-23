@@ -248,6 +248,21 @@
                   </span>
                 </label>
               </div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.general.stream_render_label">流式渲染</label>
+                </div>
+                <label class="settings-toggle">
+                  <div class="settings-toggle-text">
+                    <span data-i18n="page.chat.main.settings.general.stream_render_toggle">实时渲染 Markdown</span>
+                    <span class="settings-field-desc" data-i18n="page.chat.main.settings.general.stream_render_desc">开启后会在传输过程中持续解析 Markdown；关闭后仅在传输结束时进行完整渲染。</span>
+                  </div>
+                  <span class="toggle-switch">
+                    <input id="streamRenderToggle" type="checkbox" checked>
+                    <span class="toggle-slider"></span>
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -427,6 +442,7 @@
       frequencyPenalty: '',
       stopSequences: '',
       stream: true,
+      streamRender: true,
       enableThinking: false,
       systemPrompt: '',
       mcpServerUrls: [],
@@ -519,6 +535,7 @@
       frequencyPenaltyInput: document.getElementById('frequencyPenaltyInput'),
       stopSequencesInput: document.getElementById('stopSequencesInput'),
       streamToggle: document.getElementById('streamToggle'),
+      streamRenderToggle: document.getElementById('streamRenderToggle'),
       systemPromptInput: document.getElementById('systemPromptInput'),
       conversationAssistantSelect: document.getElementById('conversationAssistantSelect'),
       settingsConversationAssistantSelect: document.getElementById('settingsConversationAssistantSelect'),
@@ -938,19 +955,44 @@
       return text;
     }
 
+    function normalizeMarkdownForStreaming(text) {
+      const source = String(text ?? '');
+      const lines = source.split(/\r?\n/);
+      let openFence = '';
+      for (const line of lines) {
+        const match = line.match(/^ {0,3}(`{3,}|~{3,})/);
+        if (!match) {
+          continue;
+        }
+        const marker = match[1];
+        if (!openFence) {
+          openFence = marker;
+          continue;
+        }
+        if (marker.charAt(0) === openFence.charAt(0) && marker.length >= openFence.length) {
+          openFence = '';
+        }
+      }
+      if (!openFence) {
+        return source;
+      }
+      return source + '\n' + openFence;
+    }
+
     function renderMarkdown(text) {
       const source = String(text ?? '');
       if (!window.marked || typeof window.marked.parse !== 'function') {
         return escapeHtml(source).replace(/\n/g, '<br>');
       }
-      const protectedMath = protectMathSegments(source);
+      const protectedMath = protectMathSegments(normalizeMarkdownForStreaming(source));
       let rendered = '';
       try {
         rendered = window.marked.parse(/*fixEmphasisSpacing*/(protectedMath.text), {
           gfm: true,
           breaks: true,
           mangle: false,
-          headerIds: false
+          headerIds: false,
+          sanitize: true
         });
       } catch (error) {
         return escapeHtml(source).replace(/\n/g, '<br>');
@@ -1024,9 +1066,8 @@
        }
      }
 
-    // ── Streaming Markdown Render（混合追加：先渲染 markdown，新 token 以 TextNode 追加，定期重渲染）──
-    const STREAMING_RENDER_CHAR_THRESHOLD = 50;
-    const STREAMING_RENDER_MS_THRESHOLD = 500;
+    // Streaming content is re-rendered as full markdown per animation frame so
+    // fenced code blocks and HTML snippets stay inside the correct DOM context.
     const streamingRenderCache = new WeakMap();
 
     function getStreamingState(target) {
@@ -1035,43 +1076,44 @@
 
     function clearStreamingCache(target) {
       if (!target) return;
+      const state = getStreamingState(target);
+      if (state && state.frameId) {
+        cancelAnimationFrame(state.frameId);
+      }
       streamingRenderCache.delete(target);
       target.style.removeProperty('white-space');
       target.style.removeProperty('word-break');
     }
 
+    function flushStreamingMarkdown(target) {
+      const state = getStreamingState(target);
+      if (!target || !state) return;
+      state.frameId = 0;
+      if (state.renderedText === state.pendingText) {
+        return;
+      }
+      target.innerHTML = renderMarkdown(state.pendingText);
+      state.renderedText = state.pendingText;
+    }
+
     function renderStreamingMarkdown(target, fullText) {
       if (!target) return;
-      const full = String(fullText || '');
+      const full = String(fullText ?? '');
       let state = getStreamingState(target);
 
       if (!state) {
-        target.innerHTML = renderMarkdown(full);
-        const textNode = document.createTextNode('');
-        target.appendChild(textNode);
-        streamingRenderCache.set(target, { totalLen: full.length, renderedLen: full.length, textNode, lastRenderMs: Date.now() });
-        return;
+        state = { pendingText: '', renderedText: '', frameId: 0 };
+        streamingRenderCache.set(target, state);
       }
 
-      const delta = full.slice(state.totalLen);
-      if (!delta) return;
+      if (state.pendingText === full) return;
+      state.pendingText = full;
+      if (state.frameId) return;
+      state.frameId = requestAnimationFrame(() => flushStreamingMarkdown(target));
+    }
 
-      state.textNode.appendData(delta);
-      state.totalLen = full.length;
-
-      const now = Date.now();
-      const pendingLen = full.length - state.renderedLen;
-      const shouldRerender = pendingLen >= STREAMING_RENDER_CHAR_THRESHOLD
-        || (now - state.lastRenderMs) >= STREAMING_RENDER_MS_THRESHOLD
-        || delta.includes('```');
-
-      if (!shouldRerender) return;
-
-      target.innerHTML = renderMarkdown(full);
-      state.textNode.textContent = '';
-      target.appendChild(state.textNode);
-      state.renderedLen = full.length;
-      state.lastRenderMs = now;
+    function shouldRenderStreamingMarkdown() {
+      return !!state.streamRender;
     }
 
     function finalizeStreaming(target, fullText, role) {
@@ -1227,6 +1269,7 @@
         frequencyPenalty: typeof assistant?.frequencyPenalty === 'string' ? assistant.frequencyPenalty : typeof fallback?.frequencyPenalty === 'string' ? fallback.frequencyPenalty : '',
         stopSequences: typeof assistant?.stopSequences === 'string' ? assistant.stopSequences : typeof fallback?.stopSequences === 'string' ? fallback.stopSequences : '',
         stream: typeof assistant?.stream === 'boolean' ? assistant.stream : typeof fallback?.stream === 'boolean' ? fallback.stream : true,
+        streamRender: typeof assistant?.streamRender === 'boolean' ? assistant.streamRender : typeof fallback?.streamRender === 'boolean' ? fallback.streamRender : true,
         enableThinking: typeof assistant?.enableThinking === 'boolean' ? assistant.enableThinking : typeof fallback?.enableThinking === 'boolean' ? fallback.enableThinking : false,
         systemPrompt: typeof assistant?.systemPrompt === 'string' ? assistant.systemPrompt : typeof fallback?.systemPrompt === 'string' ? fallback.systemPrompt : '',
         mcpServerUrls: normalizeMcpAssistantUrls(assistant, fallback),
@@ -1248,6 +1291,7 @@
         frequencyPenalty: typeof saved?.frequencyPenalty === 'string' ? saved.frequencyPenalty : '',
         stopSequences: typeof saved?.stopSequences === 'string' ? saved.stopSequences : '',
         stream: typeof saved?.stream === 'boolean' ? saved.stream : true,
+        streamRender: typeof saved?.streamRender === 'boolean' ? saved.streamRender : true,
         enableThinking: typeof saved?.enableThinking === 'boolean' ? saved.enableThinking : false,
         systemPrompt: typeof saved?.systemPrompt === 'string' ? saved.systemPrompt : ''
       });
@@ -1937,6 +1981,7 @@
       state.frequencyPenalty = assistant?.frequencyPenalty || '';
       state.stopSequences = assistant?.stopSequences || '';
       state.stream = typeof assistant?.stream === 'boolean' ? assistant.stream : true;
+      state.streamRender = typeof assistant?.streamRender === 'boolean' ? assistant.streamRender : true;
       state.enableThinking = !!assistant?.enableThinking;
       state.systemPrompt = assistant?.systemPrompt || '';
       state.mcpServerUrls = normalizeMcpAssistantUrls(assistant);
@@ -1962,6 +2007,7 @@
       assistant.frequencyPenalty = state.frequencyPenalty;
       assistant.stopSequences = state.stopSequences;
       assistant.stream = !!state.stream;
+      assistant.streamRender = !!state.streamRender;
       assistant.enableThinking = !!state.enableThinking;
       assistant.systemPrompt = state.systemPrompt;
       assistant.mcpServerUrls = normalizeMcpAssistantUrls({ mcpServerUrls: state.mcpServerUrls });
@@ -2505,6 +2551,7 @@
       els.frequencyPenaltyInput.value = state.frequencyPenalty;
       els.stopSequencesInput.value = state.stopSequences;
       els.streamToggle.checked = !!state.stream;
+      els.streamRenderToggle.checked = !!state.streamRender;
       els.systemPromptInput.value = state.systemPrompt;
       resizeSystemPromptInput();
       els.searchInput.value = state.search;
@@ -2549,6 +2596,7 @@
       state.frequencyPenalty = els.frequencyPenaltyInput.value.trim();
       state.stopSequences = els.stopSequencesInput.value;
       state.stream = els.streamToggle.checked;
+      state.streamRender = els.streamRenderToggle.checked;
       state.systemPrompt = els.systemPromptInput.value;
       syncCurrentAssistantFromRuntimeState();
       renderThinkingMenu();
@@ -3140,7 +3188,12 @@
         const reasoningBody = document.createElement('div');
         reasoningBody.className = 'reasoning-body' + (message.reasoningCollapsed ? ' hidden' : '');
         if (message.isStreaming) {
-          appendStreamingText(reasoningBody, message.reasoning || '');
+          if (shouldRenderStreamingMarkdown()) {
+            appendStreamingText(reasoningBody, message.reasoning || '');
+          } else {
+            clearStreamingCache(reasoningBody);
+            renderRichText(reasoningBody, message.reasoning || '', { isStreaming: true, role: message.role });
+          }
         } else {
           renderRichText(reasoningBody, message.reasoning, { isStreaming: false });
         }
@@ -3305,7 +3358,12 @@
           const content = document.createElement('div');
           content.className = 'message-content';
           if (message.isStreaming) {
-            appendStreamingText(content, message.content || '');
+            if (shouldRenderStreamingMarkdown()) {
+              appendStreamingText(content, message.content || '');
+            } else {
+              clearStreamingCache(content);
+              renderRichText(content, message.content || '', { isStreaming: true, role: message.role });
+            }
           } else {
             renderRichText(content, message.content || '', { isStreaming: false, role: message.role });
           }
@@ -3533,7 +3591,12 @@
         reasoningBody.classList.toggle('hidden', !!message.reasoningCollapsed);
         if (!message.reasoningCollapsed) {
           if (message.isStreaming) {
-            renderStreamingMarkdown(reasoningBody, message.reasoning || '');
+            if (shouldRenderStreamingMarkdown()) {
+              renderStreamingMarkdown(reasoningBody, message.reasoning || '');
+            } else {
+              clearStreamingCache(reasoningBody);
+              renderRichText(reasoningBody, message.reasoning || '', { isStreaming: true, role: message.role });
+            }
           } else {
             finalizeStreaming(reasoningBody, message.reasoning || '', message.role);
           }
@@ -3550,7 +3613,12 @@
           bubble.appendChild(contentDiv);
         }
         if (message.isStreaming) {
-          renderStreamingMarkdown(contentDiv, message.content || '');
+          if (shouldRenderStreamingMarkdown()) {
+            renderStreamingMarkdown(contentDiv, message.content || '');
+          } else {
+            clearStreamingCache(contentDiv);
+            renderRichText(contentDiv, message.content || '', { isStreaming: true, role: message.role });
+          }
         } else {
           finalizeStreaming(contentDiv, message.content || '', message.role);
         }

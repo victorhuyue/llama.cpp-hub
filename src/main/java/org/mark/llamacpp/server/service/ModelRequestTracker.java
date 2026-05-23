@@ -26,7 +26,7 @@ public class ModelRequestTracker {
     public static ModelRequestTracker getInstance() {
         return INSTANCE;
     }
-
+    
     public String createRequest(String modelId, String endpoint) {
         String requestId = UUID.randomUUID().toString();
         ActiveRequest req = new ActiveRequest(requestId, modelId, endpoint);

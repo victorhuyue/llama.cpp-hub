@@ -379,6 +379,33 @@ public class ModelInfoController implements BaseController {
 			if (alias == null)
 				alias = "";
 			alias = alias.trim();
+			if (!alias.isEmpty()) {
+				if (alias.matches(".*[\\\\/:*?\"<>|\\x00-\\x1F].*")) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("别名包含非法字符，禁止使用: \\ / : * ? \" < > | 及控制字符"));
+					return;
+				}
+				if (alias.equals(".") || alias.equals("..")) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("别名不能为 . 或 .."));
+					return;
+				}
+				String base = alias.replaceAll("\\..*$", "").toUpperCase();
+				if (base.matches("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$")) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("别名不能使用系统保留名称"));
+					return;
+				}
+				if (alias.endsWith(" ") || alias.endsWith(".")) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("别名不能以空格或点结尾"));
+					return;
+				}
+				if (alias.length() > 255) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("别名不能超过 255 个字符"));
+					return;
+				}
+			}
+			if (LlamaServerManager.getInstance().getLoadedProcesses().containsKey(modelId)) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("模型正在运行，无法修改别名。请先停止模型"));
+				return;
+			}
 			// 更新配置文件
 			ConfigManager configManager = ConfigManager.getInstance();
 			boolean ok = configManager.saveModelAlias(modelId, alias);

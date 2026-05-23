@@ -2835,7 +2835,7 @@
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             }).then(r => r.json()).then(d => {
-                if (d.success) { showToast(t('toast.success', '成功'), t('modal.alias.saved', '别名已保存'), 'success'); closeModal('aliasModal'); refreshModels(); }
+                if (d.success) { showToast(t('toast.success', '成功'), t('modal.alias.saved', '别名已保存'), 'success'); closeModal('aliasModal'); var idx = (currentModelsData || []).findIndex(function(m) { return m && m.id === modelId && (m.nodeId || 'local') === (nodeId || 'local'); }); if (idx >= 0) { currentModelsData[idx].alias = alias; } sortAndRenderModels(); }
                 else { showToast(t('toast.error', '错误'), d.error, 'error'); }
             });
         }

@@ -180,7 +180,7 @@ function splitCmdArgs(cmd) {
             escape = false;
             continue;
         }
-        if (ch === '\\') {
+        if (ch === '\\' && quoteChar === "'") {
             escape = true;
             continue;
         }

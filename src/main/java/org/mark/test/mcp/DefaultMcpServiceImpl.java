@@ -14,6 +14,7 @@ import org.mark.test.mcp.tools.GetModelPathTool;
 import org.mark.test.mcp.tools.GetModelsTool;
 import org.mark.test.mcp.tools.GetParamInfoTool;
 import org.mark.test.mcp.tools.ReadStaticImageTool;
+import org.mark.test.mcp.tools.others.ApplicationConfigTool;
 import org.mark.test.mcp.tools.file.WriteTextFileTool;
 import org.mark.test.mcp.tools.others.GetTimeTool;
 import org.slf4j.Logger;
@@ -89,6 +90,7 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetLlamaCppInfoTool());
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetParamInfoTool());
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetMcpServiceInfoTool());
+		this.registerTool(DEFAULT_SERVICE_KEY, new ApplicationConfigTool());
 		
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetTimeTool());
 		

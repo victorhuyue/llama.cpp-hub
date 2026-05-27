@@ -1035,23 +1035,23 @@ public static String getDefaultModelsPath() {
                                 ch.pipeline()
                                 		.addLast(new SslHandler(engine))
                                         .addLast(new HttpServerCodec())
-                                       .addLast(new OpenAIChatStreamingHandler())
-                                         .addLast(new FileUploadRouterHandler())
-                                         .addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
-                                         .addLast(new ChunkedWriteHandler())
-                                         .addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, Integer.MAX_VALUE))
-                                         .addLast(new WebSocketServerHandler())
+                                		.addLast(new OpenAIChatStreamingHandler())
+                                		.addLast(new FileUploadRouterHandler())
+                                		.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
+                                		.addLast(new ChunkedWriteHandler())
+                                 		.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, Integer.MAX_VALUE))
+                                		.addLast(new WebSocketServerHandler())
 
-                                         .addLast(new BasicRouterHandler())
-                                         .addLast(new CompletionRouterHandler())
-                                         .addLast(new FileDownloadRouterHandler())
-                                         .addLast(new LlamaRouterHandler());
+                                		.addLast(new BasicRouterHandler())
+                                		.addLast(new CompletionRouterHandler())
+                                		.addLast(new FileDownloadRouterHandler())
+                                		.addLast(new LlamaRouterHandler());
                             } else {
                                 ch.pipeline()
                                         .addLast(new HttpServerCodec())
                                         .addLast(new OpenAIChatStreamingHandler())
-                                         .addLast(new FileUploadRouterHandler())
-                                         .addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
+                                		.addLast(new FileUploadRouterHandler())
+                                		.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
                                         .addLast(new ChunkedWriteHandler())
                                         .addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, Integer.MAX_VALUE))
                                         .addLast(new WebSocketServerHandler())
@@ -1064,7 +1064,7 @@ public static String getDefaultModelsPath() {
                         }
                         @Override
                         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-                        		logger.info("Failed to initialize a channel. Closing: " + ctx.channel(), cause);
+                            logger.info("Failed to initialize a channel. Closing: " + ctx.channel(), cause);
                             ctx.close();
                         }
                     });

@@ -347,6 +347,8 @@
   "modal.model_action.llamacpp_version": "Llama.cpp version",
   "modal.model_action.main_gpu": "Main GPU",
   "modal.model_action.main_gpu_desc": "Select the main GPU (optional)",
+  "modal.model_action.vram_hint_title": "VRAM Estimation Info",
+  "modal.model_action.vram_hint_desc": "VRAM estimation is calculated using the llama-fit-param program. It does not account for VRAM used by multimodal projectors (mmproj) or MTP. When using multimodal models or enabling MTP, reserve additional VRAM.",
   "modal.model_action.missing_launch_params": "Missing required launch params",
   "modal.model_action.missing_llama_bin_path": "Missing llamaBinPath",
   "modal.model_action.missing_model_id": "Missing required modelId parameter",

@@ -1,6 +1,7 @@
 package org.mark.llamacpp.crawler;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -18,6 +19,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -579,6 +582,484 @@ public final class NettyHttpUtils {
         @Override
         public void channelInactive(ChannelHandlerContext ctx) {
             if (!future.isDone()) {
+                future.completeExceptionally(new IOException("Connection closed unexpectedly"));
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Streaming download to file
+    // -----------------------------------------------------------------------
+
+    /**
+     * Progress callback for file download.
+     */
+    public interface ProgressListener {
+        void onProgress(long downloaded, long total);
+    }
+
+    /**
+     * Starts building a streaming file download request.
+     */
+    public static DownloadToFileRequest downloadToFile(String url) {
+        return new DownloadToFileRequest(url);
+    }
+
+    /**
+     * Fluent builder for streaming HTTP download directly to a file.
+     * Bypasses the aggregate length limit by writing chunks to disk.
+     */
+    public static class DownloadToFileRequest {
+        private final String url;
+        private Path targetFile;
+        private Duration connectTimeout = DEFAULT_CONNECT_TIMEOUT;
+        private Duration readTimeout = Duration.ofSeconds(60 * 10);
+        private final Map<String, String> headers = new LinkedHashMap<>();
+        private ProxyConfig proxyConfig;
+        private AtomicBoolean cancelled;
+        private ProgressListener progressListener;
+
+        DownloadToFileRequest(String url) {
+            this.url = url;
+        }
+
+        public DownloadToFileRequest targetFile(Path targetFile) {
+            this.targetFile = targetFile;
+            return this;
+        }
+
+        public DownloadToFileRequest connectTimeout(int seconds) {
+            this.connectTimeout = Duration.ofSeconds(seconds);
+            return this;
+        }
+
+        public DownloadToFileRequest readTimeout(int seconds) {
+            this.readTimeout = Duration.ofSeconds(seconds);
+            return this;
+        }
+
+        public DownloadToFileRequest header(String name, String value) {
+            if (name != null && value != null) {
+                headers.put(name, value);
+            }
+            return this;
+        }
+
+        public DownloadToFileRequest proxy(ProxyConfig proxyConfig) {
+            this.proxyConfig = proxyConfig;
+            return this;
+        }
+
+        public DownloadToFileRequest cancelled(AtomicBoolean cancelled) {
+            this.cancelled = cancelled;
+            return this;
+        }
+
+        public DownloadToFileRequest progressListener(ProgressListener progressListener) {
+            this.progressListener = progressListener;
+            return this;
+        }
+
+        public void execute() throws IOException {
+            try {
+                executeAsync().get(Math.max(connectTimeout.toMillis() + readTimeout.toMillis(), 600_000), TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Download interrupted", e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof IOException) {
+                    throw (IOException) cause;
+                }
+                throw new IOException("Download failed", cause);
+            } catch (TimeoutException e) {
+                throw new IOException("Download timed out", e);
+            }
+        }
+
+        public CompletableFuture<Void> executeAsync() {
+            CompletableFuture<Void> future = new CompletableFuture<>();
+
+            if (targetFile == null) {
+                future.completeExceptionally(new IOException("targetFile not set"));
+                return future;
+            }
+
+            EventLoopGroup group = new NioEventLoopGroup(1);
+            future.whenComplete((unused, throwable) -> group.shutdownGracefully());
+
+            try {
+                URI requestUri = URI.create(url);
+                String scheme = requestUri.getScheme();
+                boolean isHttps = "https".equalsIgnoreCase(scheme);
+                if (!isHttps && !"http".equalsIgnoreCase(scheme)) {
+                    future.completeExceptionally(new IOException("Unsupported scheme: " + scheme));
+                    return future;
+                }
+
+                String host = requestUri.getHost();
+                if (host == null || host.isBlank()) {
+                    future.completeExceptionally(new IOException("Invalid URL host: " + url));
+                    return future;
+                }
+
+                int parsedPort = requestUri.getPort();
+                final int port = parsedPort == -1 ? (isHttps ? 443 : 80) : parsedPort;
+
+                String requestTarget = buildTarget(requestUri, proxyConfig != null && !isHttps);
+                String hostHeader = buildHost(host, port, isHttps);
+                String connectHost = proxyConfig != null ? proxyConfig.getHost() : host;
+                int connectPort = proxyConfig != null ? proxyConfig.getPort() : port;
+
+                // Ensure parent directory exists
+                Path parent = targetFile.getParent();
+                if (parent != null && !Files.exists(parent)) {
+                    Files.createDirectories(parent);
+                }
+
+                Bootstrap bootstrap = new Bootstrap();
+                bootstrap.group(group)
+                        .channel(NioSocketChannel.class)
+                        .handler(new ChannelInitializer<SocketChannel>() {
+                            @Override
+                            protected void initChannel(SocketChannel ch) {
+                                ChannelPipeline pipeline = ch.pipeline();
+                                pipeline.addLast(new ReadTimeoutHandler(readTimeout.toMillis(), TimeUnit.MILLISECONDS));
+
+                                if (proxyConfig != null && isHttps) {
+                                    pipeline.addLast(new HttpClientCodec());
+                                    pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
+                                    pipeline.addLast(new DownloadConnectProxyHandler(
+                                            requestTarget, hostHeader, host, port,
+                                            proxyConfig, headers, targetFile, cancelled, progressListener,
+                                            future, readTimeout));
+                                } else {
+                                    if (isHttps) {
+                                        try {
+                                            SSLContext sslContext = SSLContext.getDefault();
+                                            SSLEngine sslEngine = sslContext.createSSLEngine(host, port);
+                                            sslEngine.setUseClientMode(true);
+                                            pipeline.addLast(new SslHandler(sslEngine));
+                                        } catch (Exception e) {
+                                            future.completeExceptionally(new IOException("Failed to create SSL context", e));
+                                            return;
+                                        }
+                                    }
+                                    pipeline.addLast(new HttpClientCodec());
+                                    pipeline.addLast(new DownloadToFileHandler(
+                                            host, hostHeader, requestTarget, proxyConfig, headers,
+                                            targetFile, cancelled, progressListener, future, readTimeout, isHttps));
+                                }
+                            }
+                        })
+                        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) connectTimeout.toMillis());
+
+                ChannelFuture connectFuture = bootstrap.connect(connectHost, connectPort);
+                connectFuture.addListener((GenericFutureListener<ChannelFuture>) f -> {
+                    if (!f.isSuccess()) {
+                        future.completeExceptionally(new IOException("Failed to connect", f.cause()));
+                    }
+                });
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+            }
+            return future;
+        }
+
+        private String buildTarget(URI uri, boolean absoluteForm) {
+            String rawPath = uri.getRawPath();
+            if (rawPath == null || rawPath.isEmpty()) {
+                rawPath = "/";
+            }
+            if (uri.getRawQuery() != null && !uri.getRawQuery().isEmpty()) {
+                rawPath += "?" + uri.getRawQuery();
+            }
+            if (!absoluteForm) {
+                return rawPath;
+            }
+            String authority = uri.getRawAuthority();
+            if (authority == null || authority.isBlank()) {
+                authority = buildHost(uri.getHost(), uri.getPort() == -1 ? ("https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80) : uri.getPort(),
+                        "https".equalsIgnoreCase(uri.getScheme()));
+            }
+            return uri.getScheme() + "://" + authority + rawPath;
+        }
+
+        private String buildHost(String host, int port, boolean isHttps) {
+            int defaultPort = isHttps ? 443 : 80;
+            return port == defaultPort ? host : host + ":" + port;
+        }
+    }
+
+    /**
+     * Handles CONNECT tunnel for download through HTTPS proxy.
+     */
+    private static class DownloadConnectProxyHandler extends ChannelInboundHandlerAdapter {
+        private final String requestTarget;
+        private final String hostHeader;
+        private final String targetHost;
+        private final int targetPort;
+        private final ProxyConfig proxyConfig;
+        private final Map<String, String> headers;
+        private final Path targetFile;
+        private final AtomicBoolean cancelled;
+        private final ProgressListener progressListener;
+        private final CompletableFuture<Void> future;
+        private final Duration readTimeout;
+
+        DownloadConnectProxyHandler(String requestTarget, String hostHeader, String targetHost, int targetPort,
+                                    ProxyConfig proxyConfig, Map<String, String> headers,
+                                    Path targetFile, AtomicBoolean cancelled, ProgressListener progressListener,
+                                    CompletableFuture<Void> future, Duration readTimeout) {
+            this.requestTarget = requestTarget;
+            this.hostHeader = hostHeader;
+            this.targetHost = targetHost;
+            this.targetPort = targetPort;
+            this.proxyConfig = proxyConfig;
+            this.headers = headers;
+            this.targetFile = targetFile;
+            this.cancelled = cancelled;
+            this.progressListener = progressListener;
+            this.future = future;
+            this.readTimeout = readTimeout;
+        }
+
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) {
+            FullHttpRequest connectRequest = new DefaultFullHttpRequest(
+                    HttpVersion.HTTP_1_1, HttpMethod.CONNECT, targetHost + ":" + targetPort);
+            connectRequest.headers().set(HttpHeaderNames.HOST, targetHost + ":" + targetPort);
+            if (proxyConfig != null && proxyConfig.hasAuth()) {
+                String credentials = proxyConfig.getUsername() + ":" + proxyConfig.getPassword();
+                String encoded = java.util.Base64.getEncoder()
+                        .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+                connectRequest.headers().set(HttpHeaderNames.PROXY_AUTHORIZATION, "Basic " + encoded);
+            }
+            ctx.writeAndFlush(connectRequest);
+        }
+
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            if (msg instanceof FullHttpResponse) {
+                FullHttpResponse response = (FullHttpResponse) msg;
+                int status = response.status().code();
+                response.release();
+
+                if (status == 200) {
+                    ctx.pipeline().remove(this);
+                    ctx.pipeline().remove(HttpClientCodec.class);
+                    ctx.pipeline().remove(HttpObjectAggregator.class);
+                    try {
+                        SSLContext sslContext = SSLContext.getDefault();
+                        SSLEngine sslEngine = sslContext.createSSLEngine(targetHost, targetPort);
+                        sslEngine.setUseClientMode(true);
+                        ctx.pipeline().addFirst(new SslHandler(sslEngine));
+                        ctx.pipeline().addLast(new HttpClientCodec());
+                        ctx.pipeline().addLast(new DownloadToFileHandler(
+                                targetHost, hostHeader, requestTarget, null, headers,
+                                targetFile, cancelled, progressListener, future, readTimeout, true));
+                    } catch (Exception e) {
+                        future.completeExceptionally(new IOException("Failed to establish SSL tunnel", e));
+                    }
+                } else {
+                    future.completeExceptionally(new IOException("CONNECT failed: " + status));
+                }
+            }
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            future.completeExceptionally(cause);
+            ctx.close();
+        }
+    }
+
+    /**
+     * Handles HTTP response and streams content directly to a file.
+     * Does NOT use HttpObjectAggregator — reads HttpContent chunks and writes to disk.
+     */
+    private static class DownloadToFileHandler extends SimpleChannelInboundHandler<HttpObject> {
+        private final String hostHeader;
+        private final String requestTarget;
+        private final ProxyConfig proxyConfig;
+        private final Map<String, String> headers;
+        private final Path targetFile;
+        private final AtomicBoolean cancelled;
+        private final ProgressListener progressListener;
+        private final CompletableFuture<Void> future;
+        private final boolean waitForTlsHandshake;
+
+        private java.io.RandomAccessFile raf;
+        private long downloaded = 0;
+        private long contentLength = -1;
+        private boolean responseStarted = false;
+        private final AtomicBoolean sent = new AtomicBoolean(false);
+
+        DownloadToFileHandler(String host, String hostHeader, String requestTarget, ProxyConfig proxyConfig,
+                              Map<String, String> headers, Path targetFile, AtomicBoolean cancelled,
+                              ProgressListener progressListener, CompletableFuture<Void> future,
+                              Duration readTimeout, boolean waitForTlsHandshake) {
+            this.hostHeader = hostHeader;
+            this.requestTarget = requestTarget;
+            this.proxyConfig = proxyConfig;
+            this.headers = headers;
+            this.targetFile = targetFile;
+            this.cancelled = cancelled;
+            this.progressListener = progressListener;
+            this.future = future;
+            this.waitForTlsHandshake = waitForTlsHandshake;
+        }
+
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) {
+            if (cancelled != null && cancelled.get()) {
+                cleanup();
+                future.completeExceptionally(new IOException("Download cancelled"));
+                ctx.close();
+                return;
+            }
+
+            if (msg instanceof HttpResponse response) {
+                if (!responseStarted) {
+                    responseStarted = true;
+                    int statusCode = response.status().code();
+                    if (statusCode == 200) {
+                        String cl = response.headers().get(HttpHeaderNames.CONTENT_LENGTH);
+                        if (cl != null) {
+                            try {
+                                contentLength = Long.parseLong(cl);
+                            } catch (NumberFormatException ignore) {
+                            }
+                        }
+                        try {
+                            raf = new java.io.RandomAccessFile(targetFile.toFile(), "rw");
+                        } catch (IOException e) {
+                            future.completeExceptionally(e);
+                            ctx.close();
+                            return;
+                        }
+                        emitProgress();
+                    } else if (statusCode == 206) {
+                        String cl = response.headers().get(HttpHeaderNames.CONTENT_LENGTH);
+                        if (cl != null) {
+                            try {
+                                contentLength = Long.parseLong(cl);
+                            } catch (NumberFormatException ignore) {
+                            }
+                        }
+                        try {
+                            raf = new java.io.RandomAccessFile(targetFile.toFile(), "rw");
+                        } catch (IOException e) {
+                            future.completeExceptionally(e);
+                            ctx.close();
+                            return;
+                        }
+                        emitProgress();
+                    } else {
+                        future.completeExceptionally(new IOException("HTTP " + statusCode + " for " + requestTarget));
+                        ctx.close();
+                        return;
+                    }
+                }
+            } else if (msg instanceof HttpContent content) {
+                ByteBuf buf = content.content();
+                if (buf.readableBytes() > 0 && raf != null) {
+                    try {
+                        byte[] bytes = new byte[buf.readableBytes()];
+                        buf.readBytes(bytes);
+                        raf.write(bytes);
+                        downloaded += bytes.length;
+                        emitProgress();
+                    } catch (IOException e) {
+                        future.completeExceptionally(e);
+                        cleanup();
+                        ctx.close();
+                        return;
+                    }
+                }
+
+                if (content instanceof LastHttpContent) {
+                    cleanup();
+                    future.complete(null);
+                    ctx.close();
+                }
+            }
+        }
+
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) {
+            if (!waitForTlsHandshake && sent.compareAndSet(false, true)) {
+                sendRequest(ctx);
+            }
+        }
+
+        @Override
+        public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+            if (evt instanceof SslHandshakeCompletionEvent handshakeEvent) {
+                if (handshakeEvent.isSuccess()) {
+                    if (sent.compareAndSet(false, true)) {
+                        sendRequest(ctx);
+                    }
+                } else {
+                    future.completeExceptionally(new IOException("TLS handshake failed", handshakeEvent.cause()));
+                    ctx.close();
+                }
+                return;
+            }
+            super.userEventTriggered(ctx, evt);
+        }
+
+        private void sendRequest(ChannelHandlerContext ctx) {
+            FullHttpRequest request = new DefaultFullHttpRequest(
+                    HttpVersion.HTTP_1_1, HttpMethod.GET, requestTarget);
+            request.headers().set(HttpHeaderNames.HOST, hostHeader);
+            request.headers().set(HttpHeaderNames.USER_AGENT, "Mozilla/5.0 (compatible; NettyHttpUtils/1.0)");
+            request.headers().set(HttpHeaderNames.ACCEPT, "*/*");
+            request.headers().set(HttpHeaderNames.ACCEPT_ENCODING, "identity");
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                request.headers().set(entry.getKey(), entry.getValue());
+            }
+            if (proxyConfig != null && proxyConfig.hasAuth()) {
+                String credentials = proxyConfig.getUsername() + ":" + proxyConfig.getPassword();
+                String encoded = java.util.Base64.getEncoder()
+                        .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+                request.headers().set(HttpHeaderNames.PROXY_AUTHORIZATION, "Basic " + encoded);
+            }
+            ctx.writeAndFlush(request);
+        }
+
+        private void emitProgress() {
+            if (progressListener != null) {
+                try {
+                    progressListener.onProgress(downloaded, contentLength);
+                } catch (Exception ignore) {
+                }
+            }
+        }
+
+        private void cleanup() {
+            if (raf != null) {
+                try {
+                    raf.close();
+                } catch (IOException ignore) {
+                }
+                raf = null;
+            }
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            if (!future.isDone()) {
+                cleanup();
+                future.completeExceptionally(cause);
+            }
+            ctx.close();
+        }
+
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) {
+            if (!future.isDone()) {
+                cleanup();
                 future.completeExceptionally(new IOException("Connection closed unexpectedly"));
             }
         }

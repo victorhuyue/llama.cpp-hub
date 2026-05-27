@@ -24,6 +24,7 @@ import org.mark.llamacpp.ollama.Ollama;
 import org.mark.llamacpp.server.channel.BasicRouterHandler;
 import org.mark.llamacpp.server.channel.CompletionRouterHandler;
 import org.mark.llamacpp.server.channel.FileDownloadRouterHandler;
+import org.mark.llamacpp.server.channel.FileUploadRouterHandler;
 import org.mark.llamacpp.server.channel.OpenAIChatStreamingHandler;
 import org.mark.llamacpp.server.channel.LlamaRouterHandler;
 import org.mark.llamacpp.server.io.ConsoleBroadcastOutputStream;
@@ -1034,21 +1035,23 @@ public static String getDefaultModelsPath() {
                                 ch.pipeline()
                                 		.addLast(new SslHandler(engine))
                                         .addLast(new HttpServerCodec())
-                                        .addLast(new OpenAIChatStreamingHandler())
-                                        .addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
-                                        .addLast(new ChunkedWriteHandler())
-                                        .addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, Integer.MAX_VALUE))
-                                        .addLast(new WebSocketServerHandler())
-                                        
-                                        .addLast(new BasicRouterHandler())
-                                        .addLast(new CompletionRouterHandler())
-                                        .addLast(new FileDownloadRouterHandler())
-                                        .addLast(new LlamaRouterHandler());
+                                       .addLast(new OpenAIChatStreamingHandler())
+                                         .addLast(new FileUploadRouterHandler())
+                                         .addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
+                                         .addLast(new ChunkedWriteHandler())
+                                         .addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, Integer.MAX_VALUE))
+                                         .addLast(new WebSocketServerHandler())
+
+                                         .addLast(new BasicRouterHandler())
+                                         .addLast(new CompletionRouterHandler())
+                                         .addLast(new FileDownloadRouterHandler())
+                                         .addLast(new LlamaRouterHandler());
                             } else {
                                 ch.pipeline()
                                         .addLast(new HttpServerCodec())
                                         .addLast(new OpenAIChatStreamingHandler())
-                                        .addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
+                                         .addLast(new FileUploadRouterHandler())
+                                         .addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
                                         .addLast(new ChunkedWriteHandler())
                                         .addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, Integer.MAX_VALUE))
                                         .addLast(new WebSocketServerHandler())

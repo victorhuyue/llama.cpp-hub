@@ -1356,6 +1356,7 @@
   "page.chat.main.mcp_dialog.cancel": "Cancel",
   "page.chat.main.mcp_dialog.save_connect": "Save & Connect",
   "page.chat.main.mcp_dialog.add_default": "Add Default MCP Service",
+  "page.chat.main.mcp_dialog.help_button": "Help",
   "page.chat.main.mcp_dialog.help_title": "Help",
   "page.chat.main.mcp_dialog.help_content": "Please enable MCP Service in Settings -> Server first.",
   "page.chat.main.mcp_dialog.help_ok": "Got it",

@@ -1356,6 +1356,7 @@
   "page.chat.main.mcp_dialog.cancel": "取消",
   "page.chat.main.mcp_dialog.save_connect": "保存并连接",
   "page.chat.main.mcp_dialog.add_default": "添加默认MCP服务",
+  "page.chat.main.mcp_dialog.help_button": "帮助",
   "page.chat.main.mcp_dialog.help_title": "提示",
   "page.chat.main.mcp_dialog.help_content": "需要开启MCP服务，在设置->服务器 中启用才可以哦！",
   "page.chat.main.mcp_dialog.help_ok": "知道了",

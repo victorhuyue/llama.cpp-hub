@@ -1673,5 +1673,11 @@
   "page.chat.main.settings.templates.timestamp_label": "Attach current time",
   "page.chat.main.settings.templates.timestamp_toggle": "Attach current time",
   "page.chat.main.settings.templates.timestamp_desc": "When enabled, the current timestamp is automatically prepended to every outgoing message",
-  "page.chat.main.templates.timestamp_prefix": "[Current system time: {date} {time}]"
+  "page.chat.main.templates.timestamp_prefix": "[Current system time: {date} {time}]",
+  "page.chat.main.settings.templates.title_gen_label": "Enable Title Generation",
+  "page.chat.main.settings.templates.title_gen_toggle": "AI auto-generate conversation titles",
+  "page.chat.main.settings.templates.title_gen_desc": "When enabled, the AI will automatically generate a title for the conversation after the first response",
+  "page.chat.main.settings.templates.title_gen_model_label": "Title Generation Model",
+  "page.chat.main.settings.templates.title_gen_model_desc": "Select the model to use for title generation. Leave empty to use the current conversation model",
+  "page.chat.main.settings.templates.title_gen_model_default": "Use current conversation model"
 }

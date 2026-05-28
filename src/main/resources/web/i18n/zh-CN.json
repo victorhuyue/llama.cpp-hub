@@ -1673,5 +1673,11 @@
   "page.chat.main.settings.templates.timestamp_label": "附带实时时间",
   "page.chat.main.settings.templates.timestamp_toggle": "附带实时时间",
   "page.chat.main.settings.templates.timestamp_desc": "启用后，发送消息时会在消息最前面自动插入当前时间戳",
-  "page.chat.main.templates.timestamp_prefix": "[当前系统时间：{date} {time}]"
+  "page.chat.main.templates.timestamp_prefix": "[当前系统时间：{date} {time}]",
+  "page.chat.main.settings.templates.title_gen_label": "开启标题生成",
+  "page.chat.main.settings.templates.title_gen_toggle": "AI 自动生成对话标题",
+  "page.chat.main.settings.templates.title_gen_desc": "启用后，AI 会在首次回复完成后自动为会话生成标题",
+  "page.chat.main.settings.templates.title_gen_model_label": "标题生成模型",
+  "page.chat.main.settings.templates.title_gen_model_desc": "选择用于生成标题的模型，留空则使用当前对话模型",
+  "page.chat.main.settings.templates.title_gen_model_default": "使用当前对话模型"
 }

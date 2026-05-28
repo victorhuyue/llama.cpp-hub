@@ -357,6 +357,28 @@
                   </span>
                 </label>
               </div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.templates.title_gen_label">开启标题生成</label>
+                </div>
+                <label class="settings-toggle">
+                  <div class="settings-toggle-text">
+                    <span data-i18n="page.chat.main.settings.templates.title_gen_toggle">AI 自动生成对话标题</span>
+                    <span class="settings-field-desc" data-i18n="page.chat.main.settings.templates.title_gen_desc">启用后，AI 会在首次回复完成后自动为会话生成标题</span>
+                  </div>
+                  <span class="toggle-switch">
+                    <input id="titleGenToggle" type="checkbox">
+                    <span class="toggle-slider"></span>
+                  </span>
+                </label>
+              </div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label for="titleGenModelSelect" data-i18n="page.chat.main.settings.templates.title_gen_model_label">标题生成模型</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.templates.title_gen_model_desc">选择用于生成标题的模型，留空则使用当前对话模型</p>
+                <select id="titleGenModelSelect" class="drawer-input"></select>
+              </div>
             </div>
           </div>
 
@@ -488,6 +510,8 @@
       streamRender: true,
       enableThinking: false,
       enableTimestamp: false,
+      enableTitleGen: false,
+      titleGenModel: '',
       systemPrompt: '',
       mcpServerUrls: [],
       search: '',
@@ -608,7 +632,9 @@
       mcpRefreshBtn: document.getElementById('mcpRefreshBtn'),
       mcpSummary: document.getElementById('mcpSummary'),
       mcpServerList: document.getElementById('mcpServerList'),
-      timestampToggle: document.getElementById('timestampToggle')
+      timestampToggle: document.getElementById('timestampToggle'),
+      titleGenToggle: document.getElementById('titleGenToggle'),
+      titleGenModelSelect: document.getElementById('titleGenModelSelect')
     };
 
     let mcpModule = null;
@@ -2609,6 +2635,28 @@
       els.streamToggle.checked = !!state.stream;
       els.streamRenderToggle.checked = !!state.streamRender;
       if (els.timestampToggle) els.timestampToggle.checked = !!state.enableTimestamp;
+      if (els.titleGenToggle) els.titleGenToggle.checked = !!state.enableTitleGen;
+      if (els.titleGenModelSelect) {
+        const currentVal = state.titleGenModel || '';
+        els.titleGenModelSelect.innerHTML = '';
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = window.I18N.t('page.chat.main.settings.templates.title_gen_model_default', '使用当前对话模型');
+        els.titleGenModelSelect.appendChild(defaultOpt);
+        for (const opt of els.modelSelect.options) {
+          const clone = document.createElement('option');
+          clone.value = opt.value;
+          clone.textContent = opt.textContent;
+          els.titleGenModelSelect.appendChild(clone);
+        }
+        if (currentVal && !Array.from(els.titleGenModelSelect.options).some(o => o.value === currentVal)) {
+          const opt = document.createElement('option');
+          opt.value = currentVal;
+          opt.textContent = currentVal;
+          els.titleGenModelSelect.insertBefore(opt, els.titleGenModelSelect.firstChild.nextSibling);
+        }
+        els.titleGenModelSelect.value = currentVal;
+      }
       els.systemPromptInput.value = state.systemPrompt;
       resizeSystemPromptInput();
       els.searchInput.value = state.search;
@@ -2655,6 +2703,8 @@
       state.stream = els.streamToggle.checked;
       state.streamRender = els.streamRenderToggle.checked;
       state.enableTimestamp = els.timestampToggle ? els.timestampToggle.checked : false;
+      state.enableTitleGen = els.titleGenToggle ? els.titleGenToggle.checked : false;
+      state.titleGenModel = els.titleGenModelSelect ? els.titleGenModelSelect.value : '';
       state.systemPrompt = els.systemPromptInput.value;
       syncCurrentAssistantFromRuntimeState();
       renderThinkingMenu();
@@ -2770,6 +2820,8 @@
         sidebarCollapsed: state.sidebarCollapsed,
         search: state.search,
         privacyMode: state.privacyMode,
+        enableTitleGen: state.enableTitleGen,
+        titleGenModel: state.titleGenModel,
         assistants: state.assistants,
         conversations: state.conversations.map(conversation => buildConversationSummaryPayload(conversation)),
         currentConversationId: state.currentConversationId
@@ -2925,6 +2977,8 @@
       state.sidebarCollapsed = typeof saved?.sidebarCollapsed === 'boolean' ? saved.sidebarCollapsed : false;
       state.search = typeof saved?.search === 'string' ? saved.search : '';
       state.privacyMode = typeof saved?.privacyMode === 'boolean' ? saved.privacyMode : false;
+      state.enableTitleGen = typeof saved?.enableTitleGen === 'boolean' ? saved.enableTitleGen : false;
+      state.titleGenModel = typeof saved?.titleGenModel === 'string' ? saved.titleGenModel : '';
       state.currentConversationId = typeof saved?.currentConversationId === 'string' ? saved.currentConversationId : '';
       const fallbackAssistantId = getFallbackAssistant()?.id || '';
       state.conversations = Array.isArray(saved?.conversations)
@@ -4465,7 +4519,11 @@
         syncSendButtonState();
         els.statusDot.classList.remove('loading');
         removeTypingIndicator();
-        updateConversationTitle(getCurrentConversation());
+        const doneConversation = getCurrentConversation();
+        updateConversationTitle(doneConversation);
+        if (doneConversation && doneConversation.messages && doneConversation.messages.length === 2) {
+          generateConversationTitle(doneConversation);
+        }
         renderConversationList();
         syncConversationMeta();
         updateMessageActionStates();
@@ -5063,6 +5121,104 @@
       els.promptInput.focus();
       setSidebarOpen(false);
       updateStatus('ready', window.I18N.t('page.chat.main.status.new_conversation', '已创建新对话'), window.I18N.t('page.chat.main.status.new_conversation_short', '新对话'));
+    }
+
+    async function generateConversationTitle(conversation) {
+      if (!state.enableTitleGen) {
+        return;
+      }
+      if (!conversation || !Array.isArray(conversation.messages)) {
+        return;
+      }
+      const firstUser = conversation.messages.find(m => m.role === 'user' && hasMessageBody(m));
+      if (!firstUser) {
+        return;
+      }
+      const userText = getMessageText(firstUser).trim().slice(0, 200);
+      if (!userText) {
+        return;
+      }
+      const firstAssistant = conversation.messages.find(m => m.role === 'assistant' && hasMessageBody(m));
+      const assistantText = firstAssistant ? getMessageText(firstAssistant).trim().slice(0, 500) : '';
+      const isChinese = /[\u4e00-\u9fff]/.test(userText);
+      const systemPrompt = isChinese
+        ? '你是一个标题生成器，严格按照以下规则输出：\n'
+          + '1. 只输出标题本身，禁止任何解释、前缀、标点符号\n'
+          + '2. 标题不超过 28 个字符\n'
+          + '3. 禁止使用引号、冒号、破折号、句号\n'
+          + '4. 禁止输出"标题："、"Title："等前缀\n'
+          + '5. 直接输出标题，不要使用"输出："等引导词\n'
+          + '\n'
+          + '示例：\n'
+          + 'User: 帮我写一个Python快速排序算法\n'
+          + 'Assistant: 好的，以下是快速排序的实现\n'
+          + '快速排序算法\n'
+          + '\n'
+          + 'User: 用简单的语言解释一下什么是大语言模型\n'
+          + 'Assistant: 大语言模型是一种人工智能模型\n'
+          + '大语言模型简介'
+        : 'You are a title generator. Follow these rules strictly:\n'
+          + '1. Output ONLY the title, no explanations, prefixes, or punctuation\n'
+          + '2. Title must be 28 characters or fewer\n'
+          + '3. No quotes, colons, dashes, or periods\n'
+          + '4. Never output prefixes like "Title:" or "标题:"\n'
+          + '5. Output the title directly without any lead-in words\n'
+          + '\n'
+          + 'Examples:\n'
+          + 'User: Explain the difference between TCP and UDP\n'
+          + 'Assistant: TCP is connection-oriented while UDP is connectionless\n'
+          + 'TCP vs UDP Difference\n'
+          + '\n'
+          + 'User: Write a Python quicksort algorithm\n'
+          + 'Assistant: Here is a quicksort implementation in Python\n'
+          + 'Python Quicksort Algorithm';
+      const exchange = 'User: ' + userText + (assistantText ? '\n\nAssistant: ' + assistantText : '');
+      const compositeKey = state.titleGenModel || state.model || '';
+      if (!compositeKey) {
+        return;
+      }
+      const sep = compositeKey.lastIndexOf('::');
+      const bareModelId = sep >= 0 ? compositeKey.substring(0, sep) : compositeKey;
+      const nd = sep >= 0 ? compositeKey.substring(sep + 2) : '';
+      const body = {
+        model: bareModelId,
+        messages: [
+          { role: 'system', content: systemPrompt }
+        ],
+        max_tokens: 15,
+        temperature: 0.1,
+        enable_thinking: false,
+        stream: false
+      };
+      if (nd) {
+        body.nodeId = nd;
+      }
+      body.messages.push({ role: 'user', content: exchange });
+      try {
+        const response = await fetch(CHAT_ENDPOINT, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        const rawTitle = data?.choices?.[0]?.message?.content || '';
+        const title = rawTitle
+          .replace(/^["'「『【】』」""]+|["'」』【】「」""]+$/g, '')
+          .replace(/^(标题[：:]|Title[：:]\s*)/i, '')
+          .replace(/^[：:;；.\s]+|[：:;；.\s]+$/g, '')
+          .trim();
+        const cleaned = title.length > 40 ? title.slice(0, 37) + '...' : title;
+        if (cleaned) {
+          conversation.title = cleaned;
+          renderConversationList();
+          syncConversationMeta();
+          await persistState({ immediate: true });
+        }
+      } catch {
+      }
     }
 
     async function openConversation(id) {
@@ -6040,6 +6196,7 @@ function confirmAudioRecording() {
       syncResponsiveLayout();
       updateStatus('', window.I18N.t('page.chat.main.status.loading_models', '正在加载模型列表…'), window.I18N.t('page.chat.main.status.disconnected', '未连接'));
       await refreshModels();
+      syncSettingsInputs();
     }
 
     void init();

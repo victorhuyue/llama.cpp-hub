@@ -7,12 +7,14 @@ import org.mark.llamacpp.record.BinaryRequestLog;
 import org.mark.llamacpp.record.RequestLogRecord;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.Timing;
+import org.mark.llamacpp.server.struct.TokenSummaryEntry;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +31,7 @@ public class LlamaRecordService {
 	private static final String RECORD_DIR = "cache/record/";
 	private final Map<String, BinaryRequestLog> logMap = new ConcurrentHashMap<>();
 	private final AtomicLong totalRecordCount = new AtomicLong(0);
+	private final Map<String, TokenSummaryEntry> tokenSummaryCache = new ConcurrentHashMap<>();
 
 	public static LlamaRecordService getInstance() {
 		return INSTANCE;
@@ -55,7 +58,19 @@ public class LlamaRecordService {
 				.collect(java.util.stream.Collectors.toList());
 			for (Path binPath : binFiles) {
 				try (BinaryRequestLog log = new BinaryRequestLog(binPath)) {
+					String modelId = binPath.getFileName().toString().replace(".requests.bin", "");
 					this.totalRecordCount.addAndGet(log.getRecordCount());
+					TokenSummaryEntry entry = new TokenSummaryEntry();
+					entry.setModelId(modelId);
+					entry.setTotalCacheTokens(log.getTotalCacheTokens());
+					entry.setTotalPromptTokens(log.getTotalPromptTokens());
+					entry.setTotalPredictedTokens(log.getTotalPredictedTokens());
+					entry.setTotalTokens(log.getTotalPromptTokens() + log.getTotalPredictedTokens());
+					entry.setTotalPromptMs(log.getTotalPromptMs());
+					entry.setTotalPredictedMs(log.getTotalPredictedMs());
+					entry.setTotalDraftTokens(log.getTotalDraftTokens());
+					entry.setTotalDraftAccepted(log.getTotalDraftAccepted());
+					this.tokenSummaryCache.put(modelId, entry);
 				} catch (Exception ignore) {
 				}
 			}
@@ -65,6 +80,26 @@ public class LlamaRecordService {
 
     public long getTotalRecordCount() {
 		return this.totalRecordCount.get();
+	}
+
+    public List<TokenSummaryEntry> getTokenSummary() {
+		return new ArrayList<>(this.tokenSummaryCache.values());
+	}
+
+	private void updateTokenSummary(String modelId, RequestLogRecord record) {
+		TokenSummaryEntry entry = this.tokenSummaryCache.computeIfAbsent(modelId, id -> {
+			TokenSummaryEntry e = new TokenSummaryEntry();
+			e.setModelId(id);
+			return e;
+		});
+		entry.setTotalCacheTokens(entry.getTotalCacheTokens() + record.cacheN);
+		entry.setTotalPromptTokens(entry.getTotalPromptTokens() + record.promptN);
+		entry.setTotalPredictedTokens(entry.getTotalPredictedTokens() + record.predictedN);
+		entry.setTotalTokens(entry.getTotalPromptTokens() + entry.getTotalPredictedTokens());
+		entry.setTotalPromptMs(entry.getTotalPromptMs() + record.promptMs);
+		entry.setTotalPredictedMs(entry.getTotalPredictedMs() + record.predictedMs);
+		entry.setTotalDraftTokens(entry.getTotalDraftTokens() + record.draftN);
+		entry.setTotalDraftAccepted(entry.getTotalDraftAccepted() + record.draftNAccepted);
 	}
 
     private BinaryRequestLog getLog(String modelId) throws IOException {
@@ -222,6 +257,7 @@ public class LlamaRecordService {
             record.predictedN = getJsonInt(usage, "completion_tokens", 0);
 			this.getLog(modelId).append(record);
 			this.totalRecordCount.incrementAndGet();
+			this.updateTokenSummary(modelId, record);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -291,8 +327,9 @@ public class LlamaRecordService {
 				record.draftN = timing.getDraft_n();
 				record.draftNAccepted = timing.getDraft_n_accepted();
 			}
-			getLog(request.getModelId()).append(record);
+      getLog(request.getModelId()).append(record);
 			this.totalRecordCount.incrementAndGet();
+			this.updateTokenSummary(request.getModelId(), record);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}

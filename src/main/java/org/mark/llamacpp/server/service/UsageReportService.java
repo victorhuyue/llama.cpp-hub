@@ -31,41 +31,10 @@ public class UsageReportService {
 	}
 
 	/**
-	 * 读取 cache/record/{modelId}.requests.bin 的 header 中的累计 Token 数据。
-	 * 返回所有有记录的模型概览。
+	 * 从内存缓存获取所有有记录的模型概览。
 	 */
 	public List<TokenSummaryEntry> getTokenSummary() {
-		List<TokenSummaryEntry> result = new ArrayList<>();
-		Path dir = Paths.get(RECORD_DIR);
-		if (!Files.exists(dir)) {
-			return result;
-		}
-		try (Stream<Path> paths = Files.list(dir)) {
-			List<Path> binFiles = paths
-				.filter(p -> p.toString().endsWith(".requests.bin"))
-				.collect(java.util.stream.Collectors.toList());
-			for (Path binPath : binFiles) {
-				try (BinaryRequestLog log = new BinaryRequestLog(binPath)) {
-					String modelId = binPath.getFileName().toString().replace(".requests.bin", "");
-					TokenSummaryEntry entry = new TokenSummaryEntry();
-					entry.setModelId(modelId);
-					entry.setTotalCacheTokens(log.getTotalCacheTokens());
-					entry.setTotalPromptTokens(log.getTotalPromptTokens());
-					entry.setTotalPredictedTokens(log.getTotalPredictedTokens());
-					entry.setTotalTokens(log.getTotalPromptTokens() + log.getTotalPredictedTokens());
-					entry.setTotalPromptMs(log.getTotalPromptMs());
-					entry.setTotalPredictedMs(log.getTotalPredictedMs());
-					entry.setTotalDraftTokens(log.getTotalDraftTokens());
-					entry.setTotalDraftAccepted(log.getTotalDraftAccepted());
-					result.add(entry);
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		return result;
+		return LlamaRecordService.getInstance().getTokenSummary();
 	}
 
 	/**
@@ -138,11 +107,10 @@ public class UsageReportService {
 			if (totalRecords <= 0) {
 				return result;
 			}
-			long startIndex = (totalRecords - 1) - (page - 1) * pageSize;
-			if (startIndex < 0) {
-				return result;
-			}
-			RequestLogRecord[] records = log.readRecords(startIndex, pageSize);
+			long needed = (long) page * pageSize;
+			long toRead = Math.min(totalRecords, needed);
+			long startIndex = totalRecords - toRead;
+			RequestLogRecord[] records = log.readRecords(startIndex, (int) toRead);
 			for (RequestLogRecord r : records) {
 				result.add(toEntry(r, modelId));
 			}

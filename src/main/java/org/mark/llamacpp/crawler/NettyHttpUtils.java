@@ -722,8 +722,10 @@ public final class NettyHttpUtils {
             }
 
             request.headers().set(HttpHeaderNames.HOST, hostHeader);
-            request.headers().set(HttpHeaderNames.USER_AGENT, "Mozilla/5.0 (compatible; NettyHttpUtils/1.0)");
+            request.headers().set(HttpHeaderNames.USER_AGENT, UserAgentUtils.random());
             request.headers().set(HttpHeaderNames.ACCEPT, "*/*");
+            request.headers().set(HttpHeaderNames.ACCEPT_ENCODING, "gzip");
+            
 
             if (requestBody != null) {
                 request.headers().set(HttpHeaderNames.CONTENT_LENGTH, requestBody.length);

@@ -17,6 +17,7 @@ import org.mark.test.mcp.tools.ReadStaticImageTool;
 import org.mark.test.mcp.tools.others.ApplicationConfigTool;
 import org.mark.test.mcp.tools.file.WriteTextFileTool;
 import org.mark.test.mcp.tools.others.GetTimeTool;
+import org.mark.test.mcp.tools.others.FetchWebPageTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,9 +93,10 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetMcpServiceInfoTool());
 		this.registerTool(DEFAULT_SERVICE_KEY, new ApplicationConfigTool());
 		
-		this.registerTool(DEFAULT_SERVICE_KEY, new GetTimeTool());
-		
-		// 写本地文件的
+        this.registerTool(DEFAULT_SERVICE_KEY, new GetTimeTool());
+        this.registerTool(DEFAULT_SERVICE_KEY, new FetchWebPageTool());
+
+        // 写本地文件的
 		this.registerTool(FILE_SERVICE_KEY, new WriteTextFileTool());
 	}
 

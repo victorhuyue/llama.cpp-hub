@@ -1907,19 +1907,21 @@ pre:has(code[data-lang]) .code-copy-btn {
  }
  
  .mcp-help-circle-btn {
-   width: 28px;
-   height: 28px;
-   min-width: 28px;
-   min-height: 28px;
-   border-radius: 50%;
-   display: inline-flex;
-   align-items: center;
-   justify-content: center;
-   font-size: 14px;
-   font-weight: 600;
-   line-height: 1;
-   padding: 0;
- }
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0;
+    color: var(--primary);
+    background: rgba(37, 99, 235, 0.08);
+  }
  
  .mcp-help-dialog {
    width: min(420px, calc(100vw - 48px));

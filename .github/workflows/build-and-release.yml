@@ -179,10 +179,16 @@ jobs:
           start "" javaw.exe -Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m -classpath "./classes;./lib/*" org.mark.llamacpp.server.LlamaServer %*
           EOF
 
-      - name: 复制 README 到 build 目录
+      - name: 复制文档到 build 目录
         run: |
           if [ -f README.md ]; then
             cp README.md build/
+            cp README.md build-standalone/
+          fi
+          if [ -d "docs" ]; then
+            cp -r docs build/
+            cp -r docs build-standalone/
+            echo "已复制 docs 目录"
           fi
 
       - name: 获取 llama.cpp Releases 列表

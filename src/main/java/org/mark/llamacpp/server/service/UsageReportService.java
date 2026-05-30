@@ -93,12 +93,18 @@ public class UsageReportService {
 			if (totalRecords <= 0) {
 				return result;
 			}
-			long needed = (long) page * pageSize;
-			long toRead = Math.min(totalRecords, needed);
-			long startIndex = totalRecords - toRead;
-			RequestLogRecord[] records = log.readRecords(startIndex, (int) toRead);
-			for (RequestLogRecord r : records) {
-				result.add(toEntry(r, modelId));
+			// 文件中的记录按时间升序存储（index 0 = 最早），从末尾（最新）往前分页
+			long fromEnd = Math.min((long) page * pageSize, totalRecords);
+			long toEnd = fromEnd - pageSize;
+			if (toEnd < 0) {
+				toEnd = 0;
+			}
+			long startIdx = totalRecords - fromEnd;
+			int count = (int) (fromEnd - toEnd);
+			RequestLogRecord[] records = log.readRecords(startIdx, count);
+			// 反转，使最新的记录排在前面（降序）
+			for (int i = records.length - 1; i >= 0; i--) {
+				result.add(toEntry(records[i], modelId));
 			}
 		}
 		return result;

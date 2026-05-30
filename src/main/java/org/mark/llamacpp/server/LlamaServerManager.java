@@ -1812,13 +1812,86 @@ public class LlamaServerManager {
 	/**
 	 * 	调用llama-fit-params
 	 * @param llamaBinPath
-	 * @param devices
+	 * @param modelId
+	 * @param combinedCmd
+	 * @return
 	 */
-	public void handleFitParam(String llamaBinPath, List<String> devices) {
+	public Map<String, String> handleFitParam(String llamaBinPath, String modelId, String combinedCmd) throws Exception {
+		List<String> cmdlist = ParamTool.splitCmdArgs(combinedCmd);
+		String[] keysParam = {"--ctx-size", "--flash-attn", "--batch-size", "--ubatch-size", "--parallel", "--cache-type-k", "--cache-type-v", "--device", "--main-gpu", "--swa-full", "--split-mode", "--fit", "--spec-draft-type-k", "--spec-draft-type-v"};
+		Map<String, String> cmdMap = new HashMap<>();
+		for(int i = 0; i < cmdlist.size(); i++) {
+			String param = cmdlist.get(i);
+			if(param.startsWith("--") && i + 1 < cmdlist.size()) {
+				// 如果当前参数的下一个不是参数名，而是值
+				if(!cmdlist.get(i + 1).startsWith("--")) {
+					cmdMap.put(param, cmdlist.get(i + 1));
+					i += 1;
+				}else {
+					cmdMap.put(param, param);
+				}
+			}
+		}
+		GGUFModel model = this.findModelById(modelId);
+		if(model == null) {
+			throw new RuntimeException("Model not found: " + modelId);
+		}
+
+		String executableName = "llama-fit-params";
+		// 拼接完整命令路径
+		String command = llamaBinPath.trim() + File.separator + executableName;
+		command += " --model " + model.getPrimaryModel().getFilePath();
 		
-		
-		
-		return;
+		// 仅针对--main-gpu做特殊处理
+		if(cmdMap.containsKey("--main-gpu")) {
+			// 如果是默认值-1，要改成0
+			if("-1".equals(cmdMap.get("--main-gpu"))) {
+				cmdMap.put("--main-gpu", "0");
+			}
+		}
+		for(String key : keysParam) {
+			// 如果有这个参数
+			if(cmdMap.containsKey(key)) {
+				String value = cmdMap.get(key);
+				if(key.equals(value)) {
+					command += " " + key + " ";
+				}else {
+					command += " " + key + " " + value;
+				}
+			}
+		}
+		logger.info("执行llama-fit-param命令：{}", command);
+		// 执行命令
+		CommandLineRunner.CommandResult result = CommandLineRunner.execute(command, 30);
+		String output = result.getOutput();
+		// 如果计算失败，就抛出异常
+		if(output.trim().length() == 0)
+			throw new RuntimeException(result.getError());
+		// 解析拟合参数
+		String[] lines = output.split("\n");
+		String fittedLine = null;
+		for (int i = lines.length - 1; i >= 0; i--) {
+			String line = lines[i].trim();
+			if (line.isEmpty()) continue;
+			if (!line.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+\\s+I\\s+.*")) {
+				fittedLine = line;
+				break;
+			}
+		}
+		if (fittedLine == null || fittedLine.isEmpty()) {
+			throw new RuntimeException("llama-fit-params输出中未找到拟合参数行: " + output);
+		}
+		List<String> tokens = ParamTool.splitCmdArgs(fittedLine);
+		Set<String> knownFlags = Set.of("-c", "-ngl", "-ts", "-ot");
+		Map<String, String> fittedParams = new LinkedHashMap<>();
+		for (int i = 0; i < tokens.size(); i++) {
+			String tok = tokens.get(i);
+			if (knownFlags.contains(tok) && i + 1 < tokens.size()) {
+				fittedParams.put(tok, tokens.get(++i));
+			}
+		}
+		logger.info("llama-fit-param拟合结果: {}", fittedParams);
+		return fittedParams;
 	}
 	
 	/**

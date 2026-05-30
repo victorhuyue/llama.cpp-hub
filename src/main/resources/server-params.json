@@ -770,6 +770,19 @@
     "groupCollapsed": true
   },
   {
+    "name": "param.server.tensor_split.name",
+    "fullName": "--tensor-split",
+    "abbreviation": "-ts",
+    "type": "STRING",
+    "defaultValue": "",
+    "description": "param.server.tensor_split.desc",
+    "sort": 11.5,
+    "defaultEnabled": false,
+    "group": "page.params.group.performance",
+    "groupOrder": 30,
+    "groupCollapsed": true
+  },
+  {
     "name": "param.server.cpu_moe.name",
     "fullName": "--cpu-moe",
     "abbreviation": "--cpu-moe",

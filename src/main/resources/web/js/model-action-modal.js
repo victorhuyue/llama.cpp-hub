@@ -1438,6 +1438,102 @@ function estimateVramAction() {
 
 function estimateVram() { estimateVramAction(); }
 
+function fitParamsAction() {
+    const modal = getLoadModelModal();
+    const payload = buildLoadModelPayload(modal);
+    const modelId = payload && payload.modelId ? String(payload.modelId).trim() : '';
+    if (!modelId) {
+        showToast(t('toast.error', '错误'), t('modal.model_action.fit_params.select_model_first', '请先选择模型'), 'error');
+        return;
+    }
+    const llamaBinPathSelect = payload && payload.llamaBinPathSelect ? String(payload.llamaBinPathSelect).trim() : '';
+    const cmd = payload && payload.cmd ? String(payload.cmd).trim() : '';
+    const extraParams = payload && payload.extraParams ? String(payload.extraParams).trim() : '';
+    if (!llamaBinPathSelect) {
+        showToast(t('toast.error', '错误'), t('modal.model_action.missing_llama_bin_path', '未提供llamaBinPath'), 'error');
+        return;
+    }
+    if (!cmd && !extraParams) {
+        showToast(t('toast.error', '错误'), t('modal.model_action.missing_launch_params', '缺少必需的启动参数'), 'error');
+        return;
+    }
+    payload.modelId = modelId;
+    payload.llamaBinPathSelect = llamaBinPathSelect;
+    payload.cmd = cmd;
+    payload.extraParams = extraParams;
+    const nodeId = modal && modal.__nodeId && modal.__nodeId !== 'local' ? modal.__nodeId : '';
+    if (nodeId) payload.nodeId = nodeId;
+    console.log('[fitParams] 发送请求 payload:', payload);
+    fetch('/api/models/fit-params', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    }).then(r => r.json()).then(res => {
+        console.log('[fitParams] 响应:', res);
+        if (res && res.success) {
+            const fitted = res.data && res.data.fittedParams;
+            if (fitted) {
+                console.log('[fitParams] 拟合结果:', fitted);
+                window.__lastFittedParams = fitted;
+                const content = document.getElementById('fitParamsResultContent');
+                if (content) {
+                    let html = '<table style="width:100%;border-collapse:collapse;">';
+                    html += '<tr><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-color);font-size:13px;">' + t('modal.model_action.fit_params.table.param', '参数') + '</th><th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border-color);font-size:13px;">' + t('modal.model_action.fit_params.table.value', '值') + '</th></tr>';
+                    for (const [key, value] of Object.entries(fitted)) {
+                        html += '<tr><td style="padding:6px 8px;border-bottom:1px solid var(--border-color);font-family:monospace;">' + key + '</td><td style="padding:6px 8px;border-bottom:1px solid var(--border-color);font-family:monospace;">' + value + '</td></tr>';
+                    }
+                    html += '</table>';
+                    content.innerHTML = html;
+                }
+                document.getElementById('fitParamsResultModal').classList.add('show');
+                // TODO: 将 fitted 参数自动填入表单
+            } else {
+                console.warn('[fitParams] 返回数据中未找到 fittedParams');
+                showToast(t('toast.error', '错误'), t('modal.model_action.fit_params.invalid_response', '返回数据格式不正确'), 'error');
+            }
+        } else {
+            showToast(t('toast.error', '错误'), (res && res.error) ? res.error : t('modal.model_action.fit_params.fetch_failed', '获取最佳配比失败'), 'error');
+        }
+    }).catch(err => {
+        console.error('[fitParams] 请求失败:', err);
+        showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+    });
+}
+
+function fitParamsApplyAction() {
+    const modal = getLoadModelModal();
+    const fitted = window.__lastFittedParams;
+    if (!fitted) {
+        showToast(t('toast.error', '错误'), t('modal.model_action.fit_params.no_params', '没有可应用的参数'), 'error');
+        return;
+    }
+    const extraParamsEl = document.getElementById('extraParams');
+    let extraParts = [];
+
+    for (const [key, value] of Object.entries(fitted)) {
+        if (key === '-c') continue;
+
+        if (key === '-ngl') {
+            setFieldValue(modal, ['gpu-layers', 'param_gpu-layers'], value);
+            const cb = findById(modal, 'param_enable_gpu-layers');
+            if (cb) cb.checked = true;
+        } else if (key === '-ts') {
+            setFieldValue(modal, ['tensor-split', 'param_tensor-split'], value);
+            const cb = findById(modal, 'param_enable_tensor-split');
+            if (cb) cb.checked = true;
+        } else if (key === '-ot') {
+            extraParts.push('-ot', quoteArgIfNeeded(value));
+        }
+    }
+
+    if (extraParts.length > 0 && extraParamsEl) {
+        const current = extraParamsEl.value.trim();
+        const append = extraParts.join(' ');
+        extraParamsEl.value = current ? current + ' ' + append : append;
+    }
+
+    closeModal('fitParamsResultModal');
+    showToast(t('common.success', '成功'), t('modal.model_action.fit_params.applied', '已应用最佳配比参数'), 'success');
+}
+
 function viewModelConfig(modelId, nodeId) {
     const currentModel = nodeId
         ? (currentModelsData || []).find(m => m && m.id === modelId && m.nodeId === nodeId)

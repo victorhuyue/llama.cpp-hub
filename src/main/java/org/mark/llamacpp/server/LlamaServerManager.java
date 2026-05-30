@@ -1866,7 +1866,7 @@ public class LlamaServerManager {
 		String output = result.getOutput();
 		// 如果计算失败，就抛出异常
 		if(output.trim().length() == 0)
-			throw new RuntimeException(result.getError());
+			throw new RuntimeException(result.getError().trim().length() == 0 ? "No error infomation" : result.getError());
 		// 解析拟合参数
 		String[] lines = output.split("\n");
 		String fittedLine = null;

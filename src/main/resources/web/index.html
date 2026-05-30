@@ -1662,6 +1662,7 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('loadModelModal')" data-i18n="common.cancel">common.cancel</button>
                 <button class="btn btn-secondary" id="estimateVramBtn" onclick="estimateVramAction()"><i class="fas fa-memory"></i> <span data-i18n="modal.model_action.estimate_vram">modal.model_action.estimate_vram</span></button>
+                <button class="btn btn-secondary" id="fitParamsBtn" onclick="fitParamsAction()"><i class="fas fa-chart-line"></i> <span data-i18n="modal.model_action.fit_params">最佳配比</span></button>
                 <button class="btn btn-secondary" id="modelActionResetBtn" style="display:none;" onclick="resetModelBenchmarkForm()" data-i18n="common.reset">common.reset</button>
                 <button class="btn btn-secondary" id="modelActionSaveBtn" onclick="saveModelConfigAction()" data-i18n="common.save">common.save</button>
                 <button class="btn btn-primary" id="modelActionSubmitBtn" onclick="submitModelAction()" data-i18n="modal.model_action.submit.load">modal.model_action.submit.load</button>
@@ -1816,6 +1817,27 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('nodeFormModal')" data-i18n="common.cancel">取消</button>
                 <button class="btn btn-primary" onclick="SettingsPage.saveNodeForm()" data-i18n="common.save">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 最佳配比结果模态框 -->
+    <div class="modal" id="fitParamsResultModal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-chart-line"></i> <span data-i18n="modal.model_action.fit_params.title">最佳配比参数</span></h3>
+                <button class="modal-close" onclick="closeModal('fitParamsResultModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="background: rgba(245, 158, 11, 0.10); border: 1px solid rgba(245, 158, 11, 0.30); border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 13px; display: flex; gap: 8px; align-items: flex-start;">
+                    <i class="fas fa-info-circle" style="color: #f59e0b; margin-top: 1px; flex-shrink: 0;"></i>
+                    <span data-i18n="modal.model_action.fit_params.disclaimer">注意：该工具不支持张量并行模式，且在多GPU场景下并不能计算出完美的最佳分配。该功能等价于使用参数：自适应显存（--fit on），正常情况下直接开启该功能即可。</span>
+                </div>
+                <div id="fitParamsResultContent" style="font-size: 14px; line-height: 1.8;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('fitParamsResultModal')" data-i18n="common.close">关闭</button>
+                <button class="btn btn-primary" onclick="fitParamsApplyAction()"><i class="fas fa-check"></i> <span data-i18n="modal.model_action.fit_params.apply">应用参数</span></button>
             </div>
         </div>
     </div>

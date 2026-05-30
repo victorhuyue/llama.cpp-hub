@@ -90,6 +90,11 @@ public class SystemController implements BaseController {
 			this.handleVramEstimateRequest(ctx, request);
 			return true;
 		}
+		// llama-fit-params拟合参数API
+		if (uri.startsWith("/api/models/fit-params")) {
+			this.handleFitParamsRequest(ctx, request);
+			return true;
+		}
 		// 启用、禁用ollama兼容api
 		if (uri.startsWith("/api/sys/ollama")) {
 			this.handleOllamaEnableRequest(ctx, request);
@@ -1803,6 +1808,101 @@ public class SystemController implements BaseController {
 			}
 		} catch (Exception e) {
 			logger.warn("[显存估算] 远程节点调用异常: nodeId={}, error={}", nodeId, e.getMessage());
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("调用远程节点失败: " + e.getMessage()));
+		}
+	}
+
+	private void handleFitParamsRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+
+		try {
+			String content = request.content().toString(CharsetUtil.UTF_8);
+			if (content == null || content.trim().isEmpty()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
+				return;
+			}
+
+			JsonElement root = JsonUtil.fromJson(content, JsonElement.class);
+			if (root == null || !root.isJsonObject()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体必须为JSON对象"));
+				return;
+			}
+			JsonObject obj = root.getAsJsonObject();
+			String nodeId = JsonUtil.getJsonString(obj, "nodeId", "");
+			if (nodeId != null && !nodeId.isBlank() && !"local".equals(nodeId)) {
+				logger.info("[拟合参数] 远程节点代理: nodeId={}, modelId={}", nodeId, JsonUtil.getJsonString(obj, "modelId", ""));
+				this.handleFitParamsRemote(ctx, nodeId, obj);
+				return;
+			}
+
+			String cmd = JsonUtil.getJsonString(obj, "cmd", "");
+			String extraParams = JsonUtil.getJsonString(obj, "extraParams", "");
+			List<String> device = JsonUtil.getJsonStringList(obj.get("device"));
+			Integer mg = JsonUtil.getJsonInt(obj, "mg", null);
+
+			if (cmd != null) cmd = cmd.trim();
+			if (extraParams != null) extraParams = extraParams.trim();
+			String combinedCmd = "";
+			if (cmd != null && !cmd.isEmpty()) combinedCmd = cmd;
+			if (extraParams != null && !extraParams.isEmpty()) combinedCmd = combinedCmd.isEmpty() ? extraParams : (combinedCmd + " " + extraParams);
+
+			String modelId = JsonUtil.getJsonString(obj, "modelId", null);
+			if (modelId == null || modelId.trim().isEmpty()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少必需的modelId参数"));
+				return;
+			}
+			String llamaBinPathSelect = JsonUtil.getJsonString(obj, "llamaBinPathSelect", null);
+			if (llamaBinPathSelect == null || llamaBinPathSelect.trim().isEmpty()) {
+				llamaBinPathSelect = JsonUtil.getJsonString(obj, "llamaBinPath", null);
+			}
+			if (llamaBinPathSelect == null || llamaBinPathSelect.trim().isEmpty()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少必需的llamaBinPath参数"));
+				return;
+			}
+
+			if (device != null && !device.isEmpty()) {
+				if (device.size() == 1) {
+					String onlyOneDevice = device.get(0);
+					if (!"All".equals(onlyOneDevice)) {
+						combinedCmd += " --device " + onlyOneDevice;
+					}
+				} else {
+					combinedCmd += " --device ";
+					combinedCmd += ParamTool.quoteIfNeeded(String.join(",", device));
+				}
+			}
+			if (mg != null) {
+				combinedCmd += " --main-gpu " + mg;
+			}
+
+			logger.info("[拟合参数] 本地执行: modelId={}, llamaBinPath={}, cmd={}", modelId, llamaBinPathSelect, combinedCmd);
+
+			Map<String, String> fittedParams = LlamaServerManager.getInstance().handleFitParam(llamaBinPathSelect, modelId, combinedCmd);
+
+			Map<String, Object> data = new HashMap<>();
+			data.put("fittedParams", fittedParams);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+		} catch (Exception e) {
+			logger.info("拟合参数时发生错误", e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("拟合参数失败: " + e.getMessage()));
+		}
+	}
+
+	private void handleFitParamsRemote(ChannelHandlerContext ctx, String nodeId, JsonObject body) {
+		try {
+			if (body != null) {
+				body.remove("nodeId");
+			}
+			NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
+					nodeId, "POST", "api/models/fit-params", body);
+			logger.info("[拟合参数] 远程节点响应: nodeId={}, code={}", nodeId, result.getStatusCode());
+			if (result.isSuccess()) {
+				NodeManager.writeHttpResultToChannel(ctx, result, "[拟合参数远程]");
+			} else {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败: code=" + result.getStatusCode()));
+			}
+		} catch (Exception e) {
+			logger.warn("[拟合参数] 远程节点调用异常: nodeId={}, error={}", nodeId, e.getMessage());
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("调用远程节点失败: " + e.getMessage()));
 		}
 	}

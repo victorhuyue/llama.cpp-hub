@@ -303,17 +303,27 @@ function sortAndRenderModels() {
     const comparator = getModelSortComparator(sortType);
     const all = [...filtered];
 
-    const favourites = [];
-    const nonFavourites = [];
+    const loadedFav = [];
+    const loadedNonFav = [];
+    const nonLoadedFav = [];
+    const nonLoadedNonFav = [];
     all.forEach(m => {
-        if (m && m.favourite) favourites.push(m);
-        else nonFavourites.push(m);
+        if (!m) return;
+        if (m.isLoaded) {
+            if (m.favourite) loadedFav.push(m);
+            else loadedNonFav.push(m);
+        } else {
+            if (m.favourite) nonLoadedFav.push(m);
+            else nonLoadedNonFav.push(m);
+        }
     });
 
-    favourites.sort(comparator);
-    nonFavourites.sort(comparator);
+    loadedFav.sort(comparator);
+    loadedNonFav.sort(comparator);
+    nonLoadedFav.sort(comparator);
+    nonLoadedNonFav.sort(comparator);
 
-    renderModelsList([...favourites, ...nonFavourites]);
+    renderModelsList([...loadedFav, ...loadedNonFav, ...nonLoadedFav, ...nonLoadedNonFav]);
 }
 
 function getModelSortComparator(sortType) {

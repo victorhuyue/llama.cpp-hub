@@ -1627,7 +1627,7 @@ public class SystemController implements BaseController {
 			}
 			LlamaServer.sendTextResponse(ctx, LlamaServer.getConsoleBufferText());
 		} catch (Exception e) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("读取控制台日志失败: " + e.getMessage()));
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("读取系统日志失败: " + e.getMessage()));
 		}
 	}
 	

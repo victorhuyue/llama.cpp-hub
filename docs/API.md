@@ -349,7 +349,7 @@
 | POST | `/api/sys/setting` | 保存系统设置 | 完整设置 JSON |
 | GET | `/api/sys/version` | 构建版本信息（tag/version/createdTime） | — |
 | GET | `/api/sys/compat/status` | 兼容服务状态（Ollama/LMStudio/MCP/日志） | — |
-| GET | `/api/sys/console` | 控制台日志缓冲区文本 | Query: `nodeId` |
+| GET | `/api/sys/console` | 系统日志缓冲区文本 | Query: `nodeId` |
 | GET | `/api/sys/fs/list` | 文件系统浏览器。最多 500 目录 + 10 文件。阻止符号链接 | Query: `path` |
 | POST | `/api/shutdown` | 优雅关闭（停止所有模型 → NodeManager.shutdown() → System.exit(0)） | — |
 

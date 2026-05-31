@@ -13,8 +13,12 @@ import javax.net.ssl.X509TrustManager;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -341,10 +345,16 @@ public class NodeManager {
     public static class StreamResult {
         final int statusCode;
         final java.io.InputStream body;
+        final HttpURLConnection connection;
 
         public StreamResult(int statusCode, java.io.InputStream body) {
+            this(statusCode, body, null);
+        }
+
+        public StreamResult(int statusCode, java.io.InputStream body, HttpURLConnection connection) {
             this.statusCode = statusCode;
             this.body = body;
+            this.connection = connection;
         }
 
         public boolean isSuccess() {
@@ -358,30 +368,58 @@ public class NodeManager {
         public java.io.InputStream getBody() {
             return body;
         }
+
+        public HttpURLConnection getConnection() {
+            return connection;
+        }
+
+        public void abort() {
+            if (this.connection != null) {
+                this.connection.disconnect();
+            }
+            if (this.body != null) {
+                try {
+                    this.body.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
     }
 
     /**
      * 流式远程 API 调用，返回 InputStream 用于逐行读取 SSE 响应
+     * 使用 HttpURLConnection 以便在客户端断开时能真正中止远程连接
      */
     public StreamResult callRemoteApiStreaming(String nodeId, String method, String path, JsonObject body, java.util.Map<String, String> headers, int readTimeout) {
         LlamaHubNode node = getNode(nodeId);
         if (node == null || node.baseUrl == null) {
             return new StreamResult(404, new java.io.ByteArrayInputStream(("Node not found: " + nodeId).getBytes(StandardCharsets.UTF_8)));
         }
+        HttpURLConnection connection = null;
         try {
             String targetUrl = node.baseUrl + "/" + path.replaceFirst("^/", "");
-            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(targetUrl))
-                .timeout(Duration.ofMillis(readTimeout))
-                .method(method, body != null && (method.equals("POST") || method.equals("PUT"))
-                    ? HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(body), StandardCharsets.UTF_8)
-                    : HttpRequest.BodyPublishers.noBody());
+            URL url = URI.create(targetUrl).toURL();
+            connection = (HttpURLConnection) url.openConnection();
+
+            if (connection instanceof javax.net.ssl.HttpsURLConnection) {
+                try {
+                    trustAllCerts((javax.net.ssl.HttpsURLConnection) connection);
+                } catch (Exception e) {
+                    logger.warn("配置HTTPS证书信任失败: {}", e.getMessage());
+                }
+            }
+
+            connection.setRequestMethod(method);
+            connection.setConnectTimeout(readTimeout);
+            connection.setReadTimeout(readTimeout);
+            connection.setUseCaches(false);
 
             if (node.apiKey != null && !node.apiKey.isBlank()) {
-                requestBuilder.header("Authorization", "Bearer " + node.apiKey);
+                connection.setRequestProperty("Authorization", "Bearer " + node.apiKey);
             }
             if (body != null && (method.equals("POST") || method.equals("PUT"))) {
-                requestBuilder.header("Content-Type", "application/json; charset=UTF-8");
+                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                connection.setDoOutput(true);
             }
             if (headers != null) {
                 for (java.util.Map.Entry<String, String> entry : headers.entrySet()) {
@@ -391,18 +429,40 @@ public class NodeManager {
                         !key.equalsIgnoreCase("Transfer-Encoding") &&
                         !key.equalsIgnoreCase("Authorization") &&
                         !key.equalsIgnoreCase("Content-Type")) {
-                        requestBuilder.header(key, entry.getValue());
+                        connection.setRequestProperty(key, entry.getValue());
                     }
                 }
             }
 
-            HttpResponse<java.io.InputStream> response = this.httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
-            return new StreamResult(response.statusCode(), response.body());
+            if (body != null && (method.equals("POST") || method.equals("PUT"))) {
+                try (OutputStream os = connection.getOutputStream()) {
+                    os.write(JsonUtil.toJson(body).getBytes(StandardCharsets.UTF_8));
+                    os.flush();
+                }
+            }
+
+            int responseCode = connection.getResponseCode();
+            InputStream responseStream;
+            if (responseCode >= 200 && responseCode < 300) {
+                responseStream = connection.getInputStream();
+            } else {
+                responseStream = connection.getErrorStream();
+                if (responseStream == null) {
+                    responseStream = new java.io.ByteArrayInputStream(new byte[0]);
+                }
+            }
+            return new StreamResult(responseCode, responseStream, connection);
         } catch (IOException e) {
             logger.warn("流式API调用失败: nodeId={}, path={}, error={}", nodeId, path, e.getMessage());
+            if (connection != null) {
+                connection.disconnect();
+            }
             return new StreamResult(502, new java.io.ByteArrayInputStream(("Connection failed: " + e.getMessage()).getBytes(StandardCharsets.UTF_8)));
         } catch (Exception e) {
             logger.warn("流式API调用失败: nodeId={}, path={}, error={}", nodeId, path, e.getMessage());
+            if (connection != null) {
+                connection.disconnect();
+            }
             return new StreamResult(502, new java.io.ByteArrayInputStream(("Connection failed: " + e.getMessage()).getBytes(StandardCharsets.UTF_8)));
         }
     }

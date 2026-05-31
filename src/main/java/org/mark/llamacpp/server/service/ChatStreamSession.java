@@ -129,8 +129,24 @@ public class ChatStreamSession {
 		if (this.cancelled.compareAndSet(false, true)) {
 			ModelRequestTracker.getInstance().removeRequest(this.requestId);
 			this.requestBodyStream.fail(new IOException("client disconnected"));
-			if (this.connection != null) {
-				this.connection.disconnect();
+			HttpURLConnection connToDisconnect = null;
+			synchronized (this) {
+				if (this.connection != null) {
+					connToDisconnect = this.connection;
+					this.connection = null;
+				}
+			}
+			if (connToDisconnect != null) {
+				try {
+					connToDisconnect.getInputStream().close();
+				} catch (IOException ignored) {
+				}
+				try {
+					connToDisconnect.getOutputStream().close();
+				} catch (IOException ignored) {
+				}
+				connToDisconnect.disconnect();
+				logger.info("已主动中止远程连接");
 			}
 			try {
 				this.deferredOutput.close();
@@ -166,6 +182,10 @@ public class ChatStreamSession {
 			}
 
 			this.requestId = ModelRequestTracker.getInstance().createRequest(result.getModelName(), "/v1/chat/completions");
+			if (this.cancelled.get()) {
+				logger.info("聊天流式会话已取消，中止请求");
+				return;
+			}
 			int responseCode = this.connection.getResponseCode();
 			ModelRequestTracker.getInstance().updatePhase(this.requestId, ActiveRequest.Phase.GENERATION);
 			this.openAIService.handleProxyResponse(this.ctx, this.connection, responseCode, result.isStream(), result.getModelName(), this.requestId, this.routingNodeId);

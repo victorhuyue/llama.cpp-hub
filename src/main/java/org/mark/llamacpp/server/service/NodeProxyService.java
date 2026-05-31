@@ -16,7 +16,12 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 请求代理转发服务：将客户端请求代理转发到远程节点
@@ -27,7 +32,7 @@ public class NodeProxyService {
 
     private static final NodeProxyService INSTANCE = new NodeProxyService();
 
-    private final java.util.concurrent.ExecutorService worker = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService worker = Executors.newVirtualThreadPerTaskExecutor();
 
     private NodeProxyService() {
     }
@@ -70,14 +75,14 @@ public class NodeProxyService {
      */
     public void proxyStreamRequest(ChannelHandlerContext ctx, FullHttpRequest request, String nodeId, String path, JsonObject body) {
         worker.execute(() -> {
-            java.io.InputStream inputStream = null;
+            NodeManager.StreamResult result = null;
             try {
-                java.util.Map<String, String> headers = new java.util.HashMap<>();
-                for (java.util.Map.Entry<String, String> entry : request.headers()) {
+                Map<String, String> headers = new HashMap<>();
+                for (Entry<String, String> entry : request.headers()) {
                     headers.put(entry.getKey(), entry.getValue());
                 }
 
-                NodeManager.StreamResult result = NodeManager.getInstance().callRemoteApiStreaming(
+                result = NodeManager.getInstance().callRemoteApiStreaming(
                         nodeId, request.method().name(), path, body, headers, 36000 * 1000);
 
                 if (!result.isSuccess()) {
@@ -85,8 +90,6 @@ public class NodeProxyService {
                             org.mark.llamacpp.server.struct.ApiResponse.error("流式代理失败，状态码: " + result.getStatusCode()));
                     return;
                 }
-
-                inputStream = result.getBody();
 
                 HttpResponse response = new DefaultHttpResponse(
                         HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
@@ -99,10 +102,15 @@ public class NodeProxyService {
                 ctx.write(response);
                 ctx.flush();
 
-                try (BufferedReader br = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+                Map<Integer, String> toolCallIds = new HashMap<>();
+                boolean clientDisconnected = false;
+
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(result.getBody(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = br.readLine()) != null) {
                         if (!ctx.channel().isActive() || !ctx.channel().isWritable()) {
+                            logger.info("客户端连接已断开，中止远程节点流式代理: nodeId={}", nodeId);
+                            clientDisconnected = true;
                             break;
                         }
 
@@ -113,7 +121,6 @@ public class NodeProxyService {
                             String outLine = line;
                             JsonObject parsed = JsonUtil.tryParseObject(data);
                             if (parsed != null) {
-                                java.util.Map<Integer, String> toolCallIds = new java.util.HashMap<>();
                                 boolean changed = JsonUtil.ensureToolCallIds(parsed, toolCallIds);
                                 if (changed) {
                                     outLine = "data: " + JsonUtil.toJson(parsed);
@@ -152,11 +159,8 @@ public class NodeProxyService {
             } catch (Throwable t) {
                 logger.error("虚拟线程异常已兜底: {}", t.getMessage(), t);
             } finally {
-                if (inputStream != null) {
-                    try {
-                        inputStream.close();
-                    } catch (IOException ignored) {
-                    }
+                if (result != null) {
+                    result.abort();
                 }
             }
         });
@@ -168,7 +172,7 @@ public class NodeProxyService {
     public void shutdown() {
         worker.shutdown();
         try {
-            if (!worker.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (!worker.awaitTermination(5, TimeUnit.SECONDS)) {
                 worker.shutdownNow();
             }
         } catch (InterruptedException e) {

@@ -246,8 +246,8 @@ public class GGufMetaDataExtractor {
     // ------------------------------------------------------------------
     // Incremental Range download via NettyHttpUtils
     // ------------------------------------------------------------------
-    private static final long CHUNK_SIZE = 10L * 1024 * 1024;
-    private static final long MAX_DOWNLOAD = 30L * 1024 * 1024;
+    private static final long CHUNK_SIZE = 6L * 1024 * 1024;
+    private static final long MAX_DOWNLOAD = 36L * 1024 * 1024;
     private static final String META_CACHE_DIR = "meta";
 
     

@@ -19,8 +19,27 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DownloadTaskManager implements Closeable {
+
+	private static final Logger logger = LoggerFactory.getLogger(DownloadTaskManager.class);
+
+	private static final DownloadTaskManager INSTANCE;
+	static {
+		try {
+			INSTANCE = new DownloadTaskManager(
+					Path.of(System.getProperty("user.dir"), "cache", "tasks.cache"),
+					Math.max(2, Runtime.getRuntime().availableProcessors() / 2));
+		} catch (IOException e) {
+			throw new RuntimeException("初始化下载任务管理器失败", e);
+		}
+	}
+
+	public static DownloadTaskManager getInstance() {
+		return INSTANCE;
+	}
 
 	private final Path cacheFile;
 	private final ExecutorService workerPool;
@@ -29,7 +48,7 @@ public class DownloadTaskManager implements Closeable {
 	private final Map<String, DownloadProgressListener> listeners = new ConcurrentHashMap<>();
 	private final Object fileLock = new Object();
 
-	public DownloadTaskManager(Path cacheFile, int maxConcurrentTasks) throws IOException {
+	private DownloadTaskManager(Path cacheFile, int maxConcurrentTasks) throws IOException {
 		Objects.requireNonNull(cacheFile, "cacheFile");
 		if (maxConcurrentTasks < 1) {
 			throw new IllegalArgumentException("maxConcurrentTasks must be >= 1");
@@ -38,11 +57,6 @@ public class DownloadTaskManager implements Closeable {
 		this.workerPool = Executors.newFixedThreadPool(maxConcurrentTasks);
 		loadFromCache();
 		addProgressListener(new DownloadWebSocketListener());
-	}
-
-	public static DownloadTaskManager createDefault(int maxConcurrentTasks) throws IOException {
-		Path cacheDir = Path.of(System.getProperty("user.dir"), "cache");
-		return new DownloadTaskManager(cacheDir.resolve("tasks.cache"), maxConcurrentTasks);
 	}
 
 	public DownloadTaskInfo createTask(String sourceUrl, Path targetFile, int threadCount) throws IOException {
@@ -370,7 +384,8 @@ public class DownloadTaskManager implements Closeable {
 			if (!hasLlamaServer(parent)) {
 				flattenSingleTopDir(parent);
 			}
-		} catch (Exception ignored) {
+		} catch (Exception e) {
+			logger.warn("解压下载文件失败: {}", task.getTargetPath(), e);
 		}
 	}
 
@@ -385,13 +400,14 @@ public class DownloadTaskManager implements Closeable {
 		if (entries.size() != 1) return;
 		Path single = entries.get(0);
 		if (!Files.isDirectory(single)) return;
-		Files.list(single).forEach(child -> {
+		for (Path child : Files.list(single).collect(java.util.stream.Collectors.toList())) {
 			try {
 				Path tgt = destDir.resolve(child.getFileName());
 				Files.move(child, tgt, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-			} catch (IOException ignored) {
+			} catch (IOException e) {
+				logger.warn("移动文件失败: {} -> {}", child, destDir.resolve(child.getFileName()), e);
 			}
-		});
+		}
 		Files.deleteIfExists(single);
 	}
 

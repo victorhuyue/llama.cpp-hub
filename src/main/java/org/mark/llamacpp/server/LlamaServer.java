@@ -28,6 +28,7 @@ import org.mark.llamacpp.ollama.Ollama;
 import org.mark.llamacpp.server.channel.BasicRouterHandler;
 import org.mark.llamacpp.server.channel.CompletionRouterHandler;
 import org.mark.llamacpp.server.channel.FileDownloadRouterHandler;
+import org.mark.file.downloader.DownloadTaskManager;
 import org.mark.llamacpp.server.channel.FileUploadRouterHandler;
 import org.mark.llamacpp.server.channel.OpenAIChatStreamingHandler;
 import org.mark.llamacpp.server.channel.LlamaRouterHandler;
@@ -205,6 +206,11 @@ public class LlamaServer {
 				LlamaServerManager.getInstance().shutdownAll();
 			} catch (Exception e) {
 				logger.error("停止所有模型失败", e);
+			}
+			try {
+				DownloadTaskManager.getInstance().close();
+			} catch (Exception e) {
+				logger.error("关闭下载任务管理器失败", e);
 			}
 			logger.info("清理完成，进程退出");
 		}, "shutdown-hook"));

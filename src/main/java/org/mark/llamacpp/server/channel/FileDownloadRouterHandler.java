@@ -48,9 +48,7 @@ import io.netty.util.ReferenceCountUtil;
  */
 public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
     
-    private static final DownloadTaskManager taskManager = createTaskManager();
-
-	private static final ConcurrentHashMap<String, ReentrantLock> downloadLocks = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, ReentrantLock> downloadLocks = new ConcurrentHashMap<>();
 
 	private static final ExecutorService async = Executors.newVirtualThreadPerTaskExecutor();
     
@@ -326,7 +324,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 			List<Map<String, Object>> downloads = new ArrayList<>();
 
 			// Local tasks
-			for (DownloadTaskInfo task : taskManager.listTasks()) {
+			for (DownloadTaskInfo task : DownloadTaskManager.getInstance().listTasks()) {
 				downloads.add(toTaskView(task));
 			}
 
@@ -448,7 +446,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 				return;
 			}
 
-			taskManager.pauseTask(taskId);
+			DownloadTaskManager.getInstance().pauseTask(taskId);
 			Map<String, Object> result = new HashMap<>();
 			result.put("success", true);
 			result.put("taskId", taskId);
@@ -489,7 +487,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 				return;
 			}
 
-			DownloadTaskInfo task = taskManager.startTask(taskId);
+			DownloadTaskInfo task = DownloadTaskManager.getInstance().startTask(taskId);
 			Map<String, Object> result = new HashMap<>();
 			result.put("success", true);
 			result.put("taskId", task.getTaskId());
@@ -532,7 +530,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 
 			Object deleteFileObj = requestData.get("deleteFile");
 			boolean deleteLocalFile = !(deleteFileObj instanceof Boolean) || Boolean.TRUE.equals(deleteFileObj);
-			boolean deleted = taskManager.deleteTask(taskId, deleteLocalFile);
+			boolean deleted = DownloadTaskManager.getInstance().deleteTask(taskId, deleteLocalFile);
 			Map<String, Object> result = new HashMap<>();
 			result.put("success", deleted);
 			result.put("taskId", taskId);
@@ -553,7 +551,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 	 */
 	private void handleGetStats(ChannelHandlerContext ctx) {
 		try {
-			List<DownloadTaskInfo> tasks = taskManager.listTasks();
+			List<DownloadTaskInfo> tasks = DownloadTaskManager.getInstance().listTasks();
 			long activeCount = tasks.stream().filter(t -> t.getStatus() == DownloadTaskStatus.RUNNING).count();
 			long pendingCount = tasks.stream().filter(t -> t.getStatus() == DownloadTaskStatus.PENDING).count();
 			long completedCount = tasks.stream().filter(t -> t.getStatus() == DownloadTaskStatus.COMPLETED).count();
@@ -606,14 +604,6 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 		return 0;
 	}
 
-	private static DownloadTaskManager createTaskManager() {
-		try {
-			return DownloadTaskManager.createDefault(Math.max(2, Runtime.getRuntime().availableProcessors() / 2));
-		} catch (IOException e) {
-			throw new RuntimeException("初始化下载任务管理器失败", e);
-		}
-	}
-
 	private Map<String, Object> createAndStartTask(String url, String path, String fileName, String folderName) {
 		Map<String, Object> result = new HashMap<>();
 		try {
@@ -659,8 +649,8 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 					result.put("error", "文件已存在: " + selectedName);
 					return result;
 				}
-				DownloadTaskInfo created = taskManager.createTask(url, targetFile, 8);
-				taskManager.startTask(created.getTaskId());
+				DownloadTaskInfo created = DownloadTaskManager.getInstance().createTask(url, targetFile, 8);
+				DownloadTaskManager.getInstance().startTask(created.getTaskId());
 				result.put("success", true);
 				result.put("taskId", created.getTaskId());
 				result.put("message", "下载任务创建成功");
@@ -706,8 +696,8 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 					result.put("error", "文件已存在: " + selectedName);
 					return result;
 				}
-				DownloadTaskInfo created = taskManager.createTask(url, targetFile, 8);
-				taskManager.startTask(created.getTaskId());
+				DownloadTaskInfo created = DownloadTaskManager.getInstance().createTask(url, targetFile, 8);
+				DownloadTaskManager.getInstance().startTask(created.getTaskId());
 				result.put("success", true);
 				result.put("taskId", created.getTaskId());
 				result.put("message", "下载任务创建成功");
@@ -738,7 +728,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 			}
 
 			// Check for existing task with the same URL
-			for (DownloadTaskInfo existing : taskManager.listTasks()) {
+			for (DownloadTaskInfo existing : DownloadTaskManager.getInstance().listTasks()) {
 				if (url.equals(existing.getSourceUrl())) {
 					DownloadTaskStatus st = existing.getStatus();
 					if (st == DownloadTaskStatus.RUNNING || st == DownloadTaskStatus.PENDING || st == DownloadTaskStatus.PAUSED) {
@@ -781,9 +771,9 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 					result.put("error", "文件已存在: " + selectedName);
 					return result;
 				}
-				DownloadTaskInfo created = taskManager.createTask(url, targetFile, 8);
+				DownloadTaskInfo created = DownloadTaskManager.getInstance().createTask(url, targetFile, 8);
 				String taskId = created.getTaskId();
-				taskManager.startTask(taskId);
+				DownloadTaskManager.getInstance().startTask(taskId);
 				result.put("success", true);
 				result.put("taskId", taskId);
 				result.put("message", "下载任务创建成功");

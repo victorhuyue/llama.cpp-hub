@@ -3,7 +3,9 @@ package org.mark.llamacpp.server.tools;
 
 
 import java.io.*;
+import java.nio.*;
 import java.nio.charset.*;
+import java.nio.channels.*;
 import java.nio.file.*;
 
 import org.mark.llamacpp.crawler.NettyHttpUtils;
@@ -97,52 +99,102 @@ public class GGufMetaDataExtractor {
     }
 
     // ------------------------------------------------------------------
-    // GGUF binary reader (little-endian)
+    // GGUF binary reader (little-endian), supports byte[] and FileChannel
     // ------------------------------------------------------------------
     static class GGufReader {
         final byte[] data;
-        int pos;
+        final FileChannel fc;
+        final byte[] buf = new byte[8];
+        long pos;
 
-        GGufReader(byte[] data) { this.data = data; this.pos = 0; }
+        GGufReader(byte[] data) { this.data = data; this.fc = null; this.pos = 0; }
+        GGufReader(FileChannel fc) { this.data = null; this.fc = fc; this.pos = 0; }
 
-        int readInt() {
-            return (data[pos++] & 0xFF)
-                 | ((data[pos++] & 0xFF) << 8)
-                 | ((data[pos++] & 0xFF) << 16)
-                 | ((data[pos++] & 0xFF) << 24);
+        void fillBytes(byte[] out, int off, int len) throws IOException {
+            if (data != null) {
+                System.arraycopy(data, (int)pos, out, off, len);
+                pos += len;
+            } else {
+                ByteBuffer bb = ByteBuffer.wrap(out, off, len);
+                long filePos = pos;
+                while (bb.hasRemaining()) {
+                    int r = fc.read(bb, filePos);
+                    if (r <= 0) throw new EOFException();
+                    filePos += r;
+                }
+                pos = filePos;
+            }
         }
 
-        long readLong() {
-            return (data[pos++] & 0xFFL)
-                 | ((data[pos++] & 0xFFL) << 8)
-                 | ((data[pos++] & 0xFFL) << 16)
-                 | ((data[pos++] & 0xFFL) << 24)
-                 | ((data[pos++] & 0xFFL) << 32)
-                 | ((data[pos++] & 0xFFL) << 40)
-                 | ((data[pos++] & 0xFFL) << 48)
-                 | ((data[pos++] & 0xFFL) << 56);
+        byte readByte() throws IOException {
+            if (data != null) return data[(int)pos++];
+            buf[0] = 0;
+            fillBytes(buf, 0, 1);
+            return buf[0];
         }
 
-        long readUInt64() { return readLong(); }
-
-        short readShort() {
-            return (short)((data[pos++] & 0xFF) | ((data[pos++] & 0xFF) << 8));
+        int readInt() throws IOException {
+            if (data != null) {
+                int p = (int)pos;
+                int v = (data[p++] & 0xFF) | ((data[p++] & 0xFF) << 8)
+                      | ((data[p++] & 0xFF) << 16) | ((data[p++] & 0xFF) << 24);
+                pos = p;
+                return v;
+            }
+            fillBytes(buf, 0, 4);
+            return (buf[0] & 0xFF) | ((buf[1] & 0xFF) << 8)
+                 | ((buf[2] & 0xFF) << 16) | ((buf[3] & 0xFF) << 24);
         }
 
-        float readFloat() {
+        long readLong() throws IOException {
+            if (data != null) {
+                int p = (int)pos;
+                long v = (data[p++] & 0xFFL) | ((data[p++] & 0xFFL) << 8)
+                      | ((data[p++] & 0xFFL) << 16) | ((data[p++] & 0xFFL) << 24)
+                      | ((data[p++] & 0xFFL) << 32) | ((data[p++] & 0xFFL) << 40)
+                      | ((data[p++] & 0xFFL) << 48) | ((data[p++] & 0xFFL) << 56);
+                pos = p;
+                return v;
+            }
+            fillBytes(buf, 0, 8);
+            return (buf[0] & 0xFFL) | ((buf[1] & 0xFFL) << 8)
+                 | ((buf[2] & 0xFFL) << 16) | ((buf[3] & 0xFFL) << 24)
+                 | ((buf[4] & 0xFFL) << 32) | ((buf[5] & 0xFFL) << 40)
+                 | ((buf[6] & 0xFFL) << 48) | ((buf[7] & 0xFFL) << 56);
+        }
+
+        long readUInt64() throws IOException { return readLong(); }
+
+        short readShort() throws IOException {
+            if (data != null) {
+                int p = (int)pos;
+                short v = (short)((data[p++] & 0xFF) | ((data[p++] & 0xFF) << 8));
+                pos = p;
+                return v;
+            }
+            fillBytes(buf, 0, 2);
+            return (short)((buf[0] & 0xFF) | ((buf[1] & 0xFF) << 8));
+        }
+
+        float readFloat() throws IOException {
             return Float.intBitsToFloat(readInt());
         }
 
-        boolean readBool() {
-            return data[pos++] != 0;
+        boolean readBool() throws IOException {
+            return readByte() != 0;
         }
 
-        String readString() {
+        String readString() throws IOException {
             long len = readLong();
             if (len < 0 || len > Integer.MAX_VALUE - 1) return "";
-            String s = new String(data, pos, (int)len, StandardCharsets.UTF_8);
-            pos += (int)len;
-            return s;
+            if (data != null) {
+                String s = new String(data, (int)pos, (int)len, StandardCharsets.UTF_8);
+                pos += len;
+                return s;
+            }
+            byte[] tmp = new byte[(int)len];
+            fillBytes(tmp, 0, (int)len);
+            return new String(tmp, StandardCharsets.UTF_8);
         }
     }
 
@@ -199,8 +251,8 @@ public class GGufMetaDataExtractor {
 
         void writeKV(GGufReader r, int type) throws IOException {
             switch (type) {
-                case TYPE_UINT8:    bos.write(r.data[r.pos++]); break;
-                case TYPE_INT8:     bos.write(r.data[r.pos++]); break;
+                case TYPE_UINT8:    bos.write(r.readByte() & 0xFF); break;
+                case TYPE_INT8:     bos.write(r.readByte() & 0xFF); break;
                 case TYPE_UINT16:   writeShort(r.readShort()); break;
                 case TYPE_INT16:    writeShort(r.readShort()); break;
                 case TYPE_UINT32:   writeInt(r.readInt()); break;
@@ -238,7 +290,7 @@ public class GGufMetaDataExtractor {
         return (n / blk) * tsz;
     }
 
-    static long pad(long size, long alignment) {
+   static long pad(long size, long alignment) {
         long a = alignment > 0 ? alignment : GGUF_DEFAULT_ALIGNMENT;
         return ((size + a - 1) / a) * a;
     }
@@ -311,19 +363,27 @@ public class GGufMetaDataExtractor {
                     break;
                 }
 
-                byte[] allData = Files.readAllBytes(tmpFile);
-                try {
-                    int[] nTensors = new int[1];
-                    int[] nKv = new int[1];
-                    if (validateHeader(allData, nTensors, nKv)) {
-                        System.err.printf("Header OK: " + nKv[0] + " KV, " + nTensors[0] + " tensors\n");
-                        GGufMetaDataExtractor.writeMetaFile(allData, outPath);
-                        return outPath;
+                try (RandomAccessFile raf = new RandomAccessFile(tmpFile.toFile(), "r");
+                     FileChannel fc = raf.getChannel()) {
+                    long fileSize = fc.size();
+                    if (fileSize < 24) {
+                        System.err.println("Header incomplete, downloading next chunk...");
+                        continue;
                     }
-                } catch (Exception e) {
-                    // header incomplete, continue
+                    try {
+                        int[] nTensors = new int[1];
+                        int[] nKv = new int[1];
+                        if (validateHeader(fc, nTensors, nKv)) {
+                            System.err.printf("Header OK: " + nKv[0] + " KV, " + nTensors[0] + " tensors\n");
+                            fc.position(0);
+                            GGufMetaDataExtractor.writeMetaFile(fc, outPath);
+                            return outPath;
+                        }
+                    } catch (Exception e) {
+                        // header incomplete, continue
+                    }
+                    System.err.println("Header incomplete, downloading next chunk...");
                 }
-                System.err.println("Header incomplete, downloading next chunk...");
             }
             throw new IOException("Could not parse GGUF header within " + (MAX_DOWNLOAD / 1048576) + " MiB");
         } finally {
@@ -331,9 +391,9 @@ public class GGufMetaDataExtractor {
         }
     }
 
-    static boolean validateHeader(byte[] data, int[] outNTensors, int[] outNKv) {
-        if (data.length < 24) return false;
-        GGufReader r = new GGufReader(data);
+  static boolean validateHeader(FileChannel fc, int[] outNTensors, int[] outNKv) throws IOException {
+        if (fc.size() < 24) return false;
+        GGufReader r = new GGufReader(fc);
         if (r.readInt() != GGUF_MAGIC) return false;
         r.readInt(); // version
         long nTensors = r.readLong();
@@ -341,33 +401,36 @@ public class GGufMetaDataExtractor {
         if (nTensors < 0 || nKv < 0) return false;
 
         // Skip KV pairs
-        try {
-            for (long i = 0; i < nKv; i++) {
-                r.readString(); // key
-                skipValue(r, r.readInt()); // value
-            }
-            // Skip tensor info
-            for (long i = 0; i < nTensors; i++) {
-                r.readString(); // name
-                int nDims = r.readInt();
-                for (int d = 0; d < nDims; d++) r.readLong(); // dims
-                r.readInt();  // type
-                r.readLong(); // offset
-            }
-        } catch (Exception e) {
-            return false;
+        for (long i = 0; i < nKv; i++) {
+            r.readString(); // key
+            skipValue(r, r.readInt()); // value
+        }
+        // Skip tensor info
+        for (long i = 0; i < nTensors; i++) {
+            r.readString(); // name
+            int nDims = r.readInt();
+            for (int d = 0; d < nDims; d++) r.readLong(); // dims
+            r.readInt();  // type
+            r.readLong(); // offset
         }
         outNTensors[0] = (int)nTensors;
         outNKv[0] = (int)nKv;
         return true;
     }
 
-    static void skipValue(GGufReader r, int type) {
+    static void skipValue(GGufReader r, int type) throws IOException {
         switch (type) {
-            case TYPE_UINT8:  case TYPE_INT8:  case TYPE_BOOL: r.pos++; break;
-            case TYPE_UINT16: case TYPE_INT16: r.pos += 2; break;
-            case TYPE_UINT32: case TYPE_INT32: case TYPE_FLOAT32: r.pos += 4; break;
-            case TYPE_UINT64: case TYPE_INT64: case TYPE_FLOAT64: r.pos += 8; break;
+            case TYPE_UINT8:  r.readByte(); break;
+            case TYPE_INT8:   r.readByte(); break;
+            case TYPE_BOOL:   r.readByte(); break;
+            case TYPE_UINT16: r.readShort(); break;
+            case TYPE_INT16:  r.readShort(); break;
+            case TYPE_UINT32: r.readInt(); break;
+            case TYPE_INT32:  r.readInt(); break;
+            case TYPE_FLOAT32: r.readFloat(); break;
+            case TYPE_UINT64: r.readLong(); break;
+            case TYPE_INT64:  r.readLong(); break;
+            case TYPE_FLOAT64: r.readLong(); break;
             case TYPE_STRING:  r.readString(); break;
             case TYPE_ARRAY: {
                 int et = r.readInt();
@@ -378,11 +441,11 @@ public class GGufMetaDataExtractor {
         }
     }
 
-    // ------------------------------------------------------------------
+   // ------------------------------------------------------------------
     // Process a GGUF buffer and write metadata-only file
     // ------------------------------------------------------------------
-    public static void writeMetaFile(byte[] headerData, String outPath) throws Exception {
-        GGufReader r = new GGufReader(headerData);
+    public static void writeMetaFile(FileChannel fc, String outPath) throws Exception {
+        GGufReader r = new GGufReader(fc);
 
         // Read and write header
         int magic = r.readInt();

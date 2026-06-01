@@ -28,7 +28,6 @@ import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.tools.JsonUtil;
 
 import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.DefaultHttpResponse;
@@ -96,7 +95,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 		}
 		// 创建模型下载任务
 		if (uri.startsWith("/api/downloads/model/create")) {
-			this.handleModelDonwload(ctx, request);
+			this.handleModelDownload(ctx, request);
 			return;
 		}
 		
@@ -134,7 +133,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 	 * @param ctx
 	 * @param request
 	 */
-	private void handleModelDonwload(ChannelHandlerContext ctx, FullHttpRequest request) {
+	private void handleModelDownload(ChannelHandlerContext ctx, FullHttpRequest request) {
 		if (request.method() != HttpMethod.POST) {
 			LlamaServer.sendErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "只支持POST请求");
 			return;
@@ -243,10 +242,6 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 					taskResults.add(r);
 					continue;
 				}
-//				String fileName = null;
-//				if (i == 0) {
-//					fileName = sanitizeFileName(req.getName());
-//				}
 				Map<String, Object> r = createAndStartTaskDirect(url, targetDir.toString(), null);
 				if (!Boolean.TRUE.equals(r.get("success"))) {
 					allSuccess = false;

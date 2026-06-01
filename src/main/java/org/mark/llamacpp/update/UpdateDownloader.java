@@ -33,8 +33,7 @@ public class UpdateDownloader {
     private volatile String currentVersion;
     private volatile String errorMessage;
 
-    // i18n keys — sent via WebSocket for frontend translation
-    //private static final String I18N_HTTP_ERROR = "update.download.failed.http";
+    // 
     private static final String I18N_CANCELLED = "update.download.cancelled";
     private static final String I18N_FAILED = "update.download.failed";
 

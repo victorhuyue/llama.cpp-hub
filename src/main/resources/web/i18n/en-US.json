@@ -340,6 +340,8 @@
    "modal.model_action.capabilities.audio": "Audio",
   "modal.model_action.capabilities.title": "Capabilities",
   "modal.model_action.capabilities.tools": "Tools",
+  "modal.model_action.capabilities_help_title": "Capabilities Help",
+  "modal.model_action.capabilities_help_desc": "Capabilities are just labels. With the exception of \"Audio\", they primarily serve Ollama and LM Studio compatible APIs -- those clients use these tags to determine which endpoints to expose.\n\nThese labels do not change llama.cpp's behavior. If you find these options confusing, feel free to ignore them entirely -- they won't affect model operation in any way.\n\nWhat each tag maps to:\n\n• Thinking: Ollama / LM Studio thinking mode\n• Tools: Function Calling / Tool Use\n• Rerank: Rerank endpoint (requires enabling the corresponding toggle)\n• Embedding: Embedding endpoint (requires enabling the corresponding toggle)\n• Vision: Multimodal image input\n• Audio: Whisper and other audio input (natively supported by llama.cpp)",
   "modal.model_action.devices.desc": "Select devices to run the model",
   "modal.model_action.devices.empty": "No devices available",
   "modal.model_action.devices.title": "Devices",

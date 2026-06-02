@@ -340,6 +340,8 @@
    "modal.model_action.capabilities.audio": "音频",
   "modal.model_action.capabilities.title": "能力",
   "modal.model_action.capabilities.tools": "工具调用",
+  "modal.model_action.capabilities_help_title": "能力说明",
+  "modal.model_action.capabilities_help_desc": "能力只是一个标签，除了「音频」外，主要服务于 Ollama 和 LM Studio 的兼容 API——它们会根据这些标签来决定向客户端暴露哪些端点。\n\n这些标签不会改变 llama.cpp 本身的运行行为。如果你觉得这些选项让人困惑，完全可以忽略它们，不会对模型运行产生任何影响。\n\n各标签对应关系：\n\n• 思考：Ollama / LM Studio 的 thinking 模式\n• 工具调用：Function Calling / Tool Use\n• 重排：Rerank 端点（需额外开启对应开关）\n• 嵌入：Embedding 端点（需额外开启对应开关）\n• 视觉：多模态图像输入\n• 音频：Whisper 等音频输入（由 llama.cpp 原生支持）",
   "modal.model_action.devices.desc": "选择运行模型的设备",
   "modal.model_action.devices.empty": "暂无可选设备",
   "modal.model_action.devices.title": "设备",

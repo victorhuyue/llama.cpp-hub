@@ -981,6 +981,20 @@ button { cursor: pointer; }
   stroke-linejoin: round;
 }
 
+.streaming-performance {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--muted-bg);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+  animation: messageSlideIn 0.2s var(--ease-out) both;
+}
+
 /* ── Message edit ── */
 .message-edit { display: grid; gap: 8px; }
 
@@ -2486,6 +2500,41 @@ body.sidebar-collapsed .sidebar {
 
 .typing-dot:nth-child(2) { animation-delay: 0.15s; }
 .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* ── Prompt Progress Bar ── */
+.prompt-progress-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0 4px 0;
+  animation: messageSlideIn 0.2s var(--ease-out) both;
+}
+
+.prompt-progress-bar.complete {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.prompt-progress-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.prompt-progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+
+.prompt-progress-text {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.3;
+}
 
 /* ── Toast ── */
 .toast-container {

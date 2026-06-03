@@ -1477,6 +1477,7 @@
   "page.chat.main.message.collapse_requests": "Click to collapse {n} request(s)",
   "page.chat.main.message.expand_result": "Click to expand result",
   "page.chat.main.message.collapse_result": "Click to collapse result",
+  "page.chat.main.message.prompt_processing": "Processing prompt…",
   "page.chat.main.copy.with_images": "[With {n} image(s)]",
   "page.chat.main.copy.images_only": "[Image message, {n} image(s)]",
   "page.chat.main.copy.with_files": "[With {n} file(s)]",

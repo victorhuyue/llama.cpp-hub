@@ -1478,6 +1478,7 @@
   "page.chat.main.message.collapse_requests": "点击收起 {n} 个请求",
   "page.chat.main.message.expand_result": "点击展开结果",
   "page.chat.main.message.collapse_result": "点击收起结果",
+  "page.chat.main.message.prompt_processing": "正在处理提示词…",
   "page.chat.main.copy.with_images": "[附带 {n} 张图片]",
   "page.chat.main.copy.images_only": "[图片消息，共 {n} 张]",
   "page.chat.main.copy.with_files": "[附带 {n} 个文件]",

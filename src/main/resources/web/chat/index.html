@@ -2238,6 +2238,25 @@
       return Object.keys(next).length ? next : null;
     }
 
+    function parsePromptProgress(value) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+      }
+      const total = Number(value.total);
+      const processed = Number(value.processed);
+      const cache = Number(value.cache);
+      const timeMs = Number(value.time_ms);
+      if (!Number.isFinite(total) || total <= 0) {
+        return null;
+      }
+      return {
+        total,
+        processed: Number.isFinite(processed) ? processed : 0,
+        cache: Number.isFinite(cache) ? cache : 0,
+        timeMs: Number.isFinite(timeMs) ? timeMs : 0
+      };
+    }
+
     function formatTimingValue(value, digits = 2) {
       const number = normalizeTimingNumber(value);
       if (number === null) {
@@ -3809,6 +3828,11 @@
         contentDiv.remove();
       }
 
+      const progressBar = bubble.querySelector(':scope > .prompt-progress-bar');
+      if (progressBar && (message.content || message.reasoning || hasAssistantToolCalls(message))) {
+        progressBar.remove();
+      }
+
       if (message.role === 'assistant') {
         upsertAssistantToolCallsElement(bubble, message, index);
         upsertAssistantPerformanceElement(bubble, message);
@@ -3846,6 +3870,9 @@
           }
         } else if (currentSwitcher) {
           currentSwitcher.remove();
+        }
+        if (message.role === 'assistant') {
+          upsertStreamingPerformance(actions, message);
         }
       }
       return true;
@@ -3919,7 +3946,7 @@
       return conversation;
     }
 
-    function updateAssistantMessage(index, content, reasoning, model, timings) {
+    function updateAssistantMessage(index, content, reasoning, model, timings, isFinished) {
       const conversation = getCurrentConversation();
       const message = conversation?.messages?.[index];
       if (!message || message.role !== 'assistant') {
@@ -3938,6 +3965,9 @@
       activeResponse.timings = normalizeTimings(timings);
       activeResponse.performanceText = activeResponse.timings ? formatAssistantPerformanceText(activeResponse.timings) : '';
       activeResponse.time = activeResponse.time || nowTime();
+      if (isFinished) {
+        activeResponse.streamingDone = true;
+      }
       syncAssistantMessageState(message);
       conversation.updatedAt = Date.now();
 
@@ -3996,18 +4026,18 @@
       renderMessages();
     }
 
-    function updateLastAssistantMessage(content, reasoning, model, timings, targetIndex) {
+    function updateLastAssistantMessage(content, reasoning, model, timings, targetIndex, isFinished) {
       const conversation = getCurrentConversation();
       if (!conversation) {
         return;
       }
       if (Number.isInteger(targetIndex)) {
-        updateAssistantMessage(targetIndex, content, reasoning, model, timings);
+        updateAssistantMessage(targetIndex, content, reasoning, model, timings, isFinished);
         return;
       }
       for (let i = conversation.messages.length - 1; i >= 0; i -= 1) {
         if (conversation.messages[i].role === 'assistant') {
-          updateAssistantMessage(i, content, reasoning, model, timings);
+          updateAssistantMessage(i, content, reasoning, model, timings, isFinished);
           return;
         }
       }
@@ -4032,6 +4062,96 @@
         }
       } else {
         renderMessages();
+      }
+    }
+
+    function updatePromptProgress(progress, targetIndex) {
+      if (!progress) {
+        return;
+      }
+      const conversation = getCurrentConversation();
+      if (!conversation) {
+        return;
+      }
+      const message = Number.isInteger(targetIndex)
+        ? conversation.messages[targetIndex]
+        : conversation.messages.findLast(m => m.role === 'assistant');
+      if (!message || message.role !== 'assistant') {
+        return;
+      }
+      const actualIndex = Number.isInteger(targetIndex) ? targetIndex : conversation.messages.indexOf(message);
+      const article = els.messages.querySelector('article[data-index="' + actualIndex + '"]');
+      if (!article) {
+        return;
+      }
+      const bubble = article.querySelector(':scope > .bubble');
+      if (!bubble) {
+        return;
+      }
+      let progressBar = bubble.querySelector(':scope > .prompt-progress-bar');
+      if (!progressBar) {
+        progressBar = document.createElement('div');
+        progressBar.className = 'prompt-progress-bar';
+        progressBar.innerHTML =
+          '<div class="prompt-progress-track"><div class="prompt-progress-fill"></div></div>' +
+          '<span class="prompt-progress-text"></span>';
+        bubble.insertBefore(progressBar, bubble.firstChild);
+      }
+      const pct = Math.min(100, Math.round((progress.processed / progress.total) * 100));
+      const fill = progressBar.querySelector('.prompt-progress-fill');
+      const text = progressBar.querySelector('.prompt-progress-text');
+      fill.style.width = pct + '%';
+      const parts = [window.I18N.t('page.chat.main.message.prompt_processing', '正在处理提示词…'), progress.processed + '/' + progress.total + ' tokens'];
+      if (progress.timeMs > 0) {
+        const actualProcessed = Math.max(0, progress.processed - progress.cache);
+        const speed = actualProcessed / (progress.timeMs / 1000);
+        parts.push(Math.round(speed) + ' tok/s');
+      }
+      text.textContent = parts.join(' · ');
+      if (pct >= 100) {
+        progressBar.classList.add('complete');
+      } else {
+        progressBar.classList.remove('complete');
+      }
+    }
+
+    function upsertStreamingPerformance(actions, message) {
+      if (!actions) {
+        return;
+      }
+      const activeResponse = message?.role === 'assistant' ? getActiveAssistantResponse(message) : null;
+      const timings = activeResponse?.timings || message?.timings;
+      if (!message.isStreaming || !timings) {
+        removeStreamingPerformance(actions);
+        return;
+      }
+      if (activeResponse?.streamingDone) {
+        removeStreamingPerformance(actions);
+        return;
+      }
+      let chip = actions.querySelector(':scope > .streaming-performance');
+      if (!chip) {
+        chip = document.createElement('span');
+        chip.className = 'streaming-performance';
+        actions.appendChild(chip);
+      }
+      const parts = [];
+      if (timings.predicted_per_second !== undefined) {
+        parts.push(Math.round(timings.predicted_per_second) + ' tok/s');
+      }
+      if (timings.predicted_n !== undefined) {
+        parts.push(timings.predicted_n + ' tokens');
+      }
+      chip.textContent = parts.join(' · ');
+    }
+
+    function removeStreamingPerformance(actions) {
+      if (!actions) {
+        return;
+      }
+      const chip = actions.querySelector(':scope > .streaming-performance');
+      if (chip) {
+        chip.remove();
       }
     }
 
@@ -4855,6 +4975,10 @@
         stream: !!assistant?.stream,
         enable_thinking: !!assistant?.enableThinking
       };
+      if (payload.stream) {
+        payload.return_progress = true;
+        payload.timings_per_token = true;
+      }
       if (nd) {
         payload.nodeId = nd;
       }
@@ -4981,6 +5105,10 @@
         if (extractedTimings) {
           timings = mergeTimings(timings, extractedTimings);
         }
+        const pp = parsePromptProgress(json?.prompt_progress);
+        if (pp) {
+          updatePromptProgress(pp, targetIndex);
+        }
         const choice = Array.isArray(json.choices) ? json.choices[0] : null;
         const delta = choice?.delta || {};
         const incomingToolCalls =
@@ -5004,7 +5132,8 @@
               : '';
         answer += chunkContent;
         reasoning += chunkReasoning;
-        updateLastAssistantMessage(answer, reasoning, model, timings, targetIndex);
+        const isFinished = choice?.finish_reason !== undefined && choice?.finish_reason !== null;
+        updateLastAssistantMessage(answer, reasoning, model, timings, targetIndex, isFinished);
         return null;
       };
 

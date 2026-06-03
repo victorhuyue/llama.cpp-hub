@@ -28,6 +28,7 @@ import org.mark.llamacpp.ollama.Ollama;
 import org.mark.llamacpp.server.channel.BasicRouterHandler;
 import org.mark.llamacpp.server.channel.CompletionRouterHandler;
 import org.mark.llamacpp.server.channel.FileDownloadRouterHandler;
+import org.apache.logging.log4j.LogManager;
 import org.mark.file.downloader.DownloadTaskManager;
 import org.mark.llamacpp.server.channel.FileUploadRouterHandler;
 import org.mark.llamacpp.server.channel.OpenAIChatStreamingHandler;
@@ -174,7 +175,7 @@ public class LlamaServer {
 		NodeManager.getInstance().initialize();
 
 		logger.info("系统初始化完成，启动Web服务器...");
-
+		// 这部分处理退出后要执行的代码，前提是正常退出。
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 			logger.info("收到关闭信号，正在清理所有资源...");
 			try {
@@ -213,6 +214,14 @@ public class LlamaServer {
 				logger.error("关闭下载任务管理器失败", e);
 			}
 			logger.info("清理完成，进程退出");
+			
+            // 以前不知道log4j也要执行shutdown
+            try {
+                LogManager.shutdown();
+            }catch (Exception e) {
+                e.printStackTrace();
+            }
+			
 		}, "shutdown-hook"));
 
 		LlamaServer.initHttpsContext();
@@ -784,246 +793,246 @@ public class LlamaServer {
 			}
 		}
 	}
-    
-    // ==================== 端口配置的get/set方法 ====================
-    
-    public static int getWebPort() {
-        return webPort;
-    }
-    
-    public static void setWebPort(int webPort) {
-        if (webPort > 0 && webPort <= 65535) {
-            LlamaServer.webPort = webPort;
-        }
-    }
-    
-    public static void updateServerPorts(Integer webPort) {
-        synchronized (APPLICATION_CONFIG_LOCK) {
-            if (webPort != null && webPort > 0 && webPort <= 65535) {
-                LlamaServer.webPort = webPort;
-            }
-            saveApplicationConfig();
-        }
-    }
-    
-    // ==================== 下载目录配置的get/set方法 ====================
-    
-    public static String getDownloadDirectory() {
-        return downloadDirectory;
-    }
-    
-    public static void setDownloadDirectory(String downloadDirectory) {
-        synchronized (APPLICATION_CONFIG_LOCK) {
-            LlamaServer.downloadDirectory = downloadDirectory == null ? "" : downloadDirectory;
-            saveApplicationConfig();
-        }
-    }
-    
-    // ==================== HTTPS ====================
-    
-    public static boolean isHttpsEnabled() {
-        return httpsEnabled;
-    }
-    
-    public static String getHttpsCertPath() {
-        return httpsCertPath;
-    }
-    
-    public static String getHttpsKeyPath() {
-        return httpsKeyPath;
-    }
-    
-    public static String getHttpsPassword() {
-        return httpsPassword;
-    }
-    
-    public static void updateHttpsConfig(Boolean enabled, String certPath, String keyPath, String password) {
-        synchronized (APPLICATION_CONFIG_LOCK) {
-            if (enabled != null) {
-                httpsEnabled = enabled;
-            }
-            if (certPath != null) {
-                httpsCertPath = certPath;
-            }
-            if (keyPath != null) {
-                httpsKeyPath = keyPath;
-            }
-            if (password != null) {
-                httpsPassword = password;
-            }
-            saveApplicationConfig();
-        }
-    }
-    
-    public static boolean isApiKeyValidationEnabled() {
-    	return apiKeyValidationEnabled;
-    }
-    
-    public static String getApiKey() {
-    	return apiKey;
-    }
-    
-    public static void setApiKeyValidationEnabled(boolean enabled) {
-    	synchronized (APPLICATION_CONFIG_LOCK) {
+
+	// ==================== 端口配置的get/set方法 ====================
+
+	public static int getWebPort() {
+		return webPort;
+	}
+
+	public static void setWebPort(int webPort) {
+		if (webPort > 0 && webPort <= 65535) {
+			LlamaServer.webPort = webPort;
+		}
+	}
+
+	public static void updateServerPorts(Integer webPort) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
+			if (webPort != null && webPort > 0 && webPort <= 65535) {
+				LlamaServer.webPort = webPort;
+			}
+			saveApplicationConfig();
+		}
+	}
+
+	// ==================== 下载目录配置的get/set方法 ====================
+
+	public static String getDownloadDirectory() {
+		return downloadDirectory;
+	}
+
+	public static void setDownloadDirectory(String downloadDirectory) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
+			LlamaServer.downloadDirectory = downloadDirectory == null ? "" : downloadDirectory;
+			saveApplicationConfig();
+		}
+	}
+
+	// ==================== HTTPS ====================
+
+	public static boolean isHttpsEnabled() {
+		return httpsEnabled;
+	}
+
+	public static String getHttpsCertPath() {
+		return httpsCertPath;
+	}
+
+	public static String getHttpsKeyPath() {
+		return httpsKeyPath;
+	}
+
+	public static String getHttpsPassword() {
+		return httpsPassword;
+	}
+
+	public static void updateHttpsConfig(Boolean enabled, String certPath, String keyPath, String password) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
+			if (enabled != null) {
+				httpsEnabled = enabled;
+			}
+			if (certPath != null) {
+				httpsCertPath = certPath;
+			}
+			if (keyPath != null) {
+				httpsKeyPath = keyPath;
+			}
+			if (password != null) {
+				httpsPassword = password;
+			}
+			saveApplicationConfig();
+		}
+	}
+
+	public static boolean isApiKeyValidationEnabled() {
+		return apiKeyValidationEnabled;
+	}
+
+	public static String getApiKey() {
+		return apiKey;
+	}
+
+	public static void setApiKeyValidationEnabled(boolean enabled) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
 			apiKeyValidationEnabled = enabled;
 			saveApplicationConfig();
 		}
-    }
-    
-    public static void setApiKey(String apiKeyValue) {
-    	synchronized (APPLICATION_CONFIG_LOCK) {
+	}
+
+	public static void setApiKey(String apiKeyValue) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
 			apiKey = apiKeyValue == null ? "" : apiKeyValue;
 			saveApplicationConfig();
 		}
-    }
-    
-    public static void updateApiKeyConfig(boolean enabled, String apiKeyValue) {
-    	synchronized (APPLICATION_CONFIG_LOCK) {
+	}
+
+	public static void updateApiKeyConfig(boolean enabled, String apiKeyValue) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
 			apiKeyValidationEnabled = enabled;
 			apiKey = apiKeyValue == null ? "" : apiKeyValue;
 			saveApplicationConfig();
 		}
-    }
-    
-    public static boolean isOllamaCompatEnabled() {
-    	return ollamaCompatEnabled;
-    }
-    
-    public static int getOllamaCompatPort() {
-    	return ollamaCompatPort;
-    }
-    
-    public static boolean isLmstudioCompatEnabled() {
-    	return lmstudioCompatEnabled;
-    }
-    
-    public static int getLmstudioCompatPort() {
-    	return lmstudioCompatPort;
-    }
+	}
 
-    public static boolean isChatStreamingEnabled() {
-    	return chatStreamingEnabled;
-    }
+	public static boolean isOllamaCompatEnabled() {
+		return ollamaCompatEnabled;
+	}
 
-    public static boolean isMcpServerEnabled() {
-    	return mcpServerEnabled;
-    }
+	public static int getOllamaCompatPort() {
+		return ollamaCompatPort;
+	}
 
-public static boolean isMcpServerRunning() {
-     	DefaultMcpServiceImpl service = mcpServerService;
-     	return service != null && service.isRunning();
-     }
-     
-     public static SslContext getHttpsSslContext() {
-     	return httpsSslContext;
-     }
+	public static boolean isLmstudioCompatEnabled() {
+		return lmstudioCompatEnabled;
+	}
 
-    public static int getMcpServerPort() {
-    	return DEFAULT_MCP_SERVER_PORT;
-    }
-    
-    public static boolean isLogRequestUrlEnabled() {
-    	return logRequestUrl;
-    }
-    
-    public static boolean isLogRequestHeaderEnabled() {
-    	return logRequestHeader;
-    }
-    
-    public static boolean isLogRequestBodyEnabled() {
-    	return logRequestBody;
-    }
+	public static int getLmstudioCompatPort() {
+		return lmstudioCompatPort;
+	}
 
-    public static boolean isMasterNode() {
-    	return nodeRole != null && "master".equalsIgnoreCase(nodeRole);
-    }
-    
-    public static void updateOllamaCompatConfig(boolean enabled, int port) {
-    	synchronized (APPLICATION_CONFIG_LOCK) {
-    		ollamaCompatEnabled = enabled;
-    		if (port > 0 && port <= 65535) {
-    			ollamaCompatPort = port;
-    		}
-    		saveApplicationConfig();
-    	}
-    }
-    
-    public static void updateLmstudioCompatConfig(boolean enabled, int port) {
-    	synchronized (APPLICATION_CONFIG_LOCK) {
-    		lmstudioCompatEnabled = enabled;
-    		if (port > 0 && port <= 65535) {
-    			lmstudioCompatPort = port;
-    		}
-    		saveApplicationConfig();
-    	}
-    }
-    
-    public static void updateRequestLogConfig(Boolean urlEnabled, Boolean headerEnabled, Boolean bodyEnabled) {
-    	synchronized (APPLICATION_CONFIG_LOCK) {
-    		if (urlEnabled != null) {
-    			logRequestUrl = urlEnabled.booleanValue();
-    		}
-    		if (headerEnabled != null) {
-    			logRequestHeader = headerEnabled.booleanValue();
-    		}
-    		if (bodyEnabled != null) {
-    			logRequestBody = bodyEnabled.booleanValue();
-    		}
-    		saveApplicationConfig();
-    	}
-    }
+	public static boolean isChatStreamingEnabled() {
+		return chatStreamingEnabled;
+	}
 
-    public static void setMcpServerEnabled(boolean enabled) throws Exception {
-    	synchronized (MCP_SERVER_LOCK) {
-    		if (enabled) {
-    			startMcpServerListener();
-    			persistMcpServerEnabled(true);
-    			return;
-    		}
-    		stopMcpServerListener();
-    		persistMcpServerEnabled(false);
-    	}
-    }
+	public static boolean isMcpServerEnabled() {
+		return mcpServerEnabled;
+	}
 
-    private static void startMcpServerListener() throws Exception {
-    	synchronized (MCP_SERVER_LOCK) {
-    		if (mcpServerService != null && mcpServerService.isRunning()) {
-    			return;
-    		}
-    		DefaultMcpServiceImpl service = createDefaultMcpServer();
-    		try {
-    			service.start();
-    			mcpServerService = service;
-    		} catch (Exception e) {
-    			try {
-    				service.stop();
-    			} catch (Exception ignore) {
-    			}
-    			throw e;
-    		}
-    	}
-    }
+	public static boolean isMcpServerRunning() {
+		DefaultMcpServiceImpl service = mcpServerService;
+		return service != null && service.isRunning();
+	}
 
-    private static void stopMcpServerListener() {
-    	synchronized (MCP_SERVER_LOCK) {
-    		DefaultMcpServiceImpl service = mcpServerService;
-    		mcpServerService = null;
-    		if (service != null) {
-    			service.stop();
-    		}
-    	}
-    }
+	public static SslContext getHttpsSslContext() {
+		return httpsSslContext;
+	}
 
-    private static void persistMcpServerEnabled(boolean enabled) {
-    	synchronized (APPLICATION_CONFIG_LOCK) {
-    		mcpServerEnabled = enabled;
-    		saveApplicationConfig();
-    	}
-    }
+	public static int getMcpServerPort() {
+		return DEFAULT_MCP_SERVER_PORT;
+	}
 
-    private static DefaultMcpServiceImpl createDefaultMcpServer() {
-    	return new DefaultMcpServiceImpl(DEFAULT_MCP_SERVER_PORT);
-    }
+	public static boolean isLogRequestUrlEnabled() {
+		return logRequestUrl;
+	}
+
+	public static boolean isLogRequestHeaderEnabled() {
+		return logRequestHeader;
+	}
+
+	public static boolean isLogRequestBodyEnabled() {
+		return logRequestBody;
+	}
+
+	public static boolean isMasterNode() {
+		return nodeRole != null && "master".equalsIgnoreCase(nodeRole);
+	}
+
+	public static void updateOllamaCompatConfig(boolean enabled, int port) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
+			ollamaCompatEnabled = enabled;
+			if (port > 0 && port <= 65535) {
+				ollamaCompatPort = port;
+			}
+			saveApplicationConfig();
+		}
+	}
+
+	public static void updateLmstudioCompatConfig(boolean enabled, int port) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
+			lmstudioCompatEnabled = enabled;
+			if (port > 0 && port <= 65535) {
+				lmstudioCompatPort = port;
+			}
+			saveApplicationConfig();
+		}
+	}
+
+	public static void updateRequestLogConfig(Boolean urlEnabled, Boolean headerEnabled, Boolean bodyEnabled) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
+			if (urlEnabled != null) {
+				logRequestUrl = urlEnabled.booleanValue();
+			}
+			if (headerEnabled != null) {
+				logRequestHeader = headerEnabled.booleanValue();
+			}
+			if (bodyEnabled != null) {
+				logRequestBody = bodyEnabled.booleanValue();
+			}
+			saveApplicationConfig();
+		}
+	}
+
+	public static void setMcpServerEnabled(boolean enabled) throws Exception {
+		synchronized (MCP_SERVER_LOCK) {
+			if (enabled) {
+				startMcpServerListener();
+				persistMcpServerEnabled(true);
+				return;
+			}
+			stopMcpServerListener();
+			persistMcpServerEnabled(false);
+		}
+	}
+
+	private static void startMcpServerListener() throws Exception {
+		synchronized (MCP_SERVER_LOCK) {
+			if (mcpServerService != null && mcpServerService.isRunning()) {
+				return;
+			}
+			DefaultMcpServiceImpl service = createDefaultMcpServer();
+			try {
+				service.start();
+				mcpServerService = service;
+			} catch (Exception e) {
+				try {
+					service.stop();
+				} catch (Exception ignore) {
+				}
+				throw e;
+			}
+		}
+	}
+
+	private static void stopMcpServerListener() {
+		synchronized (MCP_SERVER_LOCK) {
+			DefaultMcpServiceImpl service = mcpServerService;
+			mcpServerService = null;
+			if (service != null) {
+				service.stop();
+			}
+		}
+	}
+
+	private static void persistMcpServerEnabled(boolean enabled) {
+		synchronized (APPLICATION_CONFIG_LOCK) {
+			mcpServerEnabled = enabled;
+			saveApplicationConfig();
+		}
+	}
+
+	private static DefaultMcpServiceImpl createDefaultMcpServer() {
+		return new DefaultMcpServiceImpl(DEFAULT_MCP_SERVER_PORT);
+	}
     
     // ==================== 默认路径的get方法 ====================
     
@@ -1032,130 +1041,69 @@ public static boolean isMcpServerRunning() {
     }
     
     
-public static String getDefaultModelsPath() {
-     	return DEFAULT_MODELS_DIRECTORY;
-     }
-     
-      public static void initHttpsContext() {
-      	if (!httpsEnabled) {
-      		logger.info("HTTPS未启用，使用HTTP协议启动");
-      		return;
-      	}
-      	try {
-      		File keystoreFile = new File(httpsCertPath);
-      		// 如果配置的是目录，自动查找目录下的证书文件
-      		if (keystoreFile.isDirectory()) {
-      			File[] candidates = keystoreFile.listFiles((dir, name) -> {
-      				String lower = name.toLowerCase();
-      				return lower.endsWith(".p12") || lower.endsWith(".pfx") || lower.endsWith(".jks") || lower.endsWith(".keystore");
-      			});
-      			if (candidates == null || candidates.length == 0) {
-      				logger.info("HTTPS证书目录中未找到证书文件: {}, 使用HTTP协议启动", httpsCertPath);
-      				httpsEnabled = false;
-      				return;
-      			}
-      			// 优先选择 .p12 文件
-      			File chosen = null;
-      			for (File f : candidates) {
-      				if (f.getName().toLowerCase().endsWith(".p12")) {
-      					chosen = f;
-      					break;
-      				}
-      			}
-      			if (chosen == null) chosen = candidates[0];
-      			keystoreFile = chosen;
-      			httpsCertPath = keystoreFile.getAbsolutePath();
-      			httpsKeyPath = httpsCertPath;
-      			saveApplicationConfig();
-      			logger.info("自动选择HTTPS证书文件: {}", httpsCertPath);
-      		}
-      		if (!keystoreFile.exists()) {
-      			logger.info("HTTPS证书文件不存在: {}, 使用HTTP协议启动", httpsCertPath);
-      			httpsEnabled = false;
-      			return;
-      		}
-      		String storeType = "PKCS12";
-      		String fileName = keystoreFile.getName().toLowerCase();
-      		if (fileName.endsWith(".jks") || fileName.endsWith(".keystore")) {
-      			storeType = "JKS";
-      		}
-      		KeyStore keyStore = KeyStore.getInstance(storeType);
-      		try (java.io.FileInputStream fis = new java.io.FileInputStream(keystoreFile)) {
-      			keyStore.load(fis, httpsPassword != null ? httpsPassword.toCharArray() : new char[0]);
-      		}
-      		KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-      		kmf.init(keyStore, httpsPassword != null ? httpsPassword.toCharArray() : new char[0]);
-      		SslContext sslContext = SslContextBuilder.forServer(kmf).build();
-      		httpsSslContext = sslContext;
-      		logger.info("HTTPS证书加载成功: {}", httpsCertPath);
-      	} catch (Exception e) {
-      		logger.info("HTTPS证书加载失败: {}, 使用HTTP协议启动", e.getMessage());
-      		httpsEnabled = false;
-      	}
-      }
-    
-    
-//    private static void bindAnthropic(int port) {
-//        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
-//        EventLoopGroup workerGroup = new NioEventLoopGroup();
-//        
-//        try {
-//            ServerBootstrap bootstrap = new ServerBootstrap();
-//            bootstrap.group(bossGroup, workerGroup)
-//                    .channel(NioServerSocketChannel.class)
-//                    .option(ChannelOption.SO_BACKLOG, 1024)
-//                    .childOption(ChannelOption.SO_KEEPALIVE, true)
-//                    .childHandler(new ChannelInitializer<SocketChannel>() {
-//                        @Override
-//                        protected void initChannel(SocketChannel ch) throws Exception {
-//                            if (httpsSslContext != null) {
-//                            	SSLEngine engine = httpsSslContext.newEngine(ch.alloc());
-//                                ch.pipeline()
-//                                		.addLast(new SslHandler(engine))
-//                                        .addLast(new HttpServerCodec())
-//                                        .addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
-//                                        .addLast(new ChunkedWriteHandler())
-//                                        .addLast(new BasicRouterHandler())
-//                                        .addLast(new CompletionRouterHandler())
-//                                        .addLast(new AnthropicRouterHandler())
-//                                        .addLast(new FileDownloadRouterHandler());
-//                            } else {
-//                                ch.pipeline()
-//                                        .addLast(new HttpServerCodec())
-//                                        .addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
-//                                        .addLast(new ChunkedWriteHandler())
-//                                        .addLast(new BasicRouterHandler())
-//                                        .addLast(new CompletionRouterHandler())
-//                                        .addLast(new AnthropicRouterHandler())
-//                                        .addLast(new FileDownloadRouterHandler());
-//                            }
-//                        }
-//                        
-//                        @Override
-//                        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-//                        		logger.info("Failed to initialize a channel. Closing: " + ctx.channel(), cause);
-//                            ctx.close();
-//                        }
-//                    });
-//            
-//            ChannelFuture future = bootstrap.bind(port).sync();
-//            logger.info("Anthropic服务启动成功，端口: {}", port);
-//            String protocol = httpsSslContext != null ? "https" : "http";
-//            logger.info("访问地址: {}://localhost:{}", protocol, port);
-//            
-//            future.channel().closeFuture().sync();
-//        } catch (InterruptedException e) {
-//            logger.info("服务器被中断", e);
-//            Thread.currentThread().interrupt();
-//        } catch (Exception e) {
-//            logger.info("服务器启动失败", e);
-//        } finally {
-//            bossGroup.shutdownGracefully();
-//            workerGroup.shutdownGracefully();
-//            
-//            logger.info("服务器已关闭");
-//        }
-//    }
+	public static String getDefaultModelsPath() {
+		return DEFAULT_MODELS_DIRECTORY;
+	}
+
+	public static void initHttpsContext() {
+		if (!httpsEnabled) {
+			logger.info("HTTPS未启用，使用HTTP协议启动");
+			return;
+		}
+		try {
+			File keystoreFile = new File(httpsCertPath);
+			// 如果配置的是目录，自动查找目录下的证书文件
+			if (keystoreFile.isDirectory()) {
+				File[] candidates = keystoreFile.listFiles((dir, name) -> {
+					String lower = name.toLowerCase();
+					return lower.endsWith(".p12") || lower.endsWith(".pfx") || lower.endsWith(".jks")
+							|| lower.endsWith(".keystore");
+				});
+				if (candidates == null || candidates.length == 0) {
+					logger.info("HTTPS证书目录中未找到证书文件: {}, 使用HTTP协议启动", httpsCertPath);
+					httpsEnabled = false;
+					return;
+				}
+				// 优先选择 .p12 文件
+				File chosen = null;
+				for (File f : candidates) {
+					if (f.getName().toLowerCase().endsWith(".p12")) {
+						chosen = f;
+						break;
+					}
+				}
+				if (chosen == null)
+					chosen = candidates[0];
+				keystoreFile = chosen;
+				httpsCertPath = keystoreFile.getAbsolutePath();
+				httpsKeyPath = httpsCertPath;
+				saveApplicationConfig();
+				logger.info("自动选择HTTPS证书文件: {}", httpsCertPath);
+			}
+			if (!keystoreFile.exists()) {
+				logger.info("HTTPS证书文件不存在: {}, 使用HTTP协议启动", httpsCertPath);
+				httpsEnabled = false;
+				return;
+			}
+			String storeType = "PKCS12";
+			String fileName = keystoreFile.getName().toLowerCase();
+			if (fileName.endsWith(".jks") || fileName.endsWith(".keystore")) {
+				storeType = "JKS";
+			}
+			KeyStore keyStore = KeyStore.getInstance(storeType);
+			try (java.io.FileInputStream fis = new java.io.FileInputStream(keystoreFile)) {
+				keyStore.load(fis, httpsPassword != null ? httpsPassword.toCharArray() : new char[0]);
+			}
+			KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+			kmf.init(keyStore, httpsPassword != null ? httpsPassword.toCharArray() : new char[0]);
+			SslContext sslContext = SslContextBuilder.forServer(kmf).build();
+			httpsSslContext = sslContext;
+			logger.info("HTTPS证书加载成功: {}", httpsCertPath);
+		} catch (Exception e) {
+			logger.info("HTTPS证书加载失败: {}, 使用HTTP协议启动", e.getMessage());
+			httpsEnabled = false;
+		}
+	}
     
     
     private static void bindOpenAI(int port) {
@@ -1229,7 +1177,7 @@ public static String getDefaultModelsPath() {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
             
-            logger.info("服务器已关闭");
+            logger.info("[{}]服务器已关闭", port);
         }
     }
     

@@ -25,12 +25,7 @@ import com.google.gson.*;
  * All methods are static and architecture-agnostic. The architecture name is read
  * dynamically from {@code general.architecture} in the GGUF header.
  */
-public final class MtpHelper {
-
-    @FunctionalInterface
-    private interface BufferParser<T> {
-        T parse(ByteBuffer buffer) throws IOException;
-    }
+ public final class MtpHelper {
 
     private MtpHelper() {}
 
@@ -436,61 +431,64 @@ public final class MtpHelper {
         Map<String, Object> metaOut, Map<String, Integer> kvTypesOut,
         List<TensorInfo> tensorsOut, List<Long> onDiskSizesOut
     ) throws IOException {
+        MappedByteBuffer mappedBuffer = null;
         try (RandomAccessFile raf = new RandomAccessFile(file, "r");
              FileChannel channel = raf.getChannel()) {
-            ParsedGguf parsed = parseWithGrowingBuffer(channel, fileSize, buffer -> {
-                skipMagic(buffer);
-                buffer.getInt(); // version
-                long tensorCount = readULE64(buffer);
-                long kvCount = readULE64(buffer);
+            long size = channel.size();
+            long mapSize = Math.min(size, 64L * 1024 * 1024);
+            mappedBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, mapSize);
+            mappedBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            skipMagic(mappedBuffer);
+            mappedBuffer.getInt(); // version
+            long tensorCount = readULE64(mappedBuffer);
+            long kvCount = readULE64(mappedBuffer);
 
-                LinkedHashMap<String, Object> meta = new LinkedHashMap<>();
-                LinkedHashMap<String, Integer> kvTypes = new LinkedHashMap<>();
-                for (long i = 0; i < kvCount; i++) {
-                    String key = readString(buffer);
-                    int type = buffer.getInt();
-                    kvTypes.put(key, type);
-                    Object value = readValue(buffer, type);
-                    meta.put(key, value);
-                }
+            LinkedHashMap<String, Object> meta = new LinkedHashMap<>();
+            LinkedHashMap<String, Integer> kvTypes = new LinkedHashMap<>();
+            for (long i = 0; i < kvCount; i++) {
+                String key = readString(mappedBuffer);
+                int type = mappedBuffer.getInt();
+                kvTypes.put(key, type);
+                Object value = readValue(mappedBuffer, type);
+                meta.put(key, value);
+            }
 
-                List<TensorInfo> tensors = new ArrayList<>((int) tensorCount);
-                for (long i = 0; i < tensorCount; i++) {
-                    String tname = readString(buffer);
-                    int nDims = buffer.getInt();
-                    List<Long> shape = new ArrayList<>(nDims);
-                    for (int j = 0; j < nDims; j++) shape.add(readULE64(buffer));
-                    int ttype = buffer.getInt();
-                    long off = readULE64(buffer);
-                    tensors.add(new TensorInfo(tname, shape, ttype, off, 0));
-                }
+            List<TensorInfo> tensors = new ArrayList<>((int) tensorCount);
+            for (long i = 0; i < tensorCount; i++) {
+                String tname = readString(mappedBuffer);
+                int nDims = mappedBuffer.getInt();
+                List<Long> shape = new ArrayList<>(nDims);
+                for (int j = 0; j < nDims; j++) shape.add(readULE64(mappedBuffer));
+                int ttype = mappedBuffer.getInt();
+                long off = readULE64(mappedBuffer);
+                tensors.add(new TensorInfo(tname, shape, ttype, off, 0));
+            }
 
-                int effectiveAlignment = meta.containsKey("general.alignment")
-                    ? ((Number) meta.get("general.alignment")).intValue()
-                    : alignment;
-                long posAfterTi = buffer.position();
-                long padToAlign = (effectiveAlignment - (posAfterTi % effectiveAlignment)) % effectiveAlignment;
-                long dataSectionStart = posAfterTi + padToAlign;
+            int effectiveAlignment = meta.containsKey("general.alignment")
+                ? ((Number) meta.get("general.alignment")).intValue()
+                : alignment;
+            long posAfterTi = mappedBuffer.position();
+            long padToAlign = (effectiveAlignment - (posAfterTi % effectiveAlignment)) % effectiveAlignment;
+            long dataSectionStart = posAfterTi + padToAlign;
 
-                List<TensorInfo> tensorsWithSizes = new ArrayList<>(tensors.size());
-                for (int i = 0; i < tensors.size(); i++) {
-                    TensorInfo t = tensors.get(i);
-                    long absOff = dataSectionStart + t.dataOffset;
-                    long sz = (i < tensors.size() - 1)
-                        ? (dataSectionStart + tensors.get(i + 1).dataOffset) - absOff
-                        : fileSize - absOff;
-                    tensorsWithSizes.add(new TensorInfo(t.name, t.shape, t.tensorType, absOff, sz));
-                }
+            List<TensorInfo> tensorsWithSizes = new ArrayList<>(tensors.size());
+            for (int i = 0; i < tensors.size(); i++) {
+                TensorInfo t = tensors.get(i);
+                long absOff = dataSectionStart + t.dataOffset;
+                long sz = (i < tensors.size() - 1)
+                    ? (dataSectionStart + tensors.get(i + 1).dataOffset) - absOff
+                    : fileSize - absOff;
+                tensorsWithSizes.add(new TensorInfo(t.name, t.shape, t.tensorType, absOff, sz));
+            }
 
-                return new ParsedGguf(meta, kvTypes, tensorsWithSizes);
-            });
-
-            metaOut.putAll(parsed.meta());
-            kvTypesOut.putAll(parsed.kvTypes());
-            tensorsOut.addAll(parsed.tensors());
-            for (TensorInfo t : parsed.tensors()) {
+            metaOut.putAll(meta);
+            kvTypesOut.putAll(kvTypes);
+            tensorsOut.addAll(tensorsWithSizes);
+            for (TensorInfo t : tensorsWithSizes) {
                 onDiskSizesOut.add(t.dataSize);
             }
+        } finally {
+            unmap(mappedBuffer);
         }
     }
 
@@ -501,84 +499,58 @@ public final class MtpHelper {
         if (file == null || !file.exists() || !file.isFile()) {
             return Collections.emptyMap();
         }
+        MappedByteBuffer mappedBuffer = null;
         try (RandomAccessFile raf = new RandomAccessFile(file, "r");
              FileChannel channel = raf.getChannel()) {
             long size = channel.size();
-            Map<String, Object> metadata = parseWithGrowingBuffer(channel, size, buffer -> {
-                byte[] magic = new byte[4];
-                buffer.get(magic);
-                if (!"GGUF".equals(new String(magic, StandardCharsets.US_ASCII))) {
-                    return Collections.emptyMap();
-                }
-                buffer.getInt(); // version
-                readULE64(buffer); // tensor count (skip)
-                long kvCount = readULE64(buffer);
+            long mapSize = Math.min(size, 64L * 1024 * 1024);
+            mappedBuffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, mapSize);
+            mappedBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            byte[] magic = new byte[4];
+            mappedBuffer.get(magic);
+            if (!"GGUF".equals(new String(magic, StandardCharsets.US_ASCII))) {
+                return Collections.emptyMap();
+            }
+            mappedBuffer.getInt(); // version
+            readULE64(mappedBuffer); // tensor count (skip)
+            long kvCount = readULE64(mappedBuffer);
 
-                Map<String, Object> result = new HashMap<>();
-                for (long i = 0; i < kvCount; i++) {
-                    String key = readString(buffer);
-                    int type = buffer.getInt();
-                    if ("tokenizer.ggml.tokens".equals(key) && type == ARRAY) {
-                        int elemType = buffer.getInt();
-                        long len = readULE64(buffer);
-                        for (long j = 0; j < len; j++) {
-                            skipValue(buffer, elemType);
-                        }
-                        result.put(key + ".size", len);
-                    } else {
-                        Object value = readValue(buffer, type);
-                        result.put(key, value);
+            Map<String, Object> metadata = new HashMap<>();
+            for (long i = 0; i < kvCount; i++) {
+                String key = readString(mappedBuffer);
+                int type = mappedBuffer.getInt();
+                if ("tokenizer.ggml.tokens".equals(key) && type == ARRAY) {
+                    int elemType = mappedBuffer.getInt();
+                    long len = readULE64(mappedBuffer);
+                    for (long j = 0; j < len; j++) {
+                        skipValue(mappedBuffer, elemType);
                     }
+                    metadata.put(key + ".size", len);
+                } else {
+                    Object value = readValue(mappedBuffer, type);
+                    metadata.put(key, value);
                 }
-                return result;
-            });
+            }
             metadata.put("file.name", file.getName());
             metadata.put("file.path", file.getAbsolutePath());
             return metadata;
         } catch (Exception e) {
             return Collections.emptyMap();
+        } finally {
+            unmap(mappedBuffer);
         }
     }
 
-    static <T> T parseWithGrowingBuffer(
-        FileChannel channel,
-        long fileSize,
-        BufferParser<T> parser
-    ) throws IOException {
-        if (fileSize <= 0) {
-            throw new EOFException("Empty GGUF file");
-        }
-
-        long maxReadableSize = Math.min(fileSize, (long) Integer.MAX_VALUE);
-        long bufSize = Math.min(maxReadableSize, 8L * 1024 * 1024);
-        if (bufSize <= 0) {
-            bufSize = maxReadableSize;
-        }
-
-        while (true) {
-            ByteBuffer buffer = ByteBuffer.allocate((int) bufSize);
-            buffer.order(ByteOrder.LITTLE_ENDIAN);
-            channel.position(0);
-            while (buffer.hasRemaining()) {
-                int n = channel.read(buffer);
-                if (n == -1) {
-                    break;
-                }
+    static void unmap(MappedByteBuffer buffer) {
+        if (buffer == null) return;
+        try {
+            java.lang.reflect.Method getCleaner = buffer.getClass().getMethod("cleaner");
+            getCleaner.setAccessible(true);
+            Object cleaner = getCleaner.invoke(buffer);
+            if (cleaner != null) {
+                cleaner.getClass().getMethod("clean").invoke(cleaner);
             }
-            buffer.flip();
-
-            try {
-                return parser.parse(buffer);
-            } catch (BufferUnderflowException e) {
-                if (bufSize >= maxReadableSize) {
-                    throw new IOException("GGUF header exceeds readable prefix size: " + fileSize, e);
-                }
-                long nextSize = Math.min(maxReadableSize, Math.max(bufSize * 2, bufSize + 8L * 1024 * 1024));
-                if (nextSize <= bufSize) {
-                    throw new IOException("Failed to grow GGUF header buffer", e);
-                }
-                bufSize = nextSize;
-            }
+        } catch (Throwable ignore) {
         }
     }
 

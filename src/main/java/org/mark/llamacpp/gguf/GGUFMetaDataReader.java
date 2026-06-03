@@ -6,41 +6,35 @@ public class GGUFMetaDataReader {
         if (file == null || !file.exists() || !file.isFile()) {
             return java.util.Collections.emptyMap();
         }
+        java.nio.MappedByteBuffer mappedBuffer = null;
         try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(file, "r");
              java.nio.channels.FileChannel channel = raf.getChannel()) {
             long size = channel.size();
-            int bufSize = (int) Math.min(size, 64L * 1024 * 1024);
-            java.nio.ByteBuffer buffer = java.nio.ByteBuffer.allocate(bufSize);
-            buffer.order(java.nio.ByteOrder.LITTLE_ENDIAN);
-            int totalRead = 0;
-            while (totalRead < bufSize) {
-                int n = channel.read(buffer);
-                if (n == -1) break;
-                totalRead += n;
-            }
-            buffer.flip();
+            long mapSize = Math.min(size, 64L * 1024 * 1024);
+            mappedBuffer = channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, mapSize);
+            mappedBuffer.order(java.nio.ByteOrder.LITTLE_ENDIAN);
             byte[] magic = new byte[4];
-            buffer.get(magic);
+            mappedBuffer.get(magic);
             String m = new String(magic, java.nio.charset.StandardCharsets.US_ASCII);
             if (!"GGUF".equals(m)) {
                 return java.util.Collections.emptyMap();
             }
-            buffer.getInt();
-            buffer.getLong();
-            long kvCount = buffer.getLong();
+            mappedBuffer.getInt();
+            mappedBuffer.getLong();
+            long kvCount = mappedBuffer.getLong();
             java.util.Map<String, Object> metadata = new java.util.HashMap<>();
             for (long i = 0; i < kvCount; i++) {
-                String key = readString(buffer);
-                int type = buffer.getInt();
+                String key = readString(mappedBuffer);
+                int type = mappedBuffer.getInt();
                 if ("tokenizer.ggml.tokens".equals(key) && type == 9) {
-                    int elemType = buffer.getInt();
-                    long len = buffer.getLong();
+                    int elemType = mappedBuffer.getInt();
+                    long len = mappedBuffer.getLong();
                     for (long j = 0; j < len; j++) {
-                        skipValue(buffer, elemType);
+                        skipValue(mappedBuffer, elemType);
                     }
                     metadata.put(key + ".size", len);
                 } else {
-                    Object value = readValue(buffer, type);
+                    Object value = readValue(mappedBuffer, type);
                     metadata.put(key, value);
                 }
             }
@@ -49,6 +43,21 @@ public class GGUFMetaDataReader {
             return metadata;
         } catch (Exception e) {
             return java.util.Collections.emptyMap();
+        } finally {
+            unmap(mappedBuffer);
+        }
+    }
+
+    private static void unmap(java.nio.MappedByteBuffer buffer) {
+        if (buffer == null) return;
+        try {
+            java.lang.reflect.Method getCleaner = buffer.getClass().getMethod("cleaner");
+            getCleaner.setAccessible(true);
+            Object cleaner = getCleaner.invoke(buffer);
+            if (cleaner != null) {
+                cleaner.getClass().getMethod("clean").invoke(cleaner);
+            }
+        } catch (Throwable ignore) {
         }
     }
 

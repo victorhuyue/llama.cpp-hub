@@ -1669,7 +1669,7 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('loadModelModal')" data-i18n="common.cancel">common.cancel</button>
                 <button class="btn btn-secondary" id="estimateVramBtn" onclick="estimateVramAction()"><i class="fas fa-memory"></i> <span data-i18n="modal.model_action.estimate_vram">modal.model_action.estimate_vram</span></button>
-                <button class="btn btn-secondary" id="fitParamsBtn" onclick="fitParamsAction()"><i class="fas fa-chart-line"></i> <span data-i18n="modal.model_action.fit_params">最佳配比</span></button>
+                <button class="btn btn-secondary" id="fitParamsBtn" onclick="fitParamsAction()" style="display: none"><i class="fas fa-chart-line"></i> <span data-i18n="modal.model_action.fit_params">最佳配比</span></button>
                 <button class="btn btn-secondary" id="modelActionResetBtn" style="display:none;" onclick="resetModelBenchmarkForm()" data-i18n="common.reset">common.reset</button>
                 <button class="btn btn-secondary" id="modelActionSaveBtn" onclick="saveModelConfigAction()" data-i18n="common.save">common.save</button>
                 <button class="btn btn-primary" id="modelActionSubmitBtn" onclick="submitModelAction()" data-i18n="modal.model_action.submit.load">modal.model_action.submit.load</button>

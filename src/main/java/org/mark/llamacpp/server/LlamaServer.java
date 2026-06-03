@@ -2,7 +2,6 @@ package org.mark.llamacpp.server;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.io.PrintStream;
 import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
@@ -12,13 +11,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.KeyStore;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLEngine;
@@ -475,74 +471,6 @@ public class LlamaServer {
     public static final PrintStream out = System.out;
     
     public static final PrintStream err = System.err;
-
-    //##############################################################################################################################
-
-    /**
-     * 静态文件缓存条目
-     */
-    static class StaticFileEntry {
-        final byte[] content;
-        final String contentType;
-        final String etag;
-
-        StaticFileEntry(byte[] content, String contentType) {
-            this.content = content;
-            this.contentType = contentType;
-            this.etag = computeETag(content);
-        }
-    }
-
-    /**
-     * 静态文件缓存，key 为文件的绝对路径
-     */
-    private static final ConcurrentHashMap<String, StaticFileEntry> STATIC_FILE_CACHE = new ConcurrentHashMap<>();
-
-    /**
-     * 从缓存获取静态文件条目
-     */
-    public static StaticFileEntry getStaticFileCacheEntry(String path) {
-        return STATIC_FILE_CACHE.get(path);
-    }
-
-    /**
-     * 将静态文件条目写入缓存
-     */
-    public static void putStaticFileCacheEntry(String path, StaticFileEntry entry) {
-        STATIC_FILE_CACHE.put(path, entry);
-    }
-
-    /**
-     * 清空静态文件缓存
-     */
-    public static void clearStaticFileCache() {
-        STATIC_FILE_CACHE.clear();
-        logger.info("静态文件缓存已清空");
-    }
-
-    /**
-     * 获取静态文件缓存条目数
-     */
-    public static int getStaticFileCacheSize() {
-        return STATIC_FILE_CACHE.size();
-    }
-
-    /**
-     * 计算内容的 ETag（基于 SHA-256）
-     */
-    static String computeETag(byte[] content) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(content);
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-            return "\"" + sb.toString() + "\"";
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 not available", e);
-        }
-    }
 
     //##############################################################################################################################
     
@@ -1655,50 +1583,37 @@ public class LlamaServer {
 		});
 	}
 
-	/**
-	 * 发送静态文件（带内存缓存 + ETag + 304 Not Modified 支持）
-	 */
-	public static void sendStaticFile(ChannelHandlerContext ctx, File file, FullHttpRequest request) throws IOException {
-		String filePath = file.getAbsolutePath();
-		StaticFileEntry entry = STATIC_FILE_CACHE.computeIfAbsent(filePath, path -> {
-			try {
-				byte[] content = Files.readAllBytes(Paths.get(path));
-				String contentType = getContentType(new File(path).getName());
-				return new StaticFileEntry(content, contentType);
-			} catch (IOException e) {
-				throw new UncheckedIOException(e);
-			}
-		});
+    /**
+     * 发送静态文件（基于文件属性的 ETag + ChunkedFile 磁盘直读，零堆内存缓存）
+     */
+    public static void sendStaticFile(ChannelHandlerContext ctx, File file, FullHttpRequest request) throws IOException {
+        long lastModified = file.lastModified();
+        long fileLength = file.length();
+        String etag = "\"" + Long.toHexString(lastModified) + "-" + Long.toHexString(fileLength) + "\"";
 
-		String ifNoneMatch = request.headers().get(HttpHeaderNames.IF_NONE_MATCH);
-		if (ifNoneMatch != null && ifNoneMatch.equals(entry.etag)) {
-			FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.NOT_MODIFIED);
-			response.headers().set(HttpHeaderNames.ETAG, entry.etag);
-			response.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0);
-			setCorsHeaders(response.headers());
-			ctx.writeAndFlush(response).addListener(new ChannelFutureListener() {
-				@Override
-				public void operationComplete(ChannelFuture future) {
-					ctx.close();
-				}
-			});
-			return;
-		}
+        String ifNoneMatch = request.headers().get(HttpHeaderNames.IF_NONE_MATCH);
+        if (ifNoneMatch != null && ifNoneMatch.equals(etag)) {
+            FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.NOT_MODIFIED);
+            response.headers().set(HttpHeaderNames.ETAG, etag);
+            response.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0);
+            setCorsHeaders(response.headers());
+            ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+            return;
+        }
 
-		FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK,
-				io.netty.buffer.Unpooled.wrappedBuffer(entry.content));
-		response.headers().set(HttpHeaderNames.CONTENT_LENGTH, entry.content.length);
-		response.headers().set(HttpHeaderNames.CONTENT_TYPE, entry.contentType);
-		response.headers().set(HttpHeaderNames.ETAG, entry.etag);
-		response.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-cache");
-		setCorsHeaders(response.headers());
-		ctx.writeAndFlush(response).addListener(new ChannelFutureListener() {
-			@Override
-			public void operationComplete(ChannelFuture future) {
-				ctx.close();
-			}
-		});
-	}
+        RandomAccessFile raf = new RandomAccessFile(file, "r");
+        HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, fileLength);
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, getContentType(file.getName()));
+        response.headers().set(HttpHeaderNames.ETAG, etag);
+        response.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-cache");
+        setCorsHeaders(response.headers());
+
+        ctx.write(response);
+        ctx.write(new ChunkedFile(raf, 0, fileLength, 8192), ctx.newProgressivePromise());
+        ChannelFuture lastContentFuture = ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+        lastContentFuture.addListener(ChannelFutureListener.CLOSE);
+    }
 
 	/**
 	 *

@@ -1295,7 +1295,7 @@ public class SystemController implements BaseController {
 
 
 	/**
-	 * 清空静态文件缓存
+	 * 静态文件缓存已移除（改为文件属性 ETag + 磁盘直读），此接口保留用于前端兼容
 	 */
 	private void handleClearStaticCacheRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
 		if (request.method() == HttpMethod.OPTIONS) {
@@ -1303,7 +1303,6 @@ public class SystemController implements BaseController {
 			return;
 		}
 		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
-		LlamaServer.clearStaticFileCache();
 		LlamaServer.sendJsonResponse(ctx, ApiResponse.success());
 	}
 

@@ -577,7 +577,6 @@ public class OpenAIService {
 							sb.append(line);
 						}
 						responseBody = sb.toString();
-						System.out.println(sb);
 					}
 				} else {
 					try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {

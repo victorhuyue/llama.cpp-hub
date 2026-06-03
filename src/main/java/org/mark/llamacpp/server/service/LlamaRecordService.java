@@ -8,6 +8,8 @@ import org.mark.llamacpp.record.RequestLogRecord;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.Timing;
 import org.mark.llamacpp.server.struct.TokenSummaryEntry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,8 +27,9 @@ import java.util.stream.Stream;
  * 处理 llama.cpp 响应中的 timings 性能参数，并持久化累计记录。
  */
 public class LlamaRecordService {
+    static final Logger logger = LoggerFactory.getLogger(LlamaRecordService.class);
 	
- private static final LlamaRecordService INSTANCE = new LlamaRecordService();
+	private static final LlamaRecordService INSTANCE = new LlamaRecordService();
 	private final Gson gson = new Gson();
 	private static final String RECORD_DIR = "cache/record/";
 	private final Map<String, BinaryRequestLog> logMap = new ConcurrentHashMap<>();
@@ -37,14 +40,14 @@ public class LlamaRecordService {
 		return INSTANCE;
 	}
 
- public LlamaRecordService() {
+	public LlamaRecordService() {
 		try {
 			Files.createDirectories(Paths.get(RECORD_DIR));
 			this.migrateOldLogs();
 			this.migrateHeaderV1toV2();
 			this.loadTotalRecordCount();
 		} catch (IOException e) {
-			e.printStackTrace();
+			logger.error("Failed to initialize LlamaRecordService", e);
 		}
 	}
 
@@ -191,7 +194,7 @@ public class LlamaRecordService {
 				migrateOneFile(filePath, bakDir);
 			}
 		} catch (IOException e) {
-			e.printStackTrace();
+			logger.error("Failed to list files during old log migration", e);
 		}
 	}
 	/**
@@ -216,13 +219,13 @@ public class LlamaRecordService {
 				}
 				Files.move(filePath, bakDir.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
 			} catch (IOException e) {
-				e.printStackTrace();
+				logger.error("Failed to migrate file: {}", filePath, e);
 			}
 		} else if (fileName.endsWith(".json")) {
 			try {
 				Files.move(filePath, bakDir.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
 			} catch (IOException e) {
-				e.printStackTrace();
+				logger.error("Failed to move JSON file to bak: {}", filePath, e);
 			}
        }
     }
@@ -244,10 +247,10 @@ public class LlamaRecordService {
                 try {
                     boolean migrated = BinaryRequestLog.migrateV1toV2(binPath);
                     if (migrated) {
-                        System.out.println("[LlamaRecordService] Header V1->V2 migrated: " + modelId);
+                        logger.info("Header V1->V2 migrated: {}", modelId);
                     }
                 } catch (Exception e) {
-                    System.err.println("[LlamaRecordService] Header migration failed for " + modelId + ": " + e.getMessage());
+                    logger.error("Header migration failed for {}: {}", modelId, e.getMessage(), e);
                 }
             }
         }
@@ -284,7 +287,7 @@ public class LlamaRecordService {
 				this.recordUsage(requestId, modelId, root.getAsJsonObject("usage"));
 			}
 		} catch (Exception e) {
-			e.printStackTrace();
+			logger.error("Failed to parse stream JSON for modelId={}", modelId, e);
 		}
 		return data;
 	}
@@ -298,22 +301,18 @@ public class LlamaRecordService {
 		try {
 			RequestLogRecord record = new RequestLogRecord();
 			record.startTime = System.currentTimeMillis();
-			if (requestId != null) {
-				ActiveRequest activeReq = ModelRequestTracker.getInstance().getActiveRequest(requestId);
-				record.endpoint = activeReq != null ? toEndpointByte(activeReq.getEndpoint()) : toEndpointByte("");
-			} else {
-				record.endpoint = toEndpointByte("");
-			}
+			ActiveRequest activeReq = ModelRequestTracker.getInstance().getActiveRequest(requestId);
+			record.endpoint = activeReq != null ? toEndpointByte(activeReq.getEndpoint()) : (byte) 0;
 			record.status = 1;
 			record.phase = 1;
 			record.cacheN = getJsonInt(usage, "prompt_cache_hit_tokens", 0);
 			record.promptN = getJsonInt(usage, "prompt_tokens", 0);
-            record.predictedN = getJsonInt(usage, "completion_tokens", 0);
+			record.predictedN = getJsonInt(usage, "completion_tokens", 0);
 			this.getLog(modelId).append(record);
 			this.totalRecordCount.incrementAndGet();
 			this.updateTokenSummary(modelId, record);
 		} catch (Exception e) {
-			e.printStackTrace();
+			logger.error("Failed to record usage for requestId={}, modelId={}", requestId, modelId, e);
 		}
 	}
 
@@ -350,7 +349,7 @@ public class LlamaRecordService {
 			timing.setDraft_n_accepted((int) log.getTotalDraftAccepted());
 			return timing;
 		} catch (Exception e) {
-			e.printStackTrace();
+			logger.error("Failed to get record for modelId={}", modelId, e);
 			return null;
 		}
 	}
@@ -381,11 +380,11 @@ public class LlamaRecordService {
 				record.draftN = timing.getDraft_n();
 				record.draftNAccepted = timing.getDraft_n_accepted();
 			}
-      getLog(request.getModelId()).append(record);
+			getLog(request.getModelId()).append(record);
 			this.totalRecordCount.incrementAndGet();
 			this.updateTokenSummary(request.getModelId(), record);
 		} catch (Exception e) {
-			e.printStackTrace();
+			logger.error("Failed to record request for modelId={}", request.getModelId(), e);
 		}
 	}
 

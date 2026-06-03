@@ -206,7 +206,7 @@ public class Ollama {
 					this.worker = null;
 				}
 			}
-			logger.info("服务器已关闭");
+			logger.info("[Ollama]服务器已关闭");
 		}
 	}
 	

@@ -193,7 +193,7 @@ public class LMStudio {
 					this.worker = null;
 				}
 			}
-			logger.info("服务器已关闭");
+			logger.info("[LM Studio]服务器已关闭");
 		}
 	}
 

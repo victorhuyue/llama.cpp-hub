@@ -378,7 +378,7 @@ public class LlamaServer {
 	
 	private static final Path LOG_DIR = Paths.get("logs");
 	private static final Path APPLICATION_LOG_PATH = LOG_DIR.resolve("app.log");
-	private static final int CONSOLE_BUFFER_MAX_BYTES = 2 * 1024 * 1024;
+	private static final int CONSOLE_BUFFER_MAX_BYTES = 256 * 1024;
 	private static final Object CONSOLE_BUFFER_LOCK = new Object();
 	private static final StringBuilder CONSOLE_BUFFER = new StringBuilder();
 
@@ -1035,8 +1035,8 @@ public class LlamaServer {
     
     
     private static void bindOpenAI(int port) {
-        EventLoopGroup bossGroup = new NioEventLoopGroup();
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
+        EventLoopGroup workerGroup = new NioEventLoopGroup(4);
         
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
@@ -1056,21 +1056,21 @@ public class LlamaServer {
                                 		.addLast(new FileUploadRouterHandler())
                                 		.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
                                 		.addLast(new ChunkedWriteHandler())
-                                 		.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, Integer.MAX_VALUE))
-                                		.addLast(new WebSocketServerHandler())
+                                		.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
+                                 		.addLast(new WebSocketServerHandler())
 
-                                		.addLast(new BasicRouterHandler())
-                                		.addLast(new CompletionRouterHandler())
-                                		.addLast(new FileDownloadRouterHandler())
-                                		.addLast(new LlamaRouterHandler());
+                                 		.addLast(new BasicRouterHandler())
+                                 		.addLast(new CompletionRouterHandler())
+                                 		.addLast(new FileDownloadRouterHandler())
+                                 		.addLast(new LlamaRouterHandler());
                             } else {
                                 ch.pipeline()
                                         .addLast(new HttpServerCodec())
                                         .addLast(new OpenAIChatStreamingHandler())
-                                		.addLast(new FileUploadRouterHandler())
-                                		.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
+                                 		.addLast(new FileUploadRouterHandler())
+                                 		.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
                                         .addLast(new ChunkedWriteHandler())
-                                        .addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, Integer.MAX_VALUE))
+                                        .addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
                                         .addLast(new WebSocketServerHandler())
                                         
                                         .addLast(new BasicRouterHandler())

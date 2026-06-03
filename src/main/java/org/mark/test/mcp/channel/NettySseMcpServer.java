@@ -63,7 +63,7 @@ public class NettySseMcpServer {
 			return;
 		}
 		this.bossGroup = new NioEventLoopGroup(1);
-		this.workerGroup = new NioEventLoopGroup();
+		this.workerGroup = new NioEventLoopGroup(2);
 		try {
 			ServerBootstrap bootstrap = new ServerBootstrap();
 			bootstrap.group(this.bossGroup, this.workerGroup).channel(NioServerSocketChannel.class)

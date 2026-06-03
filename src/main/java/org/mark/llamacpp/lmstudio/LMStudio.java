@@ -107,8 +107,8 @@ public class LMStudio {
 	}
 	
 	private void runServer(long gen) {
-		EventLoopGroup localBossGroup = new NioEventLoopGroup();
-		EventLoopGroup localWorkerGroup = new NioEventLoopGroup();
+		EventLoopGroup localBossGroup = new NioEventLoopGroup(1);
+		EventLoopGroup localWorkerGroup = new NioEventLoopGroup(2);
 		
 		synchronized (lifecycleLock) {
 			if (this.activeGeneration == gen) {

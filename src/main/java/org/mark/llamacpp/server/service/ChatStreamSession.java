@@ -3,9 +3,6 @@ package org.mark.llamacpp.server.service;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.util.Arrays;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -16,7 +13,6 @@ import org.mark.llamacpp.server.LlamaHubNode;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.struct.ActiveRequest;
-import org.mark.llamacpp.server.io.BoundedQueueInputStream;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,8 +23,6 @@ import com.google.gson.JsonObject;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpMethod;
-
-
 
 /**
  * 	这东西挺重要的，用于把聊天补全的JSON流式处理给llamacpp进程。
@@ -42,26 +36,13 @@ public class ChatStreamSession {
 	 */
 	private static final ExecutorService worker = Executors.newVirtualThreadPerTaskExecutor();
 
-	private static final int INPUT_QUEUE_CAPACITY = 8;
-	private static final int MAX_SMALL_FIELD_BYTES = 1024 * 1024;
-	private static final int MAX_BUFFERED_FIELD_BYTES = 4 * 1024 * 1024;
-	private static final int DEFERRED_MEMORY_LIMIT = 256 * 1024;
-
 	private final ChannelHandlerContext ctx;
 	private final OpenAIService openAIService;
 	private final HttpMethod method;
 	private final Map<String, String> headers;
-	private final BoundedQueueInputStream requestBodyStream = new BoundedQueueInputStream(INPUT_QUEUE_CAPACITY);
-	
-	
-	/**
-	 * 	流式解析请求体
-	 */
-	private final ChatRequestStreamingTransformer transformer =
-			new ChatRequestStreamingTransformer(MAX_SMALL_FIELD_BYTES, MAX_BUFFERED_FIELD_BYTES);
-	
-	
-	private final DeferredConnectionOutputStream deferredOutput = new DeferredConnectionOutputStream(DEFERRED_MEMORY_LIMIT);
+
+	private final StreamingForwarder forwarder = new StreamingForwarder();
+
 	private final AtomicBoolean started = new AtomicBoolean(false);
 	private final AtomicBoolean completed = new AtomicBoolean(false);
 	private final AtomicBoolean cancelled = new AtomicBoolean(false);
@@ -85,6 +66,10 @@ public class ChatStreamSession {
 		this.openAIService = openAIService;
 		this.method = method;
 		this.headers = headers;
+		String headerNodeId = headers.get("X-Node-Id");
+		if (headerNodeId != null && !headerNodeId.isBlank()) {
+			this.forwarder.setNodeId(headerNodeId);
+		}
 	}
 	
 	
@@ -106,11 +91,25 @@ public class ChatStreamSession {
 		if (content == null || !content.isReadable()) {
 			return;
 		}
-		// 这一步涉及到数据拷贝，无可避免需要吃一些内容。
 		byte[] bytes = new byte[content.readableBytes()];
 		content.getBytes(content.readerIndex(), bytes);
 		this.receivedBody = true;
-		this.requestBodyStream.offer(bytes);
+		this.forwarder.offer(bytes);
+	}
+
+	/**
+	 * 	传入最后一个数据块，进行注入后转发。
+	 * @param content
+	 * @throws IOException
+	 */
+	public void offerLast(ByteBuf content) throws IOException {
+		if (content == null || !content.isReadable()) {
+			return;
+		}
+		byte[] bytes = new byte[content.readableBytes()];
+		content.getBytes(content.readerIndex(), bytes);
+		this.receivedBody = true;
+		this.forwarder.offerLast(bytes);
 	}
 	
 	/**
@@ -118,7 +117,9 @@ public class ChatStreamSession {
 	 */
 	public void complete() {
 		if (this.completed.compareAndSet(false, true)) {
-			this.requestBodyStream.complete();
+			if (this.forwarder != null) {
+				this.forwarder.complete();
+			}
 		}
 	}
 	
@@ -128,7 +129,9 @@ public class ChatStreamSession {
 	public void cancel() {
 		if (this.cancelled.compareAndSet(false, true)) {
 			ModelRequestTracker.getInstance().removeRequest(this.requestId);
-			this.requestBodyStream.fail(new IOException("client disconnected"));
+			if (this.forwarder != null) {
+				this.forwarder.fail(new IOException("client disconnected"));
+			}
 			HttpURLConnection connToDisconnect = null;
 			synchronized (this) {
 				if (this.connection != null) {
@@ -149,7 +152,7 @@ public class ChatStreamSession {
 				logger.info("已主动中止远程连接");
 			}
 			try {
-				this.deferredOutput.close();
+				this.forwarder.close();
 			} catch (IOException e) {
 			}
 		}
@@ -164,11 +167,12 @@ public class ChatStreamSession {
 				this.openAIService.sendOpenAIErrorResponseWithCleanup(ctx, 405, null, "Only POST method is supported", "method");
 				return;
 			}
-			// 这里等待解析出model的名称，一旦拿到了名称，就去建立和llamacpp的连接。
-			ChatRequestStreamingTransformer.TransformResult result = this.transformer.transform(
-					this.requestBodyStream,
-					this.deferredOutput,
-					modelName -> logger.info("聊天流式请求已解析到模型字段，等待完整解析后路由: {}", modelName));
+			StreamingForwarder fwd = this.forwarder;
+			if (fwd == null) {
+				this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, 500, null, "Forwarder not initialized", null);
+				return;
+			}
+			StreamingForwarder.TransformResult result = fwd.extract();
 
 			if (!this.receivedBody) {
 				this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, 400, null, "Request body is empty", "messages");
@@ -176,10 +180,14 @@ public class ChatStreamSession {
 			}
 
 			this.openConnectionForModel(result.getModelName(), result.getNodeId());
-			this.deferredOutput.close();
 			if (this.connection == null) {
 				throw new IOException("llama.cpp connection was not created");
 			}
+
+	OutputStream connOutput = this.connection.getOutputStream();
+			fwd.streamBody(connOutput);
+			connOutput.flush();
+			connOutput.close();
 
 			this.requestId = ModelRequestTracker.getInstance().createRequest(result.getModelName(), "/v1/chat/completions");
 			if (this.cancelled.get()) {
@@ -189,7 +197,7 @@ public class ChatStreamSession {
 			int responseCode = this.connection.getResponseCode();
 			ModelRequestTracker.getInstance().updatePhase(this.requestId, ActiveRequest.Phase.GENERATION);
 			this.openAIService.handleProxyResponse(this.ctx, this.connection, responseCode, result.isStream(), result.getModelName(), this.requestId, this.routingNodeId);
-		} catch (ChatRequestStreamingTransformer.StreamingRequestException e) {
+		} catch (StreamingForwarder.ForwarderException e) {
 			if (!this.cancelled.get()) {
 				this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, e.getHttpStatus(), null, e.getMessage(), e.getParam());
 			}
@@ -216,7 +224,7 @@ public class ChatStreamSession {
 		} finally {
 			ModelRequestTracker.getInstance().removeRequest(this.requestId);
 			try {
-				this.deferredOutput.close();
+				this.forwarder.close();
 			} catch (IOException e) {
 			}
 			this.openAIService.cleanupTrackedConnection(this.ctx, this.connection);
@@ -274,12 +282,11 @@ public class ChatStreamSession {
 
 		if (targetUrl == null) {
 			logger.warn("[Node路由] 模型未找到: model={}", modelName);
-			throw new ChatRequestStreamingTransformer.StreamingRequestException(404, "Model not found: " + modelName, "model");
+			throw new StreamingForwarder.ForwarderException(404, "Model not found: " + modelName, "model");
 		}
 
 		logger.info("[Node路由] 路由成功: model={}, target={}", modelName, targetUrl);
 		this.connection = this.openAIService.openTrackedConnection(this.ctx, targetUrl, this.method, this.headers, true);
-		this.deferredOutput.attach(this.connection.getOutputStream());
 		logger.info("[Node路由] 聊天流式请求已连接到模型: {}, target: {}", modelName, targetUrl);
 	}
 
@@ -365,164 +372,5 @@ public class ChatStreamSession {
 			return null;
 		}
 		return node.getBaseUrl() + "/v1/chat/completions";
-	}
-
-	private static class DeferredConnectionOutputStream extends OutputStream {
-
-		private final int memoryLimit;
-		private final SimpleBufferStream memoryBuffer = new SimpleBufferStream();
-		private OutputStream target;
-		private OutputStream spoolOutput;
-		private Path spoolFile;
-		private boolean closed;
-
-		private DeferredConnectionOutputStream(int memoryLimit) {
-			this.memoryLimit = memoryLimit;
-		}
-
-		public synchronized void attach(OutputStream outputStream) throws IOException {
-			if (this.closed) {
-				throw new IOException("stream already closed");
-			}
-			if (this.target != null) {
-				return;
-			}
-			this.target = outputStream;
-			if (this.spoolOutput != null) {
-				this.spoolOutput.flush();
-				this.spoolOutput.close();
-				this.spoolOutput = null;
-				Files.copy(this.spoolFile, this.target);
-				Files.deleteIfExists(this.spoolFile);
-				this.spoolFile = null;
-			} else if (this.memoryBuffer.size() > 0) {
-				this.memoryBuffer.writeTo(this.target);
-				this.memoryBuffer.release();
-			}
-			this.target.flush();
-		}
-
-		@Override
-		public synchronized void write(int b) throws IOException {
-			write(new byte[] { (byte) b }, 0, 1);
-		}
-
-		@Override
-		public synchronized void write(byte[] b, int off, int len) throws IOException {
-			if (this.closed) {
-				throw new IOException("stream already closed");
-			}
-			if (len <= 0) {
-				return;
-			}
-			if (this.target != null) {
-				this.target.write(b, off, len);
-				return;
-			}
-			if (this.spoolOutput != null) {
-				this.spoolOutput.write(b, off, len);
-				return;
-			}
-			if (this.memoryBuffer.size() + len <= this.memoryLimit) {
-				this.memoryBuffer.write(b, off, len);
-				return;
-			}
-			spoolToFile();
-			this.spoolOutput.write(b, off, len);
-		}
-
-		@Override
-		public synchronized void flush() throws IOException {
-			if (this.target != null) {
-				this.target.flush();
-				return;
-			}
-			if (this.spoolOutput != null) {
-				this.spoolOutput.flush();
-			}
-		}
-
-		@Override
-		public synchronized void close() throws IOException {
-			if (this.closed) {
-				return;
-			}
-			this.closed = true;
-			IOException failure = null;
-			try {
-				if (this.spoolOutput != null) {
-					this.spoolOutput.close();
-				}
-			} catch (IOException e) {
-				failure = e;
-			}
-			try {
-				if (this.target != null) {
-					this.target.flush();
-					this.target.close();
-				}
-			} catch (IOException e) {
-				if (failure == null) {
-					failure = e;
-				}
-			} finally {
-				if (this.spoolFile != null) {
-					Files.deleteIfExists(this.spoolFile);
-				}
-			}
-			if (failure != null) {
-				throw failure;
-			}
-		}
-
-		private void spoolToFile() throws IOException {
-			this.spoolFile = Files.createTempFile("llama-chat-stream-", ".json");
-			this.spoolOutput = Files.newOutputStream(this.spoolFile);
-			this.memoryBuffer.writeTo(this.spoolOutput);
-			this.memoryBuffer.release();
-		}
-	}
-
-	public static class SimpleBufferStream {
-
-		private byte[] buf;
-		private int count;
-
-		SimpleBufferStream() {
-			this.buf = new byte[1024];
-			this.count = 0;
-		}
-
-		public synchronized void write(int b) {
-			if (this.count == this.buf.length) {
-				this.buf = Arrays.copyOf(this.buf, Math.min(this.buf.length * 2, 256 * 1024));
-			}
-			this.buf[this.count++] = (byte) b;
-		}
-
-		public synchronized void write(byte[] b, int off, int len) {
-			if (this.count + len > this.buf.length) {
-				int newCap = Math.min(this.buf.length * 2, 256 * 1024);
-				if (newCap < this.count + len) {
-					newCap = this.count + len;
-				}
-				this.buf = Arrays.copyOf(this.buf, newCap);
-			}
-			System.arraycopy(b, off, this.buf, this.count, len);
-			this.count += len;
-		}
-
-		public synchronized void writeTo(OutputStream target) throws IOException {
-			target.write(this.buf, 0, this.count);
-		}
-
-		public synchronized int size() {
-			return this.count;
-		}
-
-		public synchronized void release() {
-			this.buf = null;
-			this.count = 0;
-		}
 	}
 }

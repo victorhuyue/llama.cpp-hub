@@ -97,18 +97,14 @@ public class OpenAIChatStreamingHandler extends ChannelInboundHandlerAdapter {
 			ctx.fireChannelRead(msg);
 			return;
 		}
-		
-		
 		try {
 			if (httpObject instanceof HttpContent content) {
-				// Netty 可能把请求体拆成多个 chunk，这里逐块喂给 ChatStreamSession。
-				this.currentSession.offer(content.content());
-				// 请求结束的处理。
 				if (httpObject instanceof LastHttpContent) {
-					// 收到最后一个分块后通知会话“输入结束”，让后台线程继续完成转发和响应回写。
+					this.currentSession.offerLast(content.content());
 					this.currentSession.complete();
-					// 这里重置的是 Handler 的拦截状态，不影响已经启动的后台会话继续执行。
 					this.resetSession();
+				} else {
+					this.currentSession.offer(content.content());
 				}
 			}
 		} catch (IOException e) {

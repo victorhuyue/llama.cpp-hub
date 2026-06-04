@@ -1043,54 +1043,43 @@ public class LlamaServer {
         EventLoopGroup workerGroup = new NioEventLoopGroup(4);
         
         try {
-            ServerBootstrap bootstrap = new ServerBootstrap();
-            bootstrap.group(bossGroup, workerGroup)
-                    .channel(NioServerSocketChannel.class)
-                    .option(ChannelOption.SO_BACKLOG, 1024)
-                    .childOption(ChannelOption.SO_KEEPALIVE, true)
-                    .childHandler(new ChannelInitializer<SocketChannel>() {
-                        @Override
-                        protected void initChannel(SocketChannel ch) throws Exception {
-                           if (httpsSslContext != null) {
-                             	SSLEngine engine = httpsSslContext.newEngine(ch.alloc());
-                                 ch.pipeline()
-                                 		.addLast(new SslHandler(engine))
-                                         .addLast(new HttpServerCodec())
-                                 		.addLast(new OpenAIChatStreamingHandler())
-                                 		.addLast(new EasyChatHandler())
-                                 		.addLast(new FileUploadRouterHandler())
-                                 		.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
-                                		.addLast(new ChunkedWriteHandler())
-                                		.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
-                                 		.addLast(new WebSocketServerHandler())
+			ServerBootstrap bootstrap = new ServerBootstrap();
+			bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class)
+					.option(ChannelOption.SO_BACKLOG, 1024).childOption(ChannelOption.SO_KEEPALIVE, true)
+					.childHandler(new ChannelInitializer<SocketChannel>() {
+						@Override
+						protected void initChannel(SocketChannel ch) throws Exception {
+							if (httpsSslContext != null) {
+								SSLEngine engine = httpsSslContext.newEngine(ch.alloc());
+								ch.pipeline().addLast(new SslHandler(engine)).addLast(new HttpServerCodec())
+										.addLast(new OpenAIChatStreamingHandler()).addLast(new EasyChatHandler())
+										.addLast(new FileUploadRouterHandler())
+										.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
+										.addLast(new ChunkedWriteHandler())
+										.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
+										.addLast(new WebSocketServerHandler())
 
-                                 		.addLast(new BasicRouterHandler())
-                                 		.addLast(new CompletionRouterHandler())
-                                 		.addLast(new FileDownloadRouterHandler())
-                                 		.addLast(new LlamaRouterHandler());
-                           } else {
-                                 ch.pipeline()
-                                         .addLast(new HttpServerCodec())
-                                         .addLast(new OpenAIChatStreamingHandler())
-                                  		.addLast(new EasyChatHandler())
-                                  		.addLast(new FileUploadRouterHandler())
-                                  		.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
-                                        .addLast(new ChunkedWriteHandler())
-                                        .addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
-                                        .addLast(new WebSocketServerHandler())
-                                        
-                                        .addLast(new BasicRouterHandler())
-                                        .addLast(new CompletionRouterHandler())
-                                        .addLast(new FileDownloadRouterHandler())
-                                        .addLast(new LlamaRouterHandler());
-                            }
-                        }
-                        @Override
-                        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-                            logger.info("Failed to initialize a channel. Closing: " + ctx.channel(), cause);
-                            ctx.close();
-                        }
-                    });
+										.addLast(new BasicRouterHandler()).addLast(new CompletionRouterHandler())
+										.addLast(new FileDownloadRouterHandler()).addLast(new LlamaRouterHandler());
+							} else {
+								ch.pipeline().addLast(new HttpServerCodec()).addLast(new OpenAIChatStreamingHandler())
+										.addLast(new EasyChatHandler()).addLast(new FileUploadRouterHandler())
+										.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
+										.addLast(new ChunkedWriteHandler())
+										.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
+										.addLast(new WebSocketServerHandler())
+
+										.addLast(new BasicRouterHandler()).addLast(new CompletionRouterHandler())
+										.addLast(new FileDownloadRouterHandler()).addLast(new LlamaRouterHandler());
+							}
+						}
+
+						@Override
+						public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+							logger.info("Failed to initialize a channel. Closing: " + ctx.channel(), cause);
+							ctx.close();
+						}
+					});
             
             ChannelFuture future = bootstrap.bind(port).sync();
             logger.info("OpenAI服务启动成功，端口: {}", port);

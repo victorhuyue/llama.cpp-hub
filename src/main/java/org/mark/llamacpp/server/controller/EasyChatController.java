@@ -31,19 +31,23 @@ import io.netty.handler.codec.http.HttpMethod;
 /**
  * EasyChat 后端状态接口。
  *
- * <p>状态摘要、版本校验、单会话加载、轻量写回分别走独立端点，
- * 避免每次同步都传输完整历史消息。</p>
+ * <p>
+ * 状态摘要、版本校验、单会话加载、轻量写回分别走独立端点， 避免每次同步都传输完整历史消息。
+ * </p>
  *
- * <p><b>前端调用方式</b>：</p>
+ * <p>
+ * <b>前端调用方式</b>：
+ * </p>
  * <ul>
- *   <li>GET /api/easy-chat/state — 获取状态摘要（不含消息正文）</li>
- *   <li>GET /api/easy-chat/conversation?id=xxx — 加载单个会话完整内容</li>
- *   <li>POST /api/easy-chat/conversation/save — 保存单个会话（含 revision 校验）</li>
- *   <li>POST /api/easy-chat/sync — 同步状态摘要（body 中可不带 currentConversation）</li>
+ * <li>GET /api/easy-chat/state — 获取状态摘要（不含消息正文）</li>
+ * <li>GET /api/easy-chat/conversation?id=xxx — 加载单个会话完整内容</li>
+ * <li>POST /api/easy-chat/conversation/save — 保存单个会话（含 revision 校验）</li>
+ * <li>POST /api/easy-chat/sync — 同步状态摘要（body 中可不带 currentConversation）</li>
  * </ul>
  *
- * <p>会话保存走 conversation/save 端点后，sync 请求 body 从 MB 级降到 KB 级，
- * 可避免含大量多媒体文件时的 413 错误。</p>
+ * <p>
+ * 会话保存走 conversation/save 端点后，sync 请求 body 从 MB 级降到 KB 级， 可避免含大量多媒体文件时的 413 错误。
+ * </p>
  */
 public class EasyChatController implements BaseController {
 
@@ -112,7 +116,8 @@ public class EasyChatController implements BaseController {
 		}
 	}
 
-	private void handleRevisionRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+	private void handleRevisionRequest(ChannelHandlerContext ctx, FullHttpRequest request)
+			throws RequestMethodException {
 		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
 		try {
 			Path stateDir = this.getStateDirPath();
@@ -133,7 +138,8 @@ public class EasyChatController implements BaseController {
 		}
 	}
 
-	private void handleConversationRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+	private void handleConversationRequest(ChannelHandlerContext ctx, FullHttpRequest request)
+			throws RequestMethodException {
 		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
 		try {
 			Map<String, String> params = ParamTool.getQueryParam(request.uri());
@@ -145,25 +151,26 @@ public class EasyChatController implements BaseController {
 			String revision;
 			String storageKey;
 			synchronized (STATE_LOCK) {
-	JsonObject storedState = this.readJsonObjectIfExists(stateFile);
-			JsonObject summary = this.findConversationSummaryById(storedState, conversationId);
-			storageKey = this.resolveConversationStorageKey(summary, conversationId);
-			revision = this.resolveStateRevision(stateFile, storedState);
-		}
-		Path conversationFile = this.getConversationFilePath(conversationDir, storageKey);
-		// Fallback: try conversationId directly (may have been saved by EasyChatHandler)
-		if (!Files.exists(conversationDir)) {
-			Files.createDirectories(conversationDir);
-		}
-		if (!Files.exists(conversationFile)) {
-			String fallbackKey = conversationId.trim();
-			if (!fallbackKey.equals(storageKey)) {
-				conversationFile = this.getConversationFilePath(conversationDir, fallbackKey);
+				JsonObject storedState = this.readJsonObjectIfExists(stateFile);
+				JsonObject summary = this.findConversationSummaryById(storedState, conversationId);
+				storageKey = this.resolveConversationStorageKey(summary, conversationId);
+				revision = this.resolveStateRevision(stateFile, storedState);
 			}
-		}
-		if (!Files.exists(conversationFile)) {
-			throw new IllegalStateException("会话不存在: " + conversationId);
-		}
+			Path conversationFile = this.getConversationFilePath(conversationDir, storageKey);
+			// Fallback: try conversationId directly (may have been saved by
+			// EasyChatHandler)
+			if (!Files.exists(conversationDir)) {
+				Files.createDirectories(conversationDir);
+			}
+			if (!Files.exists(conversationFile)) {
+				String fallbackKey = conversationId.trim();
+				if (!fallbackKey.equals(storageKey)) {
+					conversationFile = this.getConversationFilePath(conversationDir, fallbackKey);
+				}
+			}
+			if (!Files.exists(conversationFile)) {
+				throw new IllegalStateException("会话不存在: " + conversationId);
+			}
 			String prefix = "{\"success\":true,\"data\":{\"conversation\":";
 			String escapedRevision = revision.replace("\\", "\\\\").replace("\"", "\\\"");
 			String suffix = ",\"revision\":\"" + escapedRevision + "\"}}";
@@ -174,7 +181,8 @@ public class EasyChatController implements BaseController {
 		}
 	}
 
-	private void handleConversationSaveRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+	private void handleConversationSaveRequest(ChannelHandlerContext ctx, FullHttpRequest request)
+			throws RequestMethodException {
 		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
 		try {
 			JsonObject body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
@@ -283,7 +291,8 @@ public class EasyChatController implements BaseController {
 		return new SyncStateResult(summaries.size(), nextRevision);
 	}
 
-	private void assertRevisionMatches(Path stateFile, JsonObject currentState, String normalizedBaseRevision) throws Exception {
+	private void assertRevisionMatches(Path stateFile, JsonObject currentState, String normalizedBaseRevision)
+			throws Exception {
 		if (!Files.exists(stateFile)) {
 			return;
 		}
@@ -330,26 +339,6 @@ public class EasyChatController implements BaseController {
 			}
 		}
 		return null;
-	}
-
-	private JsonObject mergeConversationWithSummary(JsonObject summary, JsonObject conversation, String conversationId) {
-		JsonObject merged = conversation == null ? new JsonObject() : conversation.deepCopy();
-		if (summary != null) {
-			for (Map.Entry<String, JsonElement> entry : summary.entrySet()) {
-				String key = entry.getKey();
-				if ("messages".equals(key) || "storageKey".equals(key) || "messageCount".equals(key)) {
-					continue;
-				}
-				merged.add(key, entry.getValue() == null ? null : entry.getValue().deepCopy());
-			}
-		}
-		if (!merged.has("id") && conversationId != null && !conversationId.isBlank()) {
-			merged.addProperty("id", conversationId);
-		}
-		if (!merged.has("messages") || !merged.get("messages").isJsonArray()) {
-			merged.add("messages", new JsonArray());
-		}
-		return merged;
 	}
 
 	private void writeConversationFile(Path conversationDir, JsonObject conversation) throws Exception {
@@ -457,7 +446,8 @@ public class EasyChatController implements BaseController {
 	}
 
 	private String resolveConversationStorageKey(JsonObject summary, String conversationId) {
-		return this.normalizeStorageKey(summary == null ? null : JsonUtil.getJsonString(summary, "storageKey", null), conversationId);
+		return this.normalizeStorageKey(summary == null ? null : JsonUtil.getJsonString(summary, "storageKey", null),
+				conversationId);
 	}
 
 	private String normalizeStorageKey(String storageKey, String conversationId) {
@@ -538,5 +528,6 @@ public class EasyChatController implements BaseController {
 		return stateDir.resolve("conversations").toAbsolutePath().normalize();
 	}
 
-	private record SyncStateResult(int conversationCount, String revision) {}
+	private record SyncStateResult(int conversationCount, String revision) {
+	}
 }

@@ -127,14 +127,8 @@ public class StreamingForwarder {
         if (failed.get() && failure != null) {
             throw failure;
         }
-        if (modelName == null || modelName.isBlank()) {
-            if (extractBuffer != null && extractBuffer.length() >= MODEL_BUFFER_LIMIT) {
-                throw new ForwarderException(400, "Model field not found within first " + MODEL_BUFFER_LIMIT + " characters of request body", "model");
-            }
-            throw new ForwarderException(400, "Missing required parameter: model", "model");
-        }
 
-        /* 处理最后一个 chunk */
+        /* 处理最后一个 chunk（必须在检查 modelName 之前） */
         byte[] storedLast = this.lastChunk;
         if (storedLast != null && storedLast.length > 0) {
             try {
@@ -144,6 +138,13 @@ public class StreamingForwarder {
                 throw e;
             }
             extractFields(storedLast);
+        }
+
+        if (modelName == null || modelName.isBlank()) {
+            if (extractBuffer != null && extractBuffer.length() >= MODEL_BUFFER_LIMIT) {
+                throw new ForwarderException(400, "Model field not found within first " + MODEL_BUFFER_LIMIT + " characters of request body", "model");
+            }
+            throw new ForwarderException(400, "Missing required parameter: model", "model");
         }
 
         return new TransformResult(modelName, stream, nodeId);

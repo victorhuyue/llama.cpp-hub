@@ -63,7 +63,7 @@ public class StreamingForwarder {
             throw new IOException("stream closed");
         }
         long seq = chunkSeq.incrementAndGet();
-        logger.info("[chunk#{}] {} 字节: {}", seq, chunk.length, previewChunk(chunk));
+        //logger.info("[chunk#{}] {} 字节: {}", seq, chunk.length, previewChunk(chunk));
         try {
             bodyBuffer.write(chunk);
             extractFields(chunk);
@@ -93,7 +93,7 @@ public class StreamingForwarder {
             return;
         }
         long seq = chunkSeq.incrementAndGet();
-        logger.info("[chunk#{} LAST] {} 字节: {}", seq, chunk.length, previewChunk(chunk));
+        //logger.info("[chunk#{} LAST] {} 字节: {}", seq, chunk.length, previewChunk(chunk));
         this.lastChunk = chunk;
     }
 

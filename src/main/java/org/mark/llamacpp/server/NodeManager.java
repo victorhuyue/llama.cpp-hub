@@ -428,7 +428,8 @@ public class NodeManager {
                         !key.equalsIgnoreCase("Content-Length") &&
                         !key.equalsIgnoreCase("Transfer-Encoding") &&
                         !key.equalsIgnoreCase("Authorization") &&
-                        !key.equalsIgnoreCase("Content-Type")) {
+                        !key.equalsIgnoreCase("Content-Type") &&
+                        !key.equalsIgnoreCase("X-Node-Id")) {
                         connection.setRequestProperty(key, entry.getValue());
                     }
                 }

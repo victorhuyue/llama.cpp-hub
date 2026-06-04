@@ -1024,12 +1024,13 @@ public class LlamacppController implements BaseController {
 				if (key == null) {
 					continue;
 				}
-				if ("Host".equalsIgnoreCase(key)
-						|| "Connection".equalsIgnoreCase(key)
-						|| "Content-Length".equalsIgnoreCase(key)
-						|| "Transfer-Encoding".equalsIgnoreCase(key)) {
-					continue;
-				}
+			if ("Host".equalsIgnoreCase(key)
+					|| "Connection".equalsIgnoreCase(key)
+					|| "Content-Length".equalsIgnoreCase(key)
+					|| "Transfer-Encoding".equalsIgnoreCase(key)
+					|| "X-Node-Id".equalsIgnoreCase(key)) {
+				continue;
+			}
 				connection.setRequestProperty(key, entry.getValue());
 			}
 			

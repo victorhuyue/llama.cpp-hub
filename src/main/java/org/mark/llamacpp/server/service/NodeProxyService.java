@@ -79,7 +79,9 @@ public class NodeProxyService {
             try {
                 Map<String, String> headers = new HashMap<>();
                 for (Entry<String, String> entry : request.headers()) {
-                    headers.put(entry.getKey(), entry.getValue());
+                    if (!entry.getKey().equalsIgnoreCase("X-Node-Id")) {
+                        headers.put(entry.getKey(), entry.getValue());
+                    }
                 }
 
                 result = NodeManager.getInstance().callRemoteApiStreaming(

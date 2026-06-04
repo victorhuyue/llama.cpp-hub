@@ -402,7 +402,8 @@ public class LMStudioService {
 			String key = entry.getKey();
 			if (!key.equalsIgnoreCase("Connection") &&
 				!key.equalsIgnoreCase("Content-Length") &&
-				!key.equalsIgnoreCase("Transfer-Encoding")) {
+				!key.equalsIgnoreCase("Transfer-Encoding") &&
+				!key.equalsIgnoreCase("X-Node-Id")) {
 				connection.setRequestProperty(key, entry.getValue());
 			}
 		}

@@ -412,7 +412,8 @@ public class AnthropicService {
                 for (Map.Entry<String, String> entry : headers.entrySet()) {
                     if (!entry.getKey().equalsIgnoreCase("Connection") &&
                         !entry.getKey().equalsIgnoreCase("Content-Length") &&
-                        !entry.getKey().equalsIgnoreCase("Transfer-Encoding")) {
+                        !entry.getKey().equalsIgnoreCase("Transfer-Encoding") &&
+                        !entry.getKey().equalsIgnoreCase("X-Node-Id")) {
                         connection.setRequestProperty(entry.getKey(), entry.getValue());
                     }
                 }
@@ -564,7 +565,8 @@ public class AnthropicService {
                 for (Map.Entry<String, String> entry : headers.entrySet()) {
                     if (!entry.getKey().equalsIgnoreCase("Connection") &&
                         !entry.getKey().equalsIgnoreCase("Content-Length") &&
-                        !entry.getKey().equalsIgnoreCase("Transfer-Encoding")) {
+                        !entry.getKey().equalsIgnoreCase("Transfer-Encoding") &&
+                        !entry.getKey().equalsIgnoreCase("X-Node-Id")) {
                         connection.setRequestProperty(entry.getKey(), entry.getValue());
                     }
                 }

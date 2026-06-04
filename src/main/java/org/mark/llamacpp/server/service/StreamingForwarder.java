@@ -92,7 +92,7 @@ public class StreamingForwarder {
         if (chunk == null || chunk.length == 0) {
             return;
         }
-        long seq = chunkSeq.incrementAndGet();
+        //long seq = chunkSeq.incrementAndGet();
         //logger.info("[chunk#{} LAST] {} 字节: {}", seq, chunk.length, previewChunk(chunk));
         this.lastChunk = chunk;
     }

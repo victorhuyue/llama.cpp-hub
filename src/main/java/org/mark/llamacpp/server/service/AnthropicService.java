@@ -19,7 +19,6 @@ import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.struct.ActiveRequest.Phase;
 import org.mark.llamacpp.server.struct.Timing;
 import org.mark.llamacpp.server.tools.JsonUtil;
-import org.mark.llamacpp.server.tools.ParamTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -118,36 +117,87 @@ public class AnthropicService {
             this.sendError(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, "Only GET method is supported");
             return;
         }
-        
+
         if (!this.checkApiKey(request)) {
             this.sendError(ctx, HttpResponseStatus.UNAUTHORIZED, "invalid api key");
             return;
         }
-        
-        LlamaServerManager manager = LlamaServerManager.getInstance();
-        JsonObject response = new JsonObject();
+
+        long now = System.currentTimeMillis() / 1000;
         JsonArray data = new JsonArray();
-        
+
+        LlamaServerManager manager = LlamaServerManager.getInstance();
         Map<String, LlamaCppProcess> processes = manager.getLoadedProcesses();
         for (String modelId : processes.keySet()) {
+            if (modelId == null || modelId.isBlank()) continue;
             JsonObject model = new JsonObject();
             model.addProperty("type", "model");
             model.addProperty("id", modelId);
             model.addProperty("display_name", modelId);
-            model.addProperty("created_at", System.currentTimeMillis() / 1000);
+            model.addProperty("created_at", now);
             data.add(model);
         }
-        
+
+        for (LlamaHubNode node : NodeManager.getInstance().listEnabledNodes()) {
+            try {
+                NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
+                        node.getNodeId(), "GET", "/v1/models", null);
+                if (!result.isSuccess()) continue;
+
+                JsonObject root = JsonUtil.fromJson(result.getBody(), JsonObject.class);
+                if (root == null) continue;
+
+                if (root.has("models") && root.get("models").isJsonArray()) {
+                    for (JsonElement el : root.getAsJsonArray("models")) {
+                        if (!el.isJsonObject()) continue;
+                        JsonObject m = el.getAsJsonObject();
+                        String key = JsonUtil.getJsonString(m, "model");
+                        if (key.isEmpty()) key = JsonUtil.getJsonString(m, "name");
+                        if (key.isEmpty()) continue;
+                        String nodeId = node.getNodeId();
+                        JsonObject model = new JsonObject();
+                        model.addProperty("type", "model");
+                        model.addProperty("id", key);
+                        model.addProperty("display_name", key);
+                        model.addProperty("nodeId", nodeId);
+                        model.addProperty("created_at", now);
+                        data.add(model);
+                    }
+                }
+
+                if (root.has("data") && root.get("data").isJsonArray()) {
+                    for (JsonElement el : root.getAsJsonArray("data")) {
+                        if (!el.isJsonObject()) continue;
+                        JsonObject d = el.getAsJsonObject();
+                        String id = JsonUtil.getJsonString(d, "id");
+                        if (id.isEmpty()) continue;
+                        String nodeId = node.getNodeId();
+                        JsonObject model = new JsonObject();
+                        model.addProperty("type", "model");
+                        model.addProperty("id", id);
+                        model.addProperty("display_name", id);
+                        model.addProperty("nodeId", nodeId);
+                        model.addProperty("created_at", now);
+                        data.add(model);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("[Anthropic models] 获取远程节点模型失败: nodeId={}, error={}",
+                        node.getNodeId(), e.getMessage());
+            }
+        }
+
+        JsonObject response = new JsonObject();
         response.add("data", data);
         response.addProperty("has_more", false);
         if (data.size() > 0) {
             response.addProperty("first_id", data.get(0).getAsJsonObject().get("id").getAsString());
-            response.addProperty("last_id", data.get(data.size()-1).getAsJsonObject().get("id").getAsString());
+            response.addProperty("last_id", data.get(data.size() - 1).getAsJsonObject().get("id").getAsString());
         } else {
             response.add("first_id", null);
             response.add("last_id", null);
         }
-        
+
         sendJsonResponse(ctx, response, HttpResponseStatus.OK);
     }
 
@@ -1017,16 +1067,20 @@ public class AnthropicService {
         String jsonStr = gson.toJson(json);
         logger.info("Anthropic response status={} body={}", status.code(), jsonStr);
         FullHttpResponse response = new DefaultFullHttpResponse(
-                HttpVersion.HTTP_1_1, 
+                HttpVersion.HTTP_1_1,
                 status,
                 Unpooled.copiedBuffer(jsonStr, CharsetUtil.UTF_8)
         );
-        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json");
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
         response.headers().set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
-        // Add CORS headers if needed, or rely on global handler
         response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-        
-        ctx.writeAndFlush(response);
+
+        ctx.writeAndFlush(response).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture future) {
+                ctx.close();
+            }
+        });
     }
 
     private void sendError(ChannelHandlerContext ctx, HttpResponseStatus status, String msg) {

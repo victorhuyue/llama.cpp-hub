@@ -3343,11 +3343,23 @@
           syncSettingsInputs();
           setStateLoadGuard(false, '');
         } catch (error) {
-          console.error(error);
-          stateLoadedFromServer = false;
-          loadErrorMessage = error?.message || window.I18N.t('page.chat.main.error.load_conversation', '加载会话失败');
-        updateStorageHint(window.I18N.t('page.chat.main.settings.network_error', '网络错误：无法连接服务器加载会话数据，已禁止本地操作'));
-          setStateLoadGuard(false, loadErrorMessage);
+          console.error('Failed to load current conversation', error);
+          const currentConv = getCurrentConversation();
+          if (currentConv && (error?.message?.includes('不存在') || error?.message?.includes('not found'))) {
+            state.currentConversationId = '';
+            state.conversations = state.conversations.filter(item => item.id !== currentConv.id);
+            renderConversationList();
+            ensureConversation();
+            syncRuntimeStateFromCurrentAssistant();
+            syncSettingsInputs();
+            setStateLoadGuard(false, '');
+            updateStorageHint('');
+          } else {
+            stateLoadedFromServer = false;
+            loadErrorMessage = error?.message || window.I18N.t('page.chat.main.error.load_conversation', '加载会话失败');
+            updateStorageHint(window.I18N.t('page.chat.main.settings.network_error', '网络错误：无法连接服务器加载会话数据，已禁止本地操作'));
+            setStateLoadGuard(false, loadErrorMessage);
+          }
         }
       } else {
         setStateLoadGuard(false, loadErrorMessage || window.I18N.t('page.chat.main.settings.network_error', '网络错误：无法连接服务器加载会话数据，已禁止本地操作'));

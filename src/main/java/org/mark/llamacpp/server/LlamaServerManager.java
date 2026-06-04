@@ -36,6 +36,7 @@ import java.util.stream.Stream;
 
 import org.mark.llamacpp.gguf.GGUFBundle;
 import org.mark.llamacpp.gguf.GGUFMetaData;
+import org.mark.llamacpp.gguf.MtpHelper.MtpInfo;
 import org.mark.llamacpp.gguf.GGUFModel;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.struct.ModelPathConfig;
@@ -726,23 +727,21 @@ public class LlamaServerManager {
 			}
 		}
 		
-		// 2. 如果没找到明确的第一卷，找一个不含mmproj的文件
+		// 2. 如果没找到明确的第一卷，找一个真正的主模型文件（排除mmproj/projector等辅助文件）
 		if(seedFile == null) {
 			for(File f : files) {
-				String name = f.getName().toLowerCase();
-				if(!name.contains("mmproj")) {
+				if(this.isMainModelFile(f)) {
 					seedFile = f;
 					break;
 				}
 			}
 		}
 		
-		// 3. 实在不行，就用第一个文件
-		if(seedFile == null && files.length > 0) {
-			seedFile = files[0];
+		// 3. 如果仍没找到，说明目录里全是辅助文件（mmproj/mtp donor等），不当作模型
+		if(seedFile == null) {
+			logger.info("目录中未找到主模型文件（全是mmproj/projector等辅助文件）: {}", path);
+			return null;
 		}
-		
-		if(seedFile == null) return null;
 		
 		try {
 			GGUFBundle bundle = new GGUFBundle(seedFile);
@@ -809,6 +808,23 @@ public class LlamaServerManager {
 			logger.info("处理目录失败 " + path + ": {}", e);
 			return null;
 		}
+	}
+
+	/**
+	 * 判断一个 .gguf 文件是否为主模型文件（而非 mmproj/projector/mtp-donor 等辅助文件）。
+	 */
+	private boolean isMainModelFile(File file) {
+		if (file == null || !file.isFile()) return false;
+		String name = file.getName().toLowerCase();
+		if (name.contains("mmproj")) return false;
+		GGUFMetaData md = GGUFMetaData.readFile(file);
+		if (md == null) return true;
+		String type = md.getGeneralType();
+		if ("projector".equals(type)) return false;
+		if ("dflash-draft".equals(md.getArchitecture())) return false;
+		MtpInfo mtp = md.getMtpInfo();
+		if (mtp != null && mtp.hasMtp() && mtp.trunkCount() == 0) return false;
+		return true;
 	}
 
 	/**

@@ -2,6 +2,14 @@
 
 [🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md)
 
+> ⚠️ **Important: Use Pre-built Release Packages Only**
+>
+> The author has been refactoring and optimizing the project, but the high complexity keeps introducing weird bugs. **Easy Chat (the built-in chat tool)** has a known risk of deleting chat history.
+>
+> **Do NOT compile from source.** Please download the pre-built package from [Releases](https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub/releases).
+>
+> If you are already using a Release package, do NOT compile from source to update.
+
 Slapping a web UI on llama.cpp — a graphical interface to wrangle models and llama.cpp. Packed with way too many bells and whistles.
 
 ---

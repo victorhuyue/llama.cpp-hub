@@ -2,6 +2,14 @@
 
 [🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md)
 
+> ⚠️ **重要提醒：请使用 Release 预编译程序包**
+>
+> 作者最近在重构、优化项目，但由于复杂度较高，不断出现各种奇怪的 BUG。其中 **Easy Chat（内置简易聊天工具）** 就存在误删聊天记录的风险。
+>
+> **请不要使用源码编译。** 请直接下载 [Releases](https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub/releases) 中的预编译程序包运行。
+>
+> 已在使用 Release 程序包的用户，也请不要用源码编译来更新版本。
+
 给 llama.cpp 套个 Web 壳 — 用图形化的Web页面来操作模型和llama.cpp。内置了很多花里胡哨的功能。
 
 ---

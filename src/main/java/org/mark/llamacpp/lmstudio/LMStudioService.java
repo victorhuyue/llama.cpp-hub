@@ -716,7 +716,7 @@ public class LMStudioService {
 		ctx.write(response);
 		ctx.flush();
 		
-		logger.info("开始处理流式响应，响应码: {}", responseCode);
+		logger.info("llama.cpp - 响应码: {}", responseCode);
 		
 		// 读取流式响应
 		try (BufferedReader br = new BufferedReader(

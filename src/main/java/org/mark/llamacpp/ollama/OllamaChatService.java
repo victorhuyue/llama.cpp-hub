@@ -384,7 +384,7 @@ public class OllamaChatService {
 		HttpUtil.setTransferEncodingChunked(response, true);
 		ctx.writeAndFlush(response);
 		
-		logger.info("开始处理流式响应，响应码: {}", responseCode);
+		logger.info("llama.cpp - 响应码: {}", responseCode);
 		
 		String doneReason = "stop";
 		Map<Integer, String> toolCallIndexToId = new HashMap<>();

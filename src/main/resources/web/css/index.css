@@ -3564,3 +3564,9 @@
         }
 
         .empty-state { text-align: center; padding: 2rem; color: var(--text-secondary); font-size: 0.85rem; }
+
+        .config-source {
+            color: #6b7280;
+            font-size: 0.85em;
+            font-weight: normal;
+        }

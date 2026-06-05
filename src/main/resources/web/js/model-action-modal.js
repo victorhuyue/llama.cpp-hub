@@ -468,6 +468,8 @@ function getDefaultConfigName() {
 
 function normalizeLaunchConfigBundle(rawEntry) {
     const fallbackName = getDefaultConfigName();
+    const sharedSources = (isPlainObject(rawEntry) && isPlainObject(rawEntry.sharedSources)) ? rawEntry.sharedSources : undefined;
+    const sharedOutConfigs = (isPlainObject(rawEntry) && Array.isArray(rawEntry.sharedOutConfigs)) ? rawEntry.sharedOutConfigs : undefined;
     if (!isPlainObject(rawEntry)) {
         return {
             selectedConfig: fallbackName,
@@ -487,12 +489,18 @@ function normalizeLaunchConfigBundle(rawEntry) {
         }
         const selectedRaw = rawEntry.selectedConfig === null || rawEntry.selectedConfig === undefined ? '' : String(rawEntry.selectedConfig).trim();
         const selectedConfig = selectedRaw && configs[selectedRaw] ? selectedRaw : Object.keys(configs)[0];
-        return { selectedConfig, configs };
+        const result = { selectedConfig, configs };
+        if (sharedSources) result.sharedSources = sharedSources;
+        if (sharedOutConfigs) result.sharedOutConfigs = sharedOutConfigs;
+        return result;
     }
-    return {
+    const result = {
         selectedConfig: fallbackName,
         configs: { [fallbackName]: rawEntry }
     };
+    if (sharedSources) result.sharedSources = sharedSources;
+    if (sharedOutConfigs) result.sharedOutConfigs = sharedOutConfigs;
+    return result;
 }
 
 function extractLaunchConfigBundleFromGetResponse(res, modelId) {
@@ -500,10 +508,24 @@ function extractLaunchConfigBundleFromGetResponse(res, modelId) {
     const data = res.data;
     if (!isPlainObject(data)) return normalizeLaunchConfigBundle(null);
     if (isPlainObject(data.configs)) {
-        return normalizeLaunchConfigBundle(data);
+        const bundle = normalizeLaunchConfigBundle(data);
+        if (isPlainObject(data.sharedSources)) {
+            bundle.sharedSources = data.sharedSources;
+        }
+        if (Array.isArray(data.sharedOutConfigs)) {
+            bundle.sharedOutConfigs = data.sharedOutConfigs;
+        }
+        return bundle;
     }
     const direct = data[modelId];
-    return normalizeLaunchConfigBundle(direct);
+    const bundle = normalizeLaunchConfigBundle(direct);
+    if (isPlainObject(direct) && isPlainObject(direct.sharedSources)) {
+        bundle.sharedSources = direct.sharedSources;
+    }
+    if (isPlainObject(direct) && Array.isArray(direct.sharedOutConfigs)) {
+        bundle.sharedOutConfigs = direct.sharedOutConfigs;
+    }
+    return bundle;
 }
 
 function extractLaunchConfigFromGetResponse(res, modelId) {
@@ -520,9 +542,44 @@ function renderModelConfigSelect(modal, bundle) {
     if (!select) return;
     const normalized = normalizeLaunchConfigBundle(bundle);
     const names = Object.keys(normalized.configs);
-    select.innerHTML = names.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
-    select.value = normalized.selectedConfig;
+    const sharedSources = isPlainObject(normalized.sharedSources) ? normalized.sharedSources : {};
+    const modelsData = (currentModelsData || []).map(m => ({ id: m && m.id, name: m && (m.alias || m.id) }));
+    select.innerHTML = names.map(name => {
+        const source = sharedSources[name];
+        let label = escapeHtml(name);
+        if (source && source.source) {
+            const sourceModel = modelsData.find(m => m.id === source.source);
+            const sourceName = sourceModel ? sourceModel.name : source.source;
+            label = `[共享] ${escapeHtml(name)} <span class="config-source" title="${escapeHtml(String(source.sourceConfigName || ''))}">(${escapeHtml(String(sourceName))})</span>`;
+        }
+        return `<option value="${escapeHtml(name)}">${label}</option>`;
+    }).join('');
     window.__modelConfigBundle = normalized;
+    select.value = normalized.selectedConfig;
+    updateShareCheckbox(modal, normalized);
+}
+
+function updateShareCheckbox(modal, bundle) {
+    const cb = findById(modal, 'shareConfigCheckbox');
+    if (!cb) return;
+    const modelId = getFieldString(modal, ['modelId']);
+    if (!modelId) {
+        cb.checked = false;
+        cb.disabled = true;
+        return;
+    }
+    const selectedConfig = getSelectedModelConfigName(modal);
+    const sharedOutConfigs = Array.isArray(bundle.sharedOutConfigs) ? bundle.sharedOutConfigs : [];
+    const isSharedOut = sharedOutConfigs.includes(selectedConfig);
+    const sharedSources = isPlainObject(bundle.sharedSources) ? bundle.sharedSources : {};
+    const isFromOther = sharedSources[selectedConfig] != null;
+    if (isFromOther) {
+        cb.checked = false;
+        cb.disabled = true;
+    } else {
+        cb.checked = isSharedOut;
+        cb.disabled = false;
+    }
 }
 
 // 关键注释：将当前UI中的启动参数整理为可持久化配置对象
@@ -568,9 +625,11 @@ function setModelConfigControlsDisabled(modal, disabled) {
     const addBtn = findById(modal, 'addModelConfigBtn');
     const delBtn = findById(modal, 'deleteModelConfigBtn');
     const configSelect = findById(modal, 'modelConfigSelect');
+    const shareCb = findById(modal, 'shareConfigCheckbox');
     if (addBtn) addBtn.disabled = !!disabled;
     if (delBtn) delBtn.disabled = !!disabled;
     if (configSelect) configSelect.disabled = !!disabled;
+    if (shareCb) shareCb.disabled = !!disabled;
 }
 
 function applyLaunchConfigToModal(modal, config) {
@@ -618,6 +677,7 @@ function onModelConfigSelectionChange() {
     if (!bundle.configs[selected]) return;
     bundle.selectedConfig = selected;
     window.__modelConfigBundle = bundle;
+    updateShareCheckbox(modal, bundle);
     applyLaunchConfigToModal(modal, bundle.configs[selected]);
 }
 
@@ -688,6 +748,85 @@ function deleteModelConfigOption() {
     }).finally(() => {
         setModelConfigControlsDisabled(modal, false);
     });
+}
+
+function toggleShareConfig() {
+    const modal = getLoadModelModal();
+    if (!modal) return;
+    const cb = findById(modal, 'shareConfigCheckbox');
+    if (!cb) return;
+    const modelId = getFieldString(modal, ['modelId']);
+    if (!modelId) return;
+    const configName = getSelectedModelConfigName(modal);
+    if (!configName) return;
+    const nodeId = modal && modal.__nodeId ? modal.__nodeId : '';
+    const sharedName = configName;
+    setModelConfigControlsDisabled(modal, true);
+    if (cb.checked) {
+        const payload = { modelId: modelId, configName: configName, sharedName: sharedName };
+        if (nodeId && nodeId !== 'local') payload.nodeId = nodeId;
+        fetch('/api/models/config/shared/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(r => r.json()).then(res => {
+            if (!(res && res.success)) {
+                cb.checked = false;
+                showToast(t('toast.error', '错误'), (res && res.error) ? res.error : t('modal.model_action.config.share_failed', '共享配置失败'), 'error');
+                return;
+            }
+            showToast(t('toast.success', '成功'), t('modal.model_action.config.shared', '配置已共享'), 'success');
+            refreshModelConfigBundle(modal, configName);
+        }).catch(() => {
+            cb.checked = false;
+            showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        }).finally(() => {
+            setModelConfigControlsDisabled(modal, false);
+        });
+    } else {
+        const payload = { sharedName: sharedName };
+        if (nodeId && nodeId !== 'local') payload.nodeId = nodeId;
+        fetch('/api/models/config/shared/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(r => r.json()).then(res => {
+            if (!(res && res.success)) {
+                cb.checked = true;
+                showToast(t('toast.error', '错误'), (res && res.error) ? res.error : t('modal.model_action.config.unshare_failed', '取消共享失败'), 'error');
+                return;
+            }
+            showToast(t('toast.success', '成功'), t('modal.model_action.config.unshared', '已取消共享'), 'success');
+            refreshModelConfigBundle(modal, configName);
+        }).catch(() => {
+            cb.checked = true;
+            showToast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        }).finally(() => {
+            setModelConfigControlsDisabled(modal, false);
+        });
+    }
+}
+
+function refreshModelConfigBundle(modal, preserveSelected) {
+    const modelId = getFieldString(modal, ['modelId']);
+    if (!modelId) return;
+    const nodeId = modal && modal.__nodeId ? modal.__nodeId : '';
+    const configUrl = nodeId && nodeId !== 'local'
+        ? `/api/models/config/get?modelId=${encodeURIComponent(modelId)}&nodeId=${encodeURIComponent(nodeId)}`
+        : `/api/models/config/get?modelId=${encodeURIComponent(modelId)}`;
+    fetch(configUrl)
+        .then(r => r.json())
+        .then(data => {
+            const bundle = extractLaunchConfigBundleFromGetResponse(data, modelId);
+            if (preserveSelected && bundle.configs[preserveSelected]) {
+                bundle.selectedConfig = preserveSelected;
+            }
+            renderModelConfigSelect(modal, bundle);
+            const selected = bundle.selectedConfig;
+            const config = bundle.configs[selected] || {};
+            applyLaunchConfigToModal(modal, config);
+        })
+        .catch(() => {});
 }
 
 function parseBooleanLike(v, fallback = false) {

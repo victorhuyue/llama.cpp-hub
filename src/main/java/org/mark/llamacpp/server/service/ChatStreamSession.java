@@ -30,7 +30,7 @@ import io.netty.handler.codec.http.HttpMethod;
 public class ChatStreamSession {
 
 	private static final Logger logger = LoggerFactory.getLogger(ChatStreamSession.class);
-	
+
 	/**
 	 * 	依然是虚拟线程。
 	 */
@@ -38,6 +38,8 @@ public class ChatStreamSession {
 
 	private final ChannelHandlerContext ctx;
 	private final OpenAIService openAIService;
+	private final AnthropicService anthropicService;
+	private final String endpoint;
 	private final HttpMethod method;
 	private final Map<String, String> headers;
 
@@ -51,19 +53,25 @@ public class ChatStreamSession {
 	private volatile String requestId;
 	private volatile boolean receivedBody;
 	private volatile String routingNodeId;
-	
-	
-	
+
+
+
 	/**
-	 * 	初始化一个流式会话。
-	 * @param ctx
-	 * @param openAIService
-	 * @param method
-	 * @param headers
+	 * 	OpenAI 聊天补全：保持向后兼容的构造函数。
 	 */
 	public ChatStreamSession(ChannelHandlerContext ctx, OpenAIService openAIService, HttpMethod method, Map<String, String> headers) {
+		this(ctx, openAIService, null, "/v1/chat/completions", method, headers);
+	}
+
+	/**
+	 * 	初始化一个流式会话（支持 Anthropic）。
+	 */
+	public ChatStreamSession(ChannelHandlerContext ctx, OpenAIService openAIService, AnthropicService anthropicService,
+			String endpoint, HttpMethod method, Map<String, String> headers) {
 		this.ctx = ctx;
 		this.openAIService = openAIService;
+		this.anthropicService = anthropicService;
+		this.endpoint = endpoint;
 		this.method = method;
 		this.headers = headers;
 		String headerNodeId = headers.get("X-Node-Id");
@@ -71,8 +79,8 @@ public class ChatStreamSession {
 			this.forwarder.setNodeId(headerNodeId);
 		}
 	}
-	
-	
+
+
 	/**
 	 * 	哎，启动！
 	 */
@@ -81,7 +89,7 @@ public class ChatStreamSession {
 			worker.execute(this::run);
 		}
 	}
-	
+
 	/**
 	 * 	传入数据块。
 	 * @param content
@@ -111,7 +119,7 @@ public class ChatStreamSession {
 		this.receivedBody = true;
 		this.forwarder.offerLast(bytes);
 	}
-	
+
 	/**
 	 * 	完成了，需要显式地调用这个表明任务正常结束了。
 	 */
@@ -122,7 +130,7 @@ public class ChatStreamSession {
 			}
 		}
 	}
-	
+
 	/**
 	 * 	取消，取他妈的消。
 	 */
@@ -157,25 +165,48 @@ public class ChatStreamSession {
 			}
 		}
 	}
-	
+
+	/**
+	 * 	根据当前的 service 类型发送错误响应。
+	 */
+	private void sendError(ChannelHandlerContext ctx, int httpStatus, String errorCode, String message, String param) {
+		if (this.anthropicService != null) {
+			this.anthropicService.sendErrorResponse(ctx, httpStatus, message);
+		} else {
+			this.openAIService.sendOpenAIErrorResponseWithCleanup(ctx, httpStatus, errorCode, message, param);
+		}
+	}
+
+	/**
+	 * 	根据当前的 service 类型路由响应。
+	 */
+	private void handleResponse(ChannelHandlerContext ctx, HttpURLConnection connection, int responseCode,
+			String modelName, String requestId, String nodeId) throws IOException {
+		if (this.anthropicService != null) {
+			this.anthropicService.handleProxyResponse(ctx, connection, responseCode, modelName, requestId);
+		} else {
+			this.openAIService.handleProxyResponse(ctx, connection, responseCode, modelName, requestId, nodeId);
+		}
+	}
+
 	/**
 	 * 	run run run
 	 */
 	private void run() {
 		try {
 			if (this.method != HttpMethod.POST) {
-				this.openAIService.sendOpenAIErrorResponseWithCleanup(ctx, 405, null, "Only POST method is supported", "method");
+				this.sendError(ctx, 405, null, "Only POST method is supported", "method");
 				return;
 			}
 			StreamingForwarder fwd = this.forwarder;
 			if (fwd == null) {
-				this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, 500, null, "Forwarder not initialized", null);
+				this.sendError(this.ctx, 500, null, "Forwarder not initialized", null);
 				return;
 			}
 			StreamingForwarder.TransformResult result = fwd.extract();
 
 			if (!this.receivedBody) {
-				this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, 400, null, "Request body is empty", "messages");
+				this.sendError(this.ctx, 400, null, "Request body is empty", "messages");
 				return;
 			}
 
@@ -184,22 +215,22 @@ public class ChatStreamSession {
 				throw new IOException("llama.cpp connection was not created");
 			}
 
-	OutputStream connOutput = this.connection.getOutputStream();
+			OutputStream connOutput = this.connection.getOutputStream();
 			fwd.streamBody(connOutput);
 			connOutput.flush();
 			connOutput.close();
 
-			this.requestId = ModelRequestTracker.getInstance().createRequest(result.getModelName(), "/v1/chat/completions");
+			this.requestId = ModelRequestTracker.getInstance().createRequest(result.getModelName(), this.endpoint);
 			if (this.cancelled.get()) {
 				logger.info("聊天流式会话已取消，中止请求");
 				return;
 			}
 			int responseCode = this.connection.getResponseCode();
 			ModelRequestTracker.getInstance().updatePhase(this.requestId, ActiveRequest.Phase.GENERATION);
-			this.openAIService.handleProxyResponse(this.ctx, this.connection, responseCode, result.getModelName(), this.requestId, this.routingNodeId);
+			this.handleResponse(this.ctx, this.connection, responseCode, result.getModelName(), this.requestId, this.routingNodeId);
 		} catch (StreamingForwarder.ForwarderException e) {
 			if (!this.cancelled.get()) {
-				this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, e.getHttpStatus(), null, e.getMessage(), e.getParam());
+				this.sendError(this.ctx, e.getHttpStatus(), null, e.getMessage(), e.getParam());
 			}
 		} catch (IOException e) {
 			if (this.cancelled.get()) {
@@ -207,18 +238,18 @@ public class ChatStreamSession {
 				return;
 			}
 			if (!this.receivedBody) {
-				this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, 400, null, "Request body is empty", "messages");
+				this.sendError(this.ctx, 400, null, "Request body is empty", "messages");
 				return;
 			}
 			logger.info("处理聊天流式请求时发生错误 [{}]", this.resolveNodeName(this.routingNodeId), e);
-			this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, 500, null, e.getMessage(), null);
+			this.sendError(this.ctx, 500, null, e.getMessage(), null);
 		} catch (Exception e) {
 			if (this.cancelled.get()) {
 				logger.info("聊天流式会话已取消: {}", e.getMessage());
 				return;
 			}
 			logger.info("处理聊天流式请求时发生错误 [{}]", this.resolveNodeName(this.routingNodeId), e);
-			this.openAIService.sendOpenAIErrorResponseWithCleanup(this.ctx, 500, null, e.getMessage(), null);
+			this.sendError(this.ctx, 500, null, e.getMessage(), null);
 		} catch (Throwable t) {
 			logger.error("虚拟线程异常已兜底: {}", t.getMessage(), t);
 		} finally {
@@ -230,7 +261,7 @@ public class ChatStreamSession {
 			this.openAIService.cleanupTrackedConnection(this.ctx, this.connection);
 		}
 	}
-	
+
 	/**
 	 * 解析节点名称
 	 */
@@ -311,7 +342,7 @@ public class ChatStreamSession {
 				logger.warn("[Node路由] 本地模型端口未找到: model={}", modelName);
 				return null;
 			}
-			return String.format("http://localhost:%d/v1/chat/completions", modelPort.intValue());
+			return String.format("http://localhost:%d%s", modelPort.intValue(), this.endpoint);
 		} catch (Exception e) {
 			logger.warn("[Node路由] 解析本地模型异常: model={}, error={}", modelName, e.getMessage());
 			return null;
@@ -349,7 +380,7 @@ public class ChatStreamSession {
 						logger.info("[Node路由] 远程模型条目: nodeId={}, remoteModelKey={}", node.getNodeId(), remoteModelKey);
 						if (modelName.equals(remoteModelKey)) {
 							logger.info("[Node路由] 远程节点匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
-							return new String[]{ node.getBaseUrl() + "/v1/chat/completions", node.getNodeId() };
+							return new String[]{ node.getBaseUrl() + this.endpoint, node.getNodeId() };
 						}
 					}
 				}
@@ -371,6 +402,6 @@ public class ChatStreamSession {
 			logger.warn("[Node路由] 远程节点不存在或未启用: nodeId={}", nodeId);
 			return null;
 		}
-		return node.getBaseUrl() + "/v1/chat/completions";
+		return node.getBaseUrl() + this.endpoint;
 	}
 }

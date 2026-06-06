@@ -1079,6 +1079,28 @@ public class AnthropicService {
         
         sendJsonResponse(ctx, err, status);
     }
+
+    /**
+     * 	公共错误响应入口（供 ChatStreamSession 等外部调用）。
+     */
+    public void sendErrorResponse(ChannelHandlerContext ctx, int httpStatus, String msg) {
+        sendError(ctx, HttpResponseStatus.valueOf(httpStatus), msg);
+    }
+
+    /**
+     * 	公共代理响应入口：根据 Content-Type 分流到流式/非流式处理。
+     */
+    public void handleProxyResponse(ChannelHandlerContext ctx, HttpURLConnection connection,
+            int responseCode, String modelName, String requestId) throws IOException {
+        String contentType = connection.getContentType();
+        boolean isStream = contentType != null && contentType.contains("text/event-stream");
+        logger.debug("[Anthropic代理响应] contentType={}, isStream={}", contentType, isStream);
+        if (isStream) {
+            handleStreamResponse(ctx, connection, responseCode, requestId, modelName);
+        } else {
+            handleNonStreamResponse(ctx, connection, responseCode, requestId, modelName);
+        }
+    }
     
     /**
      * 	将/v1/messages请求转换为OpenAI的/v1/chat/completions请求

@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.mark.llamacpp.server.LlamaServer;
+import org.mark.llamacpp.server.service.AnthropicService;
 import org.mark.llamacpp.server.service.ChatStreamSession;
 import org.mark.llamacpp.server.service.OpenAIService;
 import org.slf4j.Logger;
@@ -37,6 +38,7 @@ public class OpenAIChatStreamingHandler extends ChannelInboundHandlerAdapter {
 	private static final Logger logger = LoggerFactory.getLogger(OpenAIChatStreamingHandler.class);
 
 	private final OpenAIService openAIService = new OpenAIService();
+	private final AnthropicService anthropicService = new AnthropicService();
 	
 	/**
 	 * 	当前连接正在处理的聊天流式会话；当本次请求符合聊天补全+超大长度时才会创建。
@@ -89,7 +91,17 @@ public class OpenAIChatStreamingHandler extends ChannelInboundHandlerAdapter {
 			}
 
 			// 会话启动后会在独立线程中读取 requestBodyStream，并在识别出 model 后连接目标 llama.cpp 进程。
-			this.currentSession = new ChatStreamSession(ctx, this.openAIService, request.method(), this.copyHeaders(request));
+			String path = request.uri();
+			if (path.startsWith("/v1/messages")) {
+				this.currentSession = new ChatStreamSession(ctx, this.openAIService, this.anthropicService,
+						"/v1/messages", request.method(), this.copyHeaders(request));
+			} else if (path.startsWith("/v1/complete")) {
+				this.currentSession = new ChatStreamSession(ctx, this.openAIService, this.anthropicService,
+						"/v1/complete", request.method(), this.copyHeaders(request));
+			} else {
+				this.currentSession = new ChatStreamSession(ctx, this.openAIService,
+						request.method(), this.copyHeaders(request));
+			}
 			this.currentSession.start();
 		}
 		// 2. 没有启用接管，也没有相应的会话，直接跳过。
@@ -124,6 +136,7 @@ public class OpenAIChatStreamingHandler extends ChannelInboundHandlerAdapter {
 			this.currentSession.cancel();
 		}
 		this.openAIService.channelInactive(ctx);
+		this.anthropicService.channelInactive(ctx);
 		this.resetSession();
 		super.channelInactive(ctx);
 	}
@@ -157,7 +170,9 @@ public class OpenAIChatStreamingHandler extends ChannelInboundHandlerAdapter {
 		}
 		return uri.startsWith("/v1/chat/completions")
 				|| uri.startsWith("/v1/chat/completion")
-				|| uri.startsWith("/chat/completion");
+				|| uri.startsWith("/chat/completion")
+				|| uri.startsWith("/v1/messages")
+				|| uri.startsWith("/v1/complete");
 	}
 	
 	/**

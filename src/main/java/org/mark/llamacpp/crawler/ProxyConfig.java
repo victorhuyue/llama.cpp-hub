@@ -98,7 +98,7 @@ public final class ProxyConfig {
     /**
      * Returns true if authentication is configured.
      */
-    boolean hasAuth() {
+    public boolean hasAuth() {
         return username != null && password != null;
     }
 }

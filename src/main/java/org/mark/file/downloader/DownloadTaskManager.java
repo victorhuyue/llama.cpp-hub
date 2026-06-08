@@ -106,7 +106,7 @@ public class DownloadTaskManager implements Closeable {
 			notifyTaskResumed(task.copy());
 		}
 
-		SimpleHttpDownloader downloader = new SimpleHttpDownloader(task.getThreadCount());
+		NettyHttpDownloader downloader = new NettyHttpDownloader(task.getThreadCount());
 		downloader.setProgressListener((downloadedBytes, totalBytes, partsCompleted, partsTotal) -> {
 			DownloadTaskInfo snapshot;
 			DownloadTaskProgress progress;
@@ -125,8 +125,8 @@ public class DownloadTaskManager implements Closeable {
 		});
 		Path targetPath = Path.of(task.getTargetPath());
 		Future<?> future = this.workerPool.submit(() -> {
-			try {
-				SimpleHttpDownloader.DownloadResult result = downloader.download(task.getSourceUrl(), targetPath);
+			try (downloader) {
+				NettyHttpDownloader.DownloadResult result = downloader.download(task.getSourceUrl(), targetPath);
 				DownloadTaskInfo snapshot;
 				synchronized (task) {
 					task.setStatus(DownloadTaskStatus.COMPLETED);
@@ -618,6 +618,6 @@ public class DownloadTaskManager implements Closeable {
 		}
 	}
 
-	private record RuntimeTaskContext(SimpleHttpDownloader downloader, Future<?> future) {
+	private record RuntimeTaskContext(NettyHttpDownloader downloader, Future<?> future) {
 	}
 }

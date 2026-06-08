@@ -38,13 +38,17 @@ public class SamplingInjectionBuilder {
     }
 
     public static String buildInjectionString(String modelName) {
+        return buildInjectionString(modelName, null);
+    }
+
+    public static String buildInjectionString(String modelName, Boolean clientEnableThinking) {
         if (modelName == null || modelName.isBlank()) {
             return "";
         }
         String resolvedName = resolveModelName(modelName);
         StringBuilder sb = new StringBuilder(256);
         appendSampling(sb, resolvedName);
-        appendChatTemplateKwargs(sb, resolvedName);
+        appendChatTemplateKwargs(sb, resolvedName, clientEnableThinking);
         String result = sb.toString();
         if (result.isEmpty()) {
             return "";
@@ -78,6 +82,11 @@ public class SamplingInjectionBuilder {
   /**
      * 注入 chat_template_kwargs。
      *
+     * enable_thinking 优先级：
+     * 1. 服务端 force_enable_thinking = true → 使用服务端 enable_thinking 值
+     * 2. 客户端传了 enable_thinking → 使用客户端值
+     * 3. 都没有 → 不注入 enable_thinking
+     *
      * 设计决策（2026-06-05）：
      * 当后端服务配置了 chat_template_kwargs（任意内容）时，注入的 kwargs 会直接覆盖客户端发送的
      * chat_template_kwargs，不做合并。原因：
@@ -87,7 +96,7 @@ public class SamplingInjectionBuilder {
      * 3. 后续如需合并，可考虑在 write() 阶段用流式状态机提取 body 中的 chat_template_kwargs，
      *    再与服务端配置做 merge。
      */
-    static void appendChatTemplateKwargs(StringBuilder sb, String modelName) {
+    static void appendChatTemplateKwargs(StringBuilder sb, String modelName, Boolean clientEnableThinking) {
         JsonObject kwargs = ChatTemplateKwargsService.getInstance().getOpenAIChatTemplateKwargs(modelName);
         logger.info("[kwargs] model={}, rawKwargs={}", modelName, kwargs);
         JsonObject sampling = ModelSamplingService.getInstance().getOpenAISampling(modelName);
@@ -95,12 +104,15 @@ public class SamplingInjectionBuilder {
         Boolean enableThinking = null;
         if (forceThinking) {
             enableThinking = readBooleanValue(sampling, "enable_thinking");
+        } else if (clientEnableThinking != null) {
+            enableThinking = clientEnableThinking;
         }
-        logger.info("[kwargs] model={}, forceThinking={}, enableThinking={}", modelName, forceThinking, enableThinking);
+        logger.info("[kwargs] model={}, forceThinking={}, clientEnableThinking={}, effectiveEnableThinking={}",
+                modelName, forceThinking, clientEnableThinking, enableThinking);
 
         if (kwargs == null || kwargs.entrySet().isEmpty()) {
-            /* 无 kwargs 配置，但 force_enable_thinking 开启时，新建 chat_template_kwargs 注入 */
-            if (forceThinking && enableThinking != null) {
+            /* 无 kwargs 配置，但有 enable_thinking 需要注入时，新建 chat_template_kwargs */
+            if (enableThinking != null) {
                 JsonObject newKwargs = new JsonObject();
                 newKwargs.addProperty("enable_thinking", enableThinking);
                 if (sb.length() > 0) {
@@ -113,7 +125,7 @@ public class SamplingInjectionBuilder {
         }
 
         /* 有 kwargs 配置，合并 enable_thinking 后注入 */
-        if (forceThinking && enableThinking != null) {
+        if (enableThinking != null) {
             kwargs = buildMergedKwargs(modelName, enableThinking);
             if (kwargs == null) {
                 return;

@@ -216,7 +216,7 @@ public class ChatStreamSession {
 			}
 
 			OutputStream connOutput = this.connection.getOutputStream();
-			fwd.streamBody(connOutput);
+			fwd.streamBody(connOutput, result.getEnableThinking());
 			connOutput.flush();
 			connOutput.close();
 

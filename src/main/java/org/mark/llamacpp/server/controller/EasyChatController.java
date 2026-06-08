@@ -14,6 +14,7 @@ import java.util.stream.Stream;
 
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.exception.RequestMethodException;
+import org.mark.llamacpp.server.service.EasyChatService;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
@@ -57,6 +58,7 @@ public class EasyChatController implements BaseController {
 	private static final String BASE_REVISION_FIELD = "baseRevision";
 	private static final String REVISION_CONFLICT_CODE = "STATE_REVISION_CONFLICT";
 
+	private static final String PATH_STREAM_CHAT = "/api/easy-chat/stream-chat";
 	private static final String PATH_STATE = "/api/easy-chat/state";
 	private static final String PATH_STATE_REVISION = "/api/easy-chat/state/revision";
 	private static final String PATH_CONVERSATION_SAVE = "/api/easy-chat/conversation/save";
@@ -66,6 +68,10 @@ public class EasyChatController implements BaseController {
 	@Override
 	public boolean handleRequest(String uri, ChannelHandlerContext ctx, FullHttpRequest request)
 			throws RequestMethodException {
+		if (uri.startsWith(PATH_STREAM_CHAT)) {
+			this.handleStreamChatRequest(ctx, request);
+			return true;
+		}
 		if (uri.startsWith(PATH_STATE_REVISION)) {
 			this.handleRevisionRequest(ctx, request);
 			return true;
@@ -87,6 +93,10 @@ public class EasyChatController implements BaseController {
 			return true;
 		}
 		return false;
+	}
+
+	private void handleStreamChatRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
+		EasyChatService.getInstance().handleStreamChat(ctx, request);
 	}
 
 	private void handleStateRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {

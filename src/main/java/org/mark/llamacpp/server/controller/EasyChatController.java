@@ -69,7 +69,11 @@ public class EasyChatController implements BaseController {
 	public boolean handleRequest(String uri, ChannelHandlerContext ctx, FullHttpRequest request)
 			throws RequestMethodException {
 		if (uri.startsWith(PATH_STREAM_CHAT)) {
-			this.handleStreamChatRequest(ctx, request);
+			if (request.method() == HttpMethod.GET) {
+				this.handleStreamChatHistory(ctx, request);
+			} else {
+				this.handleStreamChatRequest(ctx, request);
+			}
 			return true;
 		}
 		if (uri.startsWith(PATH_STATE_REVISION)) {
@@ -97,6 +101,12 @@ public class EasyChatController implements BaseController {
 
 	private void handleStreamChatRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
 		EasyChatService.getInstance().handleStreamChat(ctx, request);
+	}
+
+	private void handleStreamChatHistory(ChannelHandlerContext ctx, FullHttpRequest request) {
+		Map<String, String> params = ParamTool.getQueryParam(request.uri());
+		String conversationId = params.getOrDefault("conversationId", "").trim();
+		EasyChatService.getInstance().handleStreamChatHistory(ctx, conversationId);
 	}
 
 	private void handleStateRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {

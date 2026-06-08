@@ -34,9 +34,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelFuture;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.DefaultFileRegion;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpContent;
 import io.netty.handler.codec.http.DefaultHttpResponse;
@@ -109,7 +110,8 @@ public class EasyChatService {
 
 	/**
 	 * Handle stream-chat request.
-	 * Parses request, validates, acquires lock, allocates sequences, writes user fragment,
+	 * Reads metadata from HTTP headers, body bytes written directly to fragment (no JSON parse),
+	 * validates, acquires lock, allocates sequences, writes user fragment,
 	 * then dispatches async processing.
 	 */
 	public void handleStreamChat(ChannelHandlerContext ctx, FullHttpRequest request) {
@@ -119,43 +121,63 @@ public class EasyChatService {
 				return;
 			}
 
-			String content = request.content().toString(StandardCharsets.UTF_8);
-			if (content == null || content.trim().isEmpty()) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
-				return;
-			}
-
-			JsonObject body = JsonUtil.fromJson(content, JsonObject.class);
-			if (body == null) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体不是有效的JSON"));
-				return;
-			}
-
-			String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
+			// Read metadata from headers
+			String hdrConvId = request.headers().get("X-Conversation-Id");
+			String conversationId = (hdrConvId != null) ? hdrConvId : "";
 			if (conversationId.isBlank()) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少conversationId"));
 				return;
 			}
 
-			String modelId = JsonUtil.getJsonString(body, "modelId", "");
+			String hdrModelId = request.headers().get("X-Model-Id");
+			String modelId = (hdrModelId != null) ? hdrModelId : "";
 			if (modelId.isBlank()) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少modelId"));
 				return;
 			}
 
-			JsonObject message = null;
-			if (body.has("message") && !body.get("message").isJsonNull()) {
-				JsonElement msgEl = body.get("message");
-				if (msgEl.isJsonObject()) {
-					message = msgEl.getAsJsonObject();
-				}
-			}
-			if (message == null) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少message"));
+			String hdrAsstName = request.headers().get("X-Assistant-Name");
+			String assistantName = (hdrAsstName != null) ? hdrAsstName : "";
+
+			// Read body bytes directly (no JSON parsing)
+			byte[] bodyBytes = new byte[request.content().readableBytes()];
+			request.content().readBytes(bodyBytes);
+			if (bodyBytes.length == 0) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
 				return;
 			}
 
-			String assistantName = JsonUtil.getJsonString(body, "assistantName", "");
+			// Parse optional small headers (safe, tiny)
+			JsonArray toolsArr = null;
+			String toolsHeader = request.headers().get("X-Tools");
+			if (toolsHeader != null && !toolsHeader.isBlank()) {
+				try {
+					JsonElement el = JsonUtil.fromJson(toolsHeader, JsonElement.class);
+					if (el != null && el.isJsonArray()) {
+						toolsArr = el.getAsJsonArray();
+					}
+				} catch (Exception e) {
+					logger.warn("[EasyChat] 解析X-Tools header失败", e);
+				}
+			}
+
+			String toolChoice = request.headers().get("X-Tool-Choice");
+			if (toolChoice == null || toolChoice.isBlank()) {
+				toolChoice = "auto";
+			}
+
+			JsonObject samplingParams = null;
+			String spHeader = request.headers().get("X-Sampling-Params");
+			if (spHeader != null && !spHeader.isBlank()) {
+				try {
+					JsonElement el = JsonUtil.fromJson(spHeader, JsonElement.class);
+					if (el != null && el.isJsonObject()) {
+						samplingParams = el.getAsJsonObject();
+					}
+				} catch (Exception e) {
+					logger.warn("[EasyChat] 解析X-Sampling-Params header失败", e);
+				}
+			}
 
 			// Resolve model port
 			LlamaServerManager manager = LlamaServerManager.getInstance();
@@ -200,6 +222,10 @@ public class EasyChatService {
 				if (!Files.exists(indexPath)) {
 					Files.createDirectories(convDir);
 					createIndex(indexPath, "", System.currentTimeMillis(), assistantName);
+				} else if (Files.size(indexPath) != INDEX_FILE_SIZE) {
+					// Corrupted or old-version index.bin, delete and recreate
+					Files.delete(indexPath);
+					createIndex(indexPath, "", System.currentTimeMillis(), assistantName);
 				}
 
 				Index idx = readIndex(indexPath);
@@ -207,19 +233,18 @@ public class EasyChatService {
 				aiSeq = idx.seq + 1;
 				writeSeq(indexPath, idx.seq + 2);
 
-				// Write user fragment
-				writeFragment(convDir, userSeq, System.currentTimeMillis(),
-					JsonUtil.toJson(message).getBytes(StandardCharsets.UTF_8));
+				// Write user fragment (raw body bytes, no JSON parsing)
+				writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
+				Path fragFile = fragmentFile(convDir, userSeq);
+				logger.info("[EasyChat] 写入用户碎片 seq={} path={} exists={} size={}",
+					userSeq, fragFile.toAbsolutePath(), Files.exists(fragFile),
+					Files.exists(fragFile) ? Files.size(fragFile) : -1);
 
-				// Write tools.bin if present
-				if (body.has("tools") && body.get("tools").isJsonArray()) {
+				// Write tools.bin if tools provided via header
+				if (toolsArr != null) {
 					JsonObject toolsObj = new JsonObject();
-					toolsObj.add("tools", body.get("tools"));
-					if (body.has("toolChoice") && !body.get("toolChoice").isJsonNull()) {
-						toolsObj.add("tool_choice", body.get("toolChoice"));
-					} else {
-						toolsObj.addProperty("tool_choice", "auto");
-					}
+					toolsObj.add("tools", toolsArr);
+					toolsObj.addProperty("tool_choice", toolChoice);
 					writeTools(convDir, JsonUtil.toJson(toolsObj).getBytes(StandardCharsets.UTF_8));
 					toolsBytes = JsonUtil.toJson(toolsObj).getBytes(StandardCharsets.UTF_8);
 				} else {
@@ -232,9 +257,8 @@ public class EasyChatService {
 			final int finalModelPort = modelPort;
 			final String finalSystemPrompt = systemPrompt;
 			final Path finalConvDir = convDir;
-			final JsonObject finalMessage = message;
 			final byte[] finalToolsBytes = toolsBytes;
-			final JsonObject finalBody = body;
+			final JsonObject finalSamplingParams = samplingParams;
 
 			// Dispatch to worker thread
 			worker.execute(() -> {
@@ -245,14 +269,15 @@ public class EasyChatService {
 					connection = openTrackedConnection(ctx, finalModelId, finalModelPort);
 
 					// Stream request body to llama.cpp
-					writeRequestBody(connection, finalModelId, finalSystemPrompt, finalConvDir, finalMessage,
-						finalToolsBytes, finalBody);
+					writeRequestBody(connection, finalModelId, finalSystemPrompt, finalConvDir,
+						finalToolsBytes, finalSamplingParams);
 
 					int responseCode = connection.getResponseCode();
 					logger.info("[EasyChat] llama.cpp响应码: {} conversation={}", responseCode, conversationId);
 
 					if (!(responseCode >= 200 && responseCode < 300)) {
 						String errBody = readErrorBody(connection);
+						logger.info("[EasyChat] llama.cpp错误响应 code={} body={}", responseCode, errBody);
 						sendErrorResponse(ctx, responseCode, errBody);
 						return;
 					}
@@ -314,6 +339,98 @@ public class EasyChatService {
 		}
 	}
 
+	/**
+	 * Stream conversation history as chunked JSON with zero-copy file regions.
+	 * Payload bytes leave disk via sendfile/splice and never enter JVM heap.
+	 */
+	public void handleStreamChatHistory(ChannelHandlerContext ctx, String conversationId) {
+		if (conversationId == null || conversationId.isBlank()) {
+			sendHistoryError(ctx, "缺少conversationId");
+			return;
+		}
+
+		Path convDir;
+		try {
+			Path fragmentsBase = getFragmentsDir();
+			convDir = convDir(fragmentsBase, conversationId);
+		} catch (IOException e) {
+			logger.info("[EasyChat] 获取碎片目录失败 conversation={}", conversationId, e);
+			sendHistoryError(ctx, "获取目录失败: " + e.getMessage());
+			return;
+		}
+
+		// Phase 1: pre-scan metadata only (no payload bytes read)
+		long recordCount = 0;
+		long totalSize = 0;
+		try {
+			long seq = 0;
+			while (true) {
+				Path file = fragmentFile(convDir, seq);
+				if (!Files.isRegularFile(file)) break;
+				long sz = Files.size(file);
+				if (sz > FRAG_PAYLOAD_OFFSET) {
+					totalSize += (sz - FRAG_PAYLOAD_OFFSET);
+				}
+				recordCount++;
+				seq++;
+			}
+		} catch (Exception e) {
+			logger.info("[EasyChat] 预扫描碎片失败 conversation={}", conversationId, e);
+			sendHistoryError(ctx, "扫描碎片失败: " + e.getMessage());
+			return;
+		}
+
+		// Phase 2: build JSON prefix
+		String prefix = "{\"message\":\"success\",\"totalSize\":" + totalSize
+			+ ",\"recordCount\":" + recordCount + ",\"data\":[";
+
+		// Start chunked response
+		HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+		response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
+		response.headers().set(HttpHeaderNames.TRANSFER_ENCODING, HttpHeaderValues.CHUNKED);
+		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+		ctx.write(response);
+		ctx.write(Unpooled.wrappedBuffer(prefix.getBytes(StandardCharsets.UTF_8)));
+
+		// Phase 3: zero-copy fragment loop
+		byte[] comma = ",".getBytes(StandardCharsets.UTF_8);
+		byte[] suffix = "]}".getBytes(StandardCharsets.UTF_8);
+		try {
+			long seq = 0;
+			boolean first = true;
+			while (true) {
+				Path file = fragmentFile(convDir, seq);
+				if (!Files.isRegularFile(file)) break;
+				long fileSize = Files.size(file);
+				if (fileSize > FRAG_PAYLOAD_OFFSET) {
+					if (!first) {
+						ctx.write(Unpooled.wrappedBuffer(comma));
+					}
+					ctx.write(new DefaultFileRegion(file.toFile(), FRAG_PAYLOAD_OFFSET, fileSize - FRAG_PAYLOAD_OFFSET));
+					first = false;
+				}
+				seq++;
+			}
+			ctx.write(Unpooled.wrappedBuffer(suffix));
+			logger.info("[EasyChat] 流式传输历史完成 conversation={} records={} bytes={}", conversationId, recordCount, totalSize);
+			ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);
+		} catch (Exception e) {
+			logger.info("[EasyChat] 流式传输历史失败 conversation={}", conversationId, e);
+			ctx.close();
+		}
+	}
+
+	private void sendHistoryError(ChannelHandlerContext ctx, String msg) {
+		byte[] body = ("{\"message\":\"" + msg + "\",\"totalSize\":0,\"recordCount\":0,\"data\":[]}")
+			.getBytes(StandardCharsets.UTF_8);
+		FullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+		resp.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
+		resp.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
+		resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+		resp.content().writeBytes(body);
+		ctx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
+	}
+
 	/* ---- Connection management ---- */
 
 	private HttpURLConnection openTrackedConnection(ChannelHandlerContext ctx, String modelId, int port) throws IOException {
@@ -368,6 +485,8 @@ public class EasyChatService {
 
 			// Seq = 0
 			buf.putLong(0);
+			// Ensure full 8232 bytes written (zero-padded to end)
+			buf.position(INDEX_FILE_SIZE);
 
 			buf.flip();
 			ch.write(buf);
@@ -438,7 +557,8 @@ public class EasyChatService {
 			buf.putLong(timestamp);
 			// Seq
 			buf.putLong(seq);
-			// Remaining 128 bytes already zero
+			// Ensure full 160-byte header written (zero-padded to end)
+			buf.position(FRAG_HEADER_SIZE);
 			buf.flip();
 			ch.write(buf);
 			// Payload
@@ -498,7 +618,7 @@ public class EasyChatService {
 	/* ---- Request body streaming ---- */
 
 	private void writeRequestBody(HttpURLConnection conn, String modelId, String systemPrompt,
-		Path convDir, JsonObject userMessage, byte[] toolsBytes, JsonObject originalBody) throws IOException {
+		Path convDir, byte[] toolsBytes, JsonObject samplingParams) throws IOException {
 
 		StringBuilder sb = new StringBuilder();
 		sb.append("{\"model\":\"").append(escapeJsonString(modelId)).append("\",\"stream\":true,\"messages\":[\n");
@@ -508,11 +628,13 @@ public class EasyChatService {
 			sb.append("{\"role\":\"system\",\"content\":\"").append(escapeJsonString(systemPrompt)).append("\"},\n");
 		}
 
-		// Stream fragment payloads
+		// Stream fragment payloads (includes the user message just written)
 		long seq = 0;
 		boolean first = true;
+		logger.info("[EasyChat] 构建请求体 convDir={}", convDir.toAbsolutePath());
 		while (true) {
 			byte[] payload = readFragmentPayload(convDir, seq);
+			logger.info("[EasyChat] 读取碎片 seq={} found={}", seq, payload != null);
 			if (payload == null) break;
 			if (!first) {
 				sb.append(',');
@@ -523,12 +645,6 @@ public class EasyChatService {
 			seq++;
 		}
 
-		// User message
-		if (!first) {
-			sb.append(',');
-		}
-		sb.append(JsonUtil.toJson(userMessage)).append('\n');
-
 		// Close messages array
 		sb.append(']');
 
@@ -537,11 +653,11 @@ public class EasyChatService {
 			sb.append(',').append(new String(toolsBytes, StandardCharsets.UTF_8));
 		}
 
-		// Sampling params from original body (applied by ModelSamplingService)
-		if (originalBody.has("samplingParams") && originalBody.get("samplingParams").isJsonObject()) {
+		// Sampling params from header (applied by ModelSamplingService)
+		if (samplingParams != null) {
 			JsonObject tempReq = new JsonObject();
 			tempReq.addProperty("model", modelId);
-			tempReq.add("samplingParams", originalBody.get("samplingParams"));
+			tempReq.add("samplingParams", samplingParams);
 			ModelSamplingService.getInstance().handleOpenAI(tempReq);
 			// Copy applied fields (exclude model, stream, messages)
 			for (String key : tempReq.keySet()) {
@@ -555,8 +671,11 @@ public class EasyChatService {
 		// Close object
 		sb.append('}');
 
+		String requestBody = sb.toString();
+		logger.info("[EasyChat] llama.cpp请求体 ({} chars):\n{}", requestBody.length(), requestBody);
+
 		try (OutputStream os = conn.getOutputStream()) {
-			os.write(sb.toString().getBytes(StandardCharsets.UTF_8));
+			os.write(requestBody.getBytes(StandardCharsets.UTF_8));
 		}
 	}
 

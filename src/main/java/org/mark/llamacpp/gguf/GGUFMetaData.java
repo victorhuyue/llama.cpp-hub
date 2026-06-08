@@ -1,432 +1,493 @@
 package org.mark.llamacpp.gguf;
 
 import java.io.BufferedInputStream;
-import java.io.DataInput;
-import java.io.DataInputStream;
-import java.io.File;
 import java.io.FileInputStream;
+import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.mark.llamacpp.gguf.MtpHelper.MtpInfo;
 
 /**
- * GGUF元数据读取器 (简化版)
- * 只保留 fileName, filePath, general.architecture, context_length
+ * GGUF元数据读取器 (简化版) 只保留 fileName, filePath, general.architecture, context_length
  */
 public class GGUFMetaData {
 
 	/**
-	 * 	文件名
+	 * 文件名
 	 */
-    private final String fileName;
-    
-    /**
-     * 	文件路径
-     */
-    private final String filePath;
-    
-    /**
-     * 	架构
-     */
-    private final String architecture;
-    
-    /**
-     * 	上下文长度
-     */
-    private final Integer contextLength;
-    
-    private final Integer fileType;
+	private final String fileName;
 
-    private final String baseName;
+	/**
+	 * 文件路径
+	 */
+	private final String filePath;
 
-    private final String name;
+	/**
+	 * 架构
+	 */
+	private final String architecture;
 
-    private final String sizeLabel;
+	/**
+	 * 上下文长度
+	 */
+	private final Integer contextLength;
 
-    private final boolean supportsAudio;
+	private final Integer fileType;
 
-    private final boolean supportsVision;
+	private final String baseName;
 
-    private final String chatTemplate;
-    
-    
-    private final MtpInfo mtpInfo;
+	private final String name;
 
-    private final String generalType;
+	private final String sizeLabel;
 
-    private GGUFMetaData(String fileName, String filePath, String architecture, Integer contextLength, Integer fileType, String baseName, String name, String sizeLabel, boolean supportsAudio, boolean supportsVision, String chatTemplate, MtpInfo mtpInfo, String generalType) {
-        this.fileName = fileName;
-        this.filePath = filePath;
-        this.architecture = architecture;
-        this.contextLength = contextLength;
-        this.fileType = fileType;
-        this.baseName = baseName;
-        this.name = name;
-        this.sizeLabel = sizeLabel;
-        this.supportsAudio = supportsAudio;
-        this.supportsVision = supportsVision;
-        this.chatTemplate = chatTemplate;
-        this.mtpInfo = mtpInfo;
-        this.generalType = generalType;
-    }
+	private final boolean supportsAudio;
 
-    public static GGUFMetaData readFile(File file) {
-        if (file == null || !file.exists() || !file.isFile()) {
-            return null;
-        }
+	private final boolean supportsVision;
 
-        String architecture = null;
-        Integer contextLength = null;
-        Integer fileType = null;
-        String baseName = null;
-        String name = null;
-        String sizeLabel = null;
-        boolean supportsAudio = false;
-        boolean supportsVision = false;
-        String chatTemplate = null;
-        String generalType = null;
+	private final String chatTemplate;
 
-        // 使用 BufferedInputStream 提高读取性能
-        try (FileInputStream fis = new FileInputStream(file);
-             BufferedInputStream bis = new BufferedInputStream(fis, 128 * 1024); // 128KB buffer
-             DataInputStream dis = new DataInputStream(bis)) {
-            
-            byte[] magicBytes = new byte[4];
-            dis.readFully(magicBytes);
-            String magic = new String(magicBytes, StandardCharsets.US_ASCII);
-            if (!"GGUF".equals(magic)) {
-                return null;
-            }
+	private final MtpInfo mtpInfo;
 
-            // Version
-            readUInt32(dis);
-            // TensorCount
-            readUInt64(dis);
-            // KVCount
-            long kvCount = readUInt64(dis);
+	private final String generalType;
 
-            for (long i = 0; i < kvCount; i++) {
-                long keyLength = readUInt64(dis);
-                String key = readString(dis, (int) keyLength);
-                int valueTypeId = readUInt32(dis);
-                GgufType valueType = GgufType.fromId(valueTypeId);
+	private GGUFMetaData(String fileName, String filePath, String architecture, Integer contextLength, Integer fileType,
+			String baseName, String name, String sizeLabel, boolean supportsAudio, boolean supportsVision,
+			String chatTemplate, MtpInfo mtpInfo, String generalType) {
+		this.fileName = fileName;
+		this.filePath = filePath;
+		this.architecture = architecture;
+		this.contextLength = contextLength;
+		this.fileType = fileType;
+		this.baseName = baseName;
+		this.name = name;
+		this.sizeLabel = sizeLabel;
+		this.supportsAudio = supportsAudio;
+		this.supportsVision = supportsVision;
+		this.chatTemplate = chatTemplate;
+		this.mtpInfo = mtpInfo;
+		this.generalType = generalType;
+	}
 
-                boolean handled = false;
-                if ("general.architecture".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    architecture = value instanceof String ? (String) value : null;
-                    handled = true;
-                } else if ("general.basename".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    baseName = value instanceof String ? (String) value : null;
-                    handled = true;
-                } else if ("general.name".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    name = value instanceof String ? (String) value : null;
-                    handled = true;
-                } else if ("general.size_label".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    sizeLabel = value instanceof String ? (String) value : null;
-                    handled = true;
-                } else if ("general.file_type".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    if (value instanceof Number) {
-                        fileType = ((Number) value).intValue();
-                    }
-                    handled = true;
-                } else if (key.endsWith(".context_length")) {
-                    // 简单的策略：读取任何以 .context_length 结尾的键
-                    Object value = readValue(dis, valueType);
-                    if (contextLength == null) {
-                        contextLength = value instanceof Integer ? (Integer) value :
-                                        (value instanceof Long ? ((Long) value).intValue() : null);
-                    }
-                    handled = true;
-                } else if ("clip.has_audio_encoder".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    if (value instanceof Boolean && (Boolean) value) {
-                        supportsAudio = true;
-                    }
-                    handled = true;
-                } else if ("clip.has_vision_encoder".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    if (value instanceof Boolean && (Boolean) value) {
-                        supportsVision = true;
-                    }
-                    handled = true;
-                } else if ("general.type".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    generalType = value instanceof String ? (String) value : null;
-                    handled = true;
-                } else if ("tokenizer.chat_template".equals(key)) {
-                    Object value = readValue(dis, valueType);
-                    chatTemplate = value instanceof String ? (String) value : null;
-                    handled = true;
-                }
+	public static GGUFMetaData readFile(File file) {
+		if (file == null || !file.exists() || !file.isFile()) {
+			return null;
+		}
 
-                if (!handled) {
-                    skipValue(dis, valueType);
-                }
-            }
+		String architecture = null;
+		Integer contextLength = null;
+		Integer fileType = null;
+		String baseName = null;
+		String name = null;
+		String sizeLabel = null;
+		boolean supportsAudio = false;
+		boolean supportsVision = false;
+		String chatTemplate = null;
+		String generalType = null;
+		Integer blockCount = null;
+		Integer nextnPredictLayers = null;
+		Map<String, Number> archIntValues = new HashMap<>();
+		MtpInfo mtpInfo = null;
 
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
+		byte[] buf = new byte[8];
 
-        return new GGUFMetaData(file.getName(), file.getAbsolutePath(), architecture, contextLength, fileType, baseName, name, sizeLabel, supportsAudio, supportsVision, chatTemplate, MtpHelper.detectMtpInfo(file), generalType);
-    }
+		try (FileInputStream fis = new FileInputStream(file);
+				BufferedInputStream bis = new BufferedInputStream(fis, 1024 * 1024)) {
 
-    public String getFileName() {
-        return fileName;
-    }
+			byte[] magicBytes = new byte[4];
+			readFully(bis, magicBytes);
+			String magic = new String(magicBytes, StandardCharsets.US_ASCII);
+			if (!"GGUF".equals(magic)) {
+				return null;
+			}
 
-    public String getFilePath() {
-        return filePath;
-    }
+			readUInt32(bis, buf);
+			readUInt64(bis, buf);
+			long kvCount = readUInt64(bis, buf);
 
-    public String getArchitecture() {
-        return architecture;
-    }
+			for (long i = 0; i < kvCount; i++) {
+				long keyLength = readUInt64(bis, buf);
+				if (keyLength > 1024 * 1024)
+					break;
+				String key = readString(bis, (int) keyLength, buf);
+				int valueTypeId = readUInt32(bis, buf);
 
-    public Integer getContextLength() {
-        return contextLength;
-    }
-    
-    public Integer getFileType() {
-    	return fileType;
-    }
+				boolean handled = false;
+				if ("general.architecture".equals(key)) {
+					architecture = readStringValue(bis, valueTypeId, buf);
+					handled = true;
+				} else if ("general.basename".equals(key)) {
+					baseName = readStringValue(bis, valueTypeId, buf);
+					handled = true;
+				} else if ("general.name".equals(key)) {
+					name = readStringValue(bis, valueTypeId, buf);
+					handled = true;
+				} else if ("general.size_label".equals(key)) {
+					sizeLabel = readStringValue(bis, valueTypeId, buf);
+					handled = true;
+				} else if ("general.file_type".equals(key)) {
+					Number v = readNumberValue(bis, valueTypeId, buf);
+					if (v != null)
+						fileType = v.intValue();
+					handled = true;
+				} else if (key.endsWith(".context_length")) {
+					Number v = readNumberValue(bis, valueTypeId, buf);
+					if (contextLength == null && v != null) {
+						contextLength = v.intValue();
+					}
+					handled = true;
+				} else if ("clip.has_audio_encoder".equals(key)) {
+					Boolean v = readBoolValue(bis, valueTypeId, buf);
+					if (v != null && v)
+						supportsAudio = true;
+					handled = true;
+				} else if ("clip.has_vision_encoder".equals(key)) {
+					Boolean v = readBoolValue(bis, valueTypeId, buf);
+					if (v != null && v)
+						supportsVision = true;
+					handled = true;
+				} else if ("general.type".equals(key)) {
+					generalType = readStringValue(bis, valueTypeId, buf);
+					handled = true;
+				} else if ("tokenizer.chat_template".equals(key)) {
+					chatTemplate = readStringValue(bis, valueTypeId, buf);
+					handled = true;
+				} else if (architecture != null && key.equals(architecture + ".block_count")) {
+					Number v = readNumberValue(bis, valueTypeId, buf);
+					if (v != null)
+						blockCount = v.intValue();
+					handled = true;
+				} else if (architecture != null && key.equals(architecture + ".nextn_predict_layers")) {
+					Number v = readNumberValue(bis, valueTypeId, buf);
+					if (v != null)
+						nextnPredictLayers = v.intValue();
+					handled = true;
+				} else if (key.indexOf('.') > 0
+						&& (key.endsWith(".block_count") || key.endsWith(".nextn_predict_layers"))) {
+					Number v = readNumberValue(bis, valueTypeId, buf);
+					if (v != null)
+						archIntValues.put(key, v);
+					handled = true;
+				}
 
-    public String getBaseName() {
-        return baseName;
-    }
+				if (!handled) {
+					skipValue(bis, valueTypeId, buf);
+				}
+			}
 
-    public String getName() {
-        return name;
-    }
+			if (architecture != null && blockCount == null) {
+				Number v = archIntValues.get(architecture + ".block_count");
+				if (v != null)
+					blockCount = v.intValue();
+			}
+			if (architecture != null && nextnPredictLayers == null) {
+				Number v = archIntValues.get(architecture + ".nextn_predict_layers");
+				if (v != null)
+					nextnPredictLayers = v.intValue();
+			}
 
-    public String getSizeLabel() {
-        return sizeLabel;
-    }
+			mtpInfo = buildMtpInfo(architecture, blockCount, nextnPredictLayers);
 
-    public boolean isSupportsAudio() {
-        return supportsAudio;
-    }
+		} catch (IOException e) {
+			e.printStackTrace();
+			return null;
+		}
 
-    public boolean isSupportsVision() {
-        return supportsVision;
-    }
+		return new GGUFMetaData(file.getName(), file.getAbsolutePath(), architecture, contextLength, fileType, baseName,
+				name, sizeLabel, supportsAudio, supportsVision, chatTemplate, mtpInfo, generalType);
+	}
 
-    public MtpInfo getMtpInfo() {
-        return mtpInfo;
-    }
+	static void readFully(BufferedInputStream bis, byte[] buf) throws IOException {
+		int offset = 0;
+		while (offset < buf.length) {
+			int n = bis.read(buf, offset, buf.length - offset);
+			if (n < 0)
+				throw new IOException("Unexpected EOF at offset " + offset);
+			offset += n;
+		}
+	}
 
-    public String getChatTemplate() {
-        return chatTemplate;
-    }
-    
-    public String getQuantizationType() {
-    	if (fileType == null) return null;
-    	return fileTypeToQuantizationName(fileType.intValue());
-    }
+	static long readUInt64(BufferedInputStream bis, byte[] buf) throws IOException {
+		readFully(bis, buf);
+		return ((long) (buf[7] & 0xFF) << 56) | ((long) (buf[6] & 0xFF) << 48) | ((long) (buf[5] & 0xFF) << 40)
+				| ((long) (buf[4] & 0xFF) << 32) | ((long) (buf[3] & 0xFF) << 24) | ((long) (buf[2] & 0xFF) << 16)
+				| ((long) (buf[1] & 0xFF) << 8) | (buf[0] & 0xFF);
+	}
 
-    /**
-     * 兼容旧代码的 Getter
-     */
-    public String getStringValue(String key) {
-        if ("general.architecture".equals(key)) {
-            return architecture;
-        }
-        if ("general.basename".equals(key)) {
-            return baseName;
-        }
-        if ("general.name".equals(key)) {
-            return name;
-        }
-        if ("general.size_label".equals(key)) {
-            return sizeLabel;
-        }
-        if ("general.type".equals(key)) {
-            return generalType;
-        }
-        return null;
-    }
+	static int readUInt32(BufferedInputStream bis, byte[] buf) throws IOException {
+		readFully(bis, buf, 4);
+		return ((buf[3] & 0xFF) << 24) | ((buf[2] & 0xFF) << 16) | ((buf[1] & 0xFF) << 8) | (buf[0] & 0xFF);
+	}
 
-    public String getGeneralType() {
-        return generalType;
-    }
+	static void readFully(BufferedInputStream bis, byte[] buf, int len) throws IOException {
+		int offset = 0;
+		while (offset < len) {
+			int n = bis.read(buf, offset, len - offset);
+			if (n < 0)
+				throw new IOException("Unexpected EOF at offset " + offset + " of " + len);
+			offset += n;
+		}
+	}
 
-    /**
-     * 兼容旧代码的 Getter
-     */
-    public Integer getIntValue(String key) {
-        if (key != null && key.endsWith(".context_length")) {
-            return contextLength;
-        }
-        if ("general.file_type".equals(key)) {
-        	return fileType;
-        }
-        return null;
-    }
-    
-    private static String fileTypeToQuantizationName(int fileType) {
-    	return switch (fileType) {
-    	case 0 -> "F32";
-    	case 1 -> "F16";
-    	case 2 -> "Q4_0";
-    	case 3 -> "Q4_1";
-    	case 7 -> "Q8_0";
-    	case 8 -> "Q5_0";
-    	case 9 -> "Q5_1";
-    	case 10 -> "Q2_K";
-    	case 11 -> "Q3_K_S";
-    	case 12 -> "Q3_K_M";
-    	case 13 -> "Q3_K_L";
-    	case 14 -> "Q4_K_S";
-    	case 15 -> "Q4_K_M";
-    	case 16 -> "Q5_K_S";
-    	case 17 -> "Q5_K_M";
-    	case 18 -> "Q6_K";
-        case 19 -> "IQ2_XXS";
-        case 23 -> "IQ3_XXS";
-        case 24 -> "IQ1_S";
-        case 25 -> "IQ4_NL";
-        case 27 -> "IQ3_M";
-        case 29 -> "IQ2_M";
-        case 30 -> "IQ4_XS";
-        case 31 -> "IQ1_M";
-        case 32 -> "BF16";
-    	case 38 -> "MXFP4";
-        case 39 -> "NVFP4";
-    	case 76 -> "MXFP4";
-    	default -> "UNKNOWN(" + fileType + ")";
-    	};
-    }
+	static String readString(BufferedInputStream bis, int length, byte[] buf) throws IOException {
+		byte[] bytes = new byte[length];
+		readFully(bis, bytes);
+		return new String(bytes, StandardCharsets.UTF_8);
+	}
 
-    // --- 内部辅助方法和枚举 ---
+	static String readStringValue(BufferedInputStream bis, int typeId, byte[] buf) throws IOException {
+		if (typeId == 8) {
+			long len = readUInt64(bis, buf);
+			return readString(bis, (int) len, buf);
+		}
+		skipValue(bis, typeId, buf);
+		return null;
+	}
 
-    private enum GgufType {
-        UINT8(0), INT8(1), UINT16(2), INT16(3), UINT32(4), INT32(5),
-        FLOAT32(6), BOOL(7), STRING(8), ARRAY(9), UINT64(10), INT64(11),
-        FLOAT64(12), UNKNOWN(-1);
-        private final int id;
-        GgufType(int id) { this.id = id; }
-        public static GgufType fromId(int id) {
-            for (GgufType type : values()) { if (type.id == id) return type; }
-            return UNKNOWN;
-        }
-    }
+	static Number readNumberValue(BufferedInputStream bis, int typeId, byte[] buf) throws IOException {
+		switch (typeId) {
+		case 0:
+			return readUInt8(bis, buf);
+		case 1:
+			return readInt8(bis, buf);
+		case 2:
+			return readUInt16(bis, buf);
+		case 3:
+			return readInt16(bis, buf);
+		case 4:
+			return readUInt32(bis, buf);
+		case 5: {
+			readFully(bis, buf, 4);
+			return ((buf[3] & 0xFF) << 24) | ((buf[2] & 0xFF) << 16) | ((buf[1] & 0xFF) << 8) | (buf[0] & 0xFF);
+		}
+		case 10:
+		case 11:
+			return readUInt64(bis, buf);
+		default:
+			skipValue(bis, typeId, buf);
+			return null;
+		}
+	}
 
-    private static Object readValue(DataInput in, GgufType type) throws IOException {
-        switch (type) {
-            case UINT8:  return in.readUnsignedByte();
-            case INT8:   return in.readByte();
-            case UINT16: return readUInt16(in);
-            case INT16:  return in.readShort();
-            case UINT32: return readUInt32(in);
-            case INT32:  return in.readInt();
-            case UINT64: return readUInt64(in);
-            case INT64:  return in.readLong();
-            case FLOAT32:return in.readFloat();
-            case FLOAT64:return in.readDouble();
-            case BOOL:   return in.readByte() != 0;
-            case STRING:
-                long strLen = readUInt64(in);
-                return readString(in, (int) strLen);
-            case ARRAY:
-                GgufType elemType = GgufType.fromId(readUInt32(in));
-                long elemCount = readUInt64(in);
-                Object[] array = new Object[(int) elemCount];
-                for (int i = 0; i < elemCount; i++) {
-                    array[i] = readValue(in, elemType);
-                }
-                return array;
-            default:
-                // 对于不支持的类型，返回null
-                return null;
-        }
-    }
+	static Boolean readBoolValue(BufferedInputStream bis, int typeId, byte[] buf) throws IOException {
+		if (typeId == 7) {
+			readFully(bis, buf, 1);
+			return buf[0] != 0;
+		}
+		skipValue(bis, typeId, buf);
+		return null;
+	}
 
-    private static void skipValue(DataInput in, GgufType type) throws IOException {
-        switch (type) {
-            case UINT8:  skipBytes(in, 1); break;
-            case INT8:   skipBytes(in, 1); break;
-            case UINT16: skipBytes(in, 2); break;
-            case INT16:  skipBytes(in, 2); break;
-            case UINT32: skipBytes(in, 4); break;
-            case INT32:  skipBytes(in, 4); break;
-            case UINT64: skipBytes(in, 8); break;
-            case INT64:  skipBytes(in, 8); break;
-            case FLOAT32: skipBytes(in, 4); break;
-            case FLOAT64: skipBytes(in, 8); break;
-            case BOOL:   skipBytes(in, 1); break;
-            case STRING:
-                long strLen = readUInt64(in);
-                skipBytes(in, strLen);
-                break;
-            case ARRAY:
-                GgufType elemType = GgufType.fromId(readUInt32(in));
-                long elemCount = readUInt64(in);
-                for (int i = 0; i < elemCount; i++) {
-                    skipValue(in, elemType);
-                }
-                break;
-            default:
-                break;
-        }
-    }
+	static int readUInt8(BufferedInputStream bis, byte[] buf) throws IOException {
+		readFully(bis, buf, 1);
+		return buf[0] & 0xFF;
+	}
 
-    private static void skipBytes(DataInput in, long n) throws IOException {
-        if (n <= 0) return;
-        
-        if (in instanceof RandomAccessFile) {
-           RandomAccessFile raf = (RandomAccessFile) in;
-           while (n > 0) {
-               int skipped = raf.skipBytes((int) Math.min(n, Integer.MAX_VALUE));
-               if (skipped <= 0) break; 
-               n -= skipped;
-           }
-       } else if (in instanceof DataInputStream) {
-            long remaining = n;
-            while (remaining > 0) {
-                long skipped = ((DataInputStream) in).skip(remaining);
-                if (skipped <= 0) {
-                	// EOF or stream closed, but DataInputStream might not support skip correctly if wrapped?
-                	// fallback to read
-                	byte[] buffer = new byte[(int)Math.min(remaining, 4096)];
-                	int read = ((DataInputStream) in).read(buffer);
-                	if (read < 0) break;
-                	skipped = read;
-                }
-                remaining -= skipped;
-            }
-       } else {
-            // Fallback
-            while (n > 0) {
-                int skipped = in.skipBytes((int) Math.min(n, Integer.MAX_VALUE));
-                if (skipped <= 0) break; 
-                n -= skipped;
-            }
-       }
-   }
+	static int readInt8(BufferedInputStream bis, byte[] buf) throws IOException {
+		readFully(bis, buf, 1);
+		return buf[0];
+	}
 
-    private static String readString(DataInput in, int length) throws IOException {
-        byte[] bytes = new byte[length];
-        in.readFully(bytes);
-        return new String(bytes, StandardCharsets.UTF_8);
-    }
+	static int readUInt16(BufferedInputStream bis, byte[] buf) throws IOException {
+		readFully(bis, buf, 2);
+		return (buf[1] & 0xFF) << 8 | (buf[0] & 0xFF);
+	}
 
-    private static int readUInt16(DataInput in) throws IOException {
-        return Short.toUnsignedInt(Short.reverseBytes(in.readShort()));
-    }
+	static int readInt16(BufferedInputStream bis, byte[] buf) throws IOException {
+		readFully(bis, buf, 2);
+		return (buf[1] << 8) | buf[0];
+	}
 
-    private static int readUInt32(DataInput in) throws IOException {
-        return Integer.reverseBytes(in.readInt());
-    }
+	static void skipValue(BufferedInputStream bis, int typeId, byte[] buf) throws IOException {
+		switch (typeId) {
+		case 0:
+		case 1:
+		case 7:
+			bis.skipNBytes(1);
+			break;
+		case 2:
+		case 3:
+			bis.skipNBytes(2);
+			break;
+		case 4:
+		case 5:
+		case 6:
+			bis.skipNBytes(4);
+			break;
+		case 10:
+		case 11:
+		case 12:
+			bis.skipNBytes(8);
+			break;
+		case 8: {
+			long len = readUInt64(bis, buf);
+			bis.skipNBytes(len);
+			break;
+		}
+		case 9: {
+			int subType = readUInt32(bis, buf);
+			long len = readUInt64(bis, buf);
+			for (long j = 0; j < len; j++) {
+				skipValue(bis, subType, buf);
+			}
+			break;
+		}
+		default:
+			break;
+		}
+	}
 
-    private static long readUInt64(DataInput in) throws IOException {
-        return Long.reverseBytes(in.readLong());
-    }
+	public String getFileName() {
+		return fileName;
+	}
+
+	public String getFilePath() {
+		return filePath;
+	}
+
+	public String getArchitecture() {
+		return architecture;
+	}
+
+	public Integer getContextLength() {
+		return contextLength;
+	}
+
+	public Integer getFileType() {
+		return fileType;
+	}
+
+	public String getBaseName() {
+		return baseName;
+	}
+
+	public String getName() {
+		return name;
+	}
+
+	public String getSizeLabel() {
+		return sizeLabel;
+	}
+
+	public boolean isSupportsAudio() {
+		return supportsAudio;
+	}
+
+	public boolean isSupportsVision() {
+		return supportsVision;
+	}
+
+	public MtpInfo getMtpInfo() {
+		return mtpInfo;
+	}
+
+	public String getChatTemplate() {
+		return chatTemplate;
+	}
+
+	public String getQuantizationType() {
+		if (fileType == null)
+			return null;
+		return fileTypeToQuantizationName(fileType.intValue());
+	}
+
+	/**
+	 * 兼容旧代码的 Getter
+	 */
+	public String getStringValue(String key) {
+		if ("general.architecture".equals(key)) {
+			return architecture;
+		}
+		if ("general.basename".equals(key)) {
+			return baseName;
+		}
+		if ("general.name".equals(key)) {
+			return name;
+		}
+		if ("general.size_label".equals(key)) {
+			return sizeLabel;
+		}
+		if ("general.type".equals(key)) {
+			return generalType;
+		}
+		return null;
+	}
+
+	public String getGeneralType() {
+		return generalType;
+	}
+
+	/**
+	 * 兼容旧代码的 Getter
+	 */
+	public Integer getIntValue(String key) {
+		if (key != null && key.endsWith(".context_length")) {
+			return contextLength;
+		}
+		if ("general.file_type".equals(key)) {
+			return fileType;
+		}
+		return null;
+	}
+
+	private static String fileTypeToQuantizationName(int fileType) {
+		return switch (fileType) {
+		case 0 -> "F32";
+		case 1 -> "F16";
+		case 2 -> "Q4_0";
+		case 3 -> "Q4_1";
+		case 7 -> "Q8_0";
+		case 8 -> "Q5_0";
+		case 9 -> "Q5_1";
+		case 10 -> "Q2_K";
+		case 11 -> "Q3_K_S";
+		case 12 -> "Q3_K_M";
+		case 13 -> "Q3_K_L";
+		case 14 -> "Q4_K_S";
+		case 15 -> "Q4_K_M";
+		case 16 -> "Q5_K_S";
+		case 17 -> "Q5_K_M";
+		case 18 -> "Q6_K";
+		case 19 -> "IQ2_XXS";
+		case 23 -> "IQ3_XXS";
+		case 24 -> "IQ1_S";
+		case 25 -> "IQ4_NL";
+		case 27 -> "IQ3_M";
+		case 29 -> "IQ2_M";
+		case 30 -> "IQ4_XS";
+		case 31 -> "IQ1_M";
+		case 32 -> "BF16";
+		case 38 -> "MXFP4";
+		case 39 -> "NVFP4";
+		case 76 -> "MXFP4";
+		default -> "UNKNOWN(" + fileType + ")";
+		};
+	}
+
+	// --- 内部辅助方法和枚举 ---
+
+	private static MtpInfo buildMtpInfo(String architecture, Integer blockCount, Integer nextnPredictLayers) {
+		if (architecture == null)
+			return MtpInfo.none();
+		if (!"qwen35".equals(architecture) && !"qwen35moe".equals(architecture))
+			return MtpInfo.none();
+		if (nextnPredictLayers == null || nextnPredictLayers <= 0)
+			return MtpInfo.none();
+		if (blockCount == null)
+			return MtpInfo.none();
+
+		int bc = blockCount;
+		int nn = nextnPredictLayers;
+		int trunk = bc - nn;
+
+		List<String> prefixes = new ArrayList<>(nn);
+		for (int i = 0; i < nn; i++) {
+			prefixes.add("blk." + (trunk + i) + ".");
+		}
+		return new MtpInfo(true, architecture, bc, nn, trunk, prefixes);
+	}
 }

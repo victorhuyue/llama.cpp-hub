@@ -25,6 +25,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -328,15 +329,30 @@ public class LlamaServerManager {
                 // 按路径长度升序排列，短路径优先扫描
                 scannedRoots.sort(Comparator.comparing(p -> p.toString().length()));
 
+                // 收集所有待扫描的目录
+                List<Path> allDirs = new ArrayList<>();
                 for (Path modelDir : scannedRoots) {
                     try (Stream<Path> paths = Files.walk(modelDir, 5)) {
                         List<Path> files = paths.filter(Files::isDirectory).sorted().toList();
-                        for (Path e : files) {
-                            GGUFModel model = this.handleDirectory(e);
-                            if (model != null) this.list.add(model);
-                        }
+                        allDirs.addAll(files);
                     } catch (IOException e) {
                         e.printStackTrace();
+                    }
+                }
+
+                // 并行扫描所有目录，使用固定线程池避免 ForkJoinPool 调度开销
+                int parallelism = Math.min(8, Math.max(4, allDirs.size()));
+                try (ExecutorService executor = Executors.newFixedThreadPool(parallelism)) {
+                    List<CompletableFuture<GGUFModel>> futures = new ArrayList<>(allDirs.size());
+                    for (Path dir : allDirs) {
+                        futures.add(CompletableFuture.supplyAsync(() -> this.handleDirectory(dir), executor));
+                    }
+                    for (CompletableFuture<GGUFModel> f : futures) {
+                        try {
+                            GGUFModel model = f.join();
+                            if (model != null) this.list.add(model);
+                        } catch (Exception ignore) {
+                        }
                     }
                 }
                 List<Map<String, Object>> persisted = this.configManager.loadModelsConfigCached();
@@ -699,7 +715,7 @@ public class LlamaServerManager {
      * @param path
      * @return
      */
-	private synchronized GGUFModel handleDirectory(Path path) {
+	private GGUFModel handleDirectory(Path path) {
 		File dir = path.toFile();
 		if (dir.getName().startsWith("."))
 			return null;
@@ -715,52 +731,58 @@ public class LlamaServerManager {
 			return null;
 		}
 
-		// 寻找最佳的种子文件来初始化GGUFBundle
-		File seedFile = null;
-		
-		// 1. 尝试找到分卷的第一卷 (匹配 *-00001-of-*.gguf)
-		for(File f : files) {
-			String name = f.getName().toLowerCase();
-			if(name.matches(".*-00001-of-\\d{5}\\.gguf$")) {
-				seedFile = f;
-				break;
-			}
-		}
-		
-		// 2. 如果没找到明确的第一卷，找一个真正的主模型文件（排除mmproj/projector等辅助文件）
-		if(seedFile == null) {
-			for(File f : files) {
-				if(this.isMainModelFile(f)) {
-					seedFile = f;
-					break;
-				}
-			}
-		}
-		
-		// 3. 如果仍没找到，说明目录里全是辅助文件（mmproj/mtp donor等），不当作模型
-		if(seedFile == null) {
-			logger.info("目录中未找到主模型文件（全是mmproj/projector等辅助文件）: {}", path);
-			return null;
-		}
-		
-		try {
-			GGUFBundle bundle = new GGUFBundle(seedFile);
-			
-			GGUFModel model = new GGUFModel(dir.getName(), dir.getAbsolutePath());
-			model.setAlias(dir.getName());
-			
-			// 处理主模型文件
-			File primaryFile = bundle.getPrimaryFile();
-			GGUFMetaData primaryMeta = null;
-			if(primaryFile != null && primaryFile.exists()) {
-				GGUFMetaData md = GGUFMetaData.readFile(primaryFile);
-				if (md != null) {
-					primaryMeta = md;
-					model.setPrimaryModel(md);
-					// 将主模型元数据也添加到列表中，保持兼容性
-					model.addMetaData(md);
-				}
-			}
+       // 寻找最佳的种子文件来初始化GGUFBundle
+        File seedFile = null;
+        GGUFMetaData cachedMeta = null;
+
+        // 1. 尝试找到分卷的第一卷 (匹配 *-00001-of-*.gguf)
+        for(File f : files) {
+            String name = f.getName().toLowerCase();
+            if(name.matches(".*-00001-of-\\d{5}\\.gguf$")) {
+                seedFile = f;
+                break;
+            }
+        }
+
+        // 2. 如果没找到明确的第一卷，找一个真正的主模型文件（排除mmproj/projector等辅助文件）
+        if(seedFile == null) {
+            for(File f : files) {
+                GGUFMetaData md = this.checkMainModel(f);
+                if(md != null) {
+                    seedFile = f;
+                    cachedMeta = md;
+                    break;
+                }
+            }
+        }
+
+        // 3. 如果仍没找到，说明目录里全是辅助文件（mmproj/mtp donor等），不当作模型
+        if(seedFile == null) {
+            logger.info("目录中未找到主模型文件（全是mmproj/projector等辅助文件）: {}", path);
+            return null;
+        }
+
+        try {
+            GGUFBundle bundle = new GGUFBundle(seedFile);
+
+            GGUFModel model = new GGUFModel(dir.getName(), dir.getAbsolutePath());
+            model.setAlias(dir.getName());
+
+            // 处理主模型文件
+            File primaryFile = bundle.getPrimaryFile();
+            GGUFMetaData primaryMeta = null;
+            if(cachedMeta != null && primaryFile != null && primaryFile.equals(seedFile)) {
+                primaryMeta = cachedMeta;
+                model.setPrimaryModel(cachedMeta);
+                model.addMetaData(cachedMeta);
+            } else if(primaryFile != null && primaryFile.exists()) {
+                GGUFMetaData md = GGUFMetaData.readFile(primaryFile);
+                if (md != null) {
+                    primaryMeta = md;
+                    model.setPrimaryModel(md);
+                    model.addMetaData(md);
+                }
+            }
 			
 			// 处理mmproj文件
 			File mmprojFile = bundle.getMmprojFile();
@@ -810,22 +832,22 @@ public class LlamaServerManager {
 		}
 	}
 
-	/**
-	 * 判断一个 .gguf 文件是否为主模型文件（而非 mmproj/projector/mtp-donor 等辅助文件）。
-	 */
-	private boolean isMainModelFile(File file) {
-		if (file == null || !file.isFile()) return false;
-		String name = file.getName().toLowerCase();
-		if (name.contains("mmproj")) return false;
-		GGUFMetaData md = GGUFMetaData.readFile(file);
-		if (md == null) return true;
-		String type = md.getGeneralType();
-		if ("projector".equals(type)) return false;
-		if ("dflash-draft".equals(md.getArchitecture())) return false;
-		MtpInfo mtp = md.getMtpInfo();
-		if (mtp != null && mtp.hasMtp() && mtp.trunkCount() == 0) return false;
-		return true;
-	}
+/**
+     * 判断一个 .gguf 文件是否为主模型文件（而非 mmproj/projector/mtp-donor 等辅助文件）。
+     * 返回元数据以便缓存，避免后续重复读取；返回 null 表示不是主模型或无法读取。
+     */
+    private GGUFMetaData checkMainModel(File file) {
+        if (file == null || !file.isFile()) return null;
+        String name = file.getName().toLowerCase();
+        if (name.contains("mmproj")) return null;
+        GGUFMetaData md = GGUFMetaData.readFile(file);
+        if (md == null) return null;
+        if ("projector".equals(md.getGeneralType())) return null;
+        if ("dflash-draft".equals(md.getArchitecture())) return null;
+        MtpInfo mtp = md.getMtpInfo();
+        if (mtp != null && mtp.hasMtp() && mtp.trunkCount() == 0) return null;
+        return md;
+    }
 
 	/**
 	 *

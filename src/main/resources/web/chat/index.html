@@ -4837,21 +4837,53 @@
         return;
       }
 
-      // Trim conversation: remove old assistant, tool, and everything after the target user message
-      conversation.messages = conversation.messages.slice(0, userMessageIndex + 1);
-      const hasUserPrompt = conversation.messages.some(item => item.role === 'user' && hasMessageBody(item));
+      const nextMessages = conversation.messages.slice(0, userMessageIndex + 1);
+      const hasUserPrompt = nextMessages.some(item => item.role === 'user' && hasMessageBody(item));
       if (!hasUserPrompt) {
         updateStatus('error', window.I18N.t('page.chat.main.status.no_retry_message', '没有可用于重试的用户消息'), window.I18N.t('page.chat.main.status.no_retry_message_short', '无法重试'));
         return;
       }
 
-      // Append a new streaming assistant message
-      pushMessage('assistant', '', {
-        model: state.model,
-        isStreaming: true,
-        time: nowTime()
-      }, { incremental: true, persist: false });
-      const assistantMessageIndex = conversation.messages.length - 1;
+      let assistantMessageIndex = conversation.messages.length - 1;
+
+      if (message.role === 'assistant') {
+        const assistantIdx = index;
+        conversation.messages = conversation.messages.slice(0, assistantIdx + 1);
+        const assistantMessage = conversation.messages[assistantIdx];
+        syncAssistantMessageState(assistantMessage);
+        assistantMessage.timings = null;
+        assistantMessage.performanceText = '';
+        assistantMessage.isStreaming = true;
+        assistantMessage.responses.push(createAssistantResponseDraft({
+          model: state.model || assistantMessage.model,
+          isStreaming: true,
+          time: nowTime()
+        }));
+        assistantMessage.activeResponseIndex = assistantMessage.responses.length - 1;
+        syncAssistantMessageState(assistantMessage);
+        assistantMessageIndex = assistantIdx;
+      } else {
+        const nextMsg = conversation.messages[userMessageIndex + 1];
+        if (nextMsg && nextMsg.role === 'assistant') {
+          syncAssistantMessageState(nextMsg);
+          nextMsg.isStreaming = true;
+          nextMsg.responses.push(createAssistantResponseDraft({
+            model: state.model || nextMsg.model,
+            isStreaming: true,
+            time: nowTime()
+          }));
+          nextMsg.activeResponseIndex = nextMsg.responses.length - 1;
+          syncAssistantMessageState(nextMsg);
+          assistantMessageIndex = userMessageIndex + 1;
+        } else {
+          pushMessage('assistant', '', {
+            model: state.model,
+            isStreaming: true,
+            time: nowTime()
+          }, { incremental: true, persist: false });
+          assistantMessageIndex = conversation.messages.length - 1;
+        }
+      }
 
       conversation.updatedAt = Date.now();
       renderConversationList();

@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stream-Chat Test</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #1a1a2e; color: #e0e0e0;
+  height: 100vh; display: flex; flex-direction: column;
+}
+.header {
+  background: #16213e; padding: 12px 20px;
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  border-bottom: 1px solid #0f3460;
+}
+.header h1 { font-size: 16px; font-weight: 600; color: #e94560; white-space: nowrap; }
+.header select { padding: 6px 10px; border-radius: 6px; border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0; font-size: 14px; min-width: 180px; }
+.header button { padding: 6px 14px; border-radius: 6px; border: 1px solid #0f3460; background: #16213e; color: #e0e0e0; cursor: pointer; font-size: 13px; }
+.header button:hover { background: #0f3460; }
+.header .conv-id { font-size: 11px; color: #666; margin-left: auto; white-space: nowrap; }
+.messages {
+  flex: 1; overflow-y: auto; padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.msg { max-width: 85%; padding: 10px 14px; border-radius: 10px; line-height: 1.55; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+.msg.user { align-self: flex-end; background: #0f3460; }
+.msg.assistant { align-self: flex-start; background: #16213e; }
+.msg.system { align-self: center; font-size: 12px; color: #777; background: none; padding: 4px 0; }
+.msg.error { align-self: center; background: #5c1a1a; color: #ff6b6b; }
+.msg.tool { align-self: flex-start; background: #2a1a3e; color: #c0a0ff; }
+.msg .role { font-size: 11px; color: #e94560; margin-bottom: 4px; font-weight: 600; min-height: 22px; display: flex; align-items: center; justify-content: space-between; }
+.msg.assistant .role { color: #4ecca3; }
+.msg.tool .role { color: #c0a0ff; }
+.msg .regenerate-btn {
+  cursor: pointer; flex-shrink: 0; margin-left: 8px;
+  background: rgba(233,69,96,0.15); border: 1px solid rgba(233,69,96,0.4);
+  color: #e94560; font-size: 13px; padding: 2px 8px; border-radius: 4px;
+}
+.msg .regenerate-btn:hover {
+  background: rgba(233,69,96,0.35); border-color: #e94560;
+}
+.msg .variant-switch {
+  font-size: 11px; color: #e94560; cursor: pointer; margin-left: 8px;
+  padding: 1px 6px; border: 1px solid rgba(233,69,96,0.3); border-radius: 3px;
+}
+.msg .variant-switch:hover {
+  background: rgba(233,69,96,0.15);
+}
+.input-area {
+  background: #16213e; padding: 12px 20px; flex-shrink: 0;
+  display: flex; gap: 10px; border-top: 1px solid #0f3460;
+}
+.input-area textarea {
+  flex: 1; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid #0f3460; background: #1a1a2e; color: #e0e0e0;
+  font-size: 14px; resize: none; rows: 2; min-height: 44px; max-height: 120px;
+  font-family: inherit;
+}
+.input-area textarea:focus { outline: none; border-color: #e94560; }
+.input-area button {
+  padding: 10px 20px; border-radius: 8px; border: none;
+  background: #e94560; color: #fff; cursor: pointer; font-size: 14px; font-weight: 600;
+  white-space: nowrap;
+}
+.input-area button:hover { background: #d63850; }
+.input-area button:disabled { background: #555; cursor: not-allowed; }
+.spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #333; border-top-color: #4ecca3; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.cursor::after { content: "▌"; animation: blink 0.8s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Stream-Chat Test</h1>
+  <select id="modelSelect"><option value="">-- 选择模型 --</option></select>
+  <button id="refreshBtn" title="刷新模型列表">↻</button>
+  <button id="newChatBtn" title="新建对话">+</button>
+  <span class="conv-id" id="convIdDisplay"></span>
+</div>
+
+<div class="messages" id="messages"></div>
+
+<div class="input-area">
+  <textarea id="input" placeholder="输入消息，Enter 发送..." rows="2"></textarea>
+  <button id="sendBtn" disabled>发送</button>
+</div>
+
+<script>
+(function() {
+  console.log('===== IIFE START =====');
+  const API_MODELS = '/v1/models';
+  const API_STREAM_CHAT = '/api/easy-chat/stream-chat';
+  const STORAGE_KEY = 'streamTestConvId';
+  const VARIANTS_CACHE = new Map();
+
+  const modelSelect = document.getElementById('modelSelect');
+  const refreshBtn = document.getElementById('refreshBtn');
+  const newChatBtn = document.getElementById('newChatBtn');
+  const convIdDisplay = document.getElementById('convIdDisplay');
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('input');
+  const sendBtn = document.getElementById('sendBtn');
+
+  // Persistent conversation ID
+  let CONVERSATION_ID = localStorage.getItem(STORAGE_KEY);
+  if (!CONVERSATION_ID) {
+    CONVERSATION_ID = 'test-' + crypto.randomUUID().substring(0, 8);
+    localStorage.setItem(STORAGE_KEY, CONVERSATION_ID);
+  }
+  convIdDisplay.textContent = 'Conv: ' + CONVERSATION_ID;
+  console.log('[init] CONVERSATION_ID=' + CONVERSATION_ID);
+
+  /* ---- Model loading ---- */
+  async function loadModels() {
+    modelSelect.innerHTML = '<option value="">加载中...</option>';
+    modelSelect.disabled = true;
+    refreshBtn.disabled = true;
+    try {
+      const resp = await fetch(API_MODELS);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const json = await resp.json();
+      const data = json.data || json.models || [];
+      const ids = data.map(m => typeof m === 'string' ? m : (m.id || m.model || '')).filter(Boolean).sort();
+      modelSelect.innerHTML = '<option value="">-- 选择模型 --</option>';
+      if (ids.length === 0) {
+        modelSelect.innerHTML += '<option value="" disabled>暂无可用模型</option>';
+      } else {
+        ids.forEach(id => {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = id;
+          modelSelect.appendChild(opt);
+        });
+      }
+      sendBtn.disabled = !modelSelect.value;
+    } catch (e) {
+      modelSelect.innerHTML = '<option value="">获取失败，点刷新重试</option>';
+      addSystemMsg('获取模型列表失败: ' + e.message);
+    } finally {
+      modelSelect.disabled = false;
+      refreshBtn.disabled = false;
+    }
+  }
+
+  modelSelect.addEventListener('change', () => {
+    sendBtn.disabled = !modelSelect.value;
+  });
+  refreshBtn.addEventListener('click', loadModels);
+
+  /* ---- Conversation management ---- */
+  newChatBtn.addEventListener('click', () => {
+    CONVERSATION_ID = 'test-' + crypto.randomUUID().substring(0, 8);
+    localStorage.setItem(STORAGE_KEY, CONVERSATION_ID);
+    convIdDisplay.textContent = 'Conv: ' + CONVERSATION_ID;
+    messagesEl.innerHTML = '';
+    VARIANTS_CACHE.clear();
+  });
+
+  /* ---- Message rendering ---- */
+  function addSystemMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'msg system';
+    div.textContent = text;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function addErrorMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'msg error';
+    div.textContent = text;
+    messagesEl.appendChild(div);
+    scrollBottom();
+  }
+
+  function renderHistoryMessage(msg, variantIdx) {
+    if (!msg || !msg.role) return;
+    variantIdx = variantIdx || 0;
+
+    // All content is in variants array: msg.variants[variantIdx].content
+    const variants = msg.variants || [];
+    const variant = variants[variantIdx] || variants[0] || {};
+    const payload = variant.content || {};
+    const role = payload.role || msg.role;
+    const content = typeof payload.content !== 'undefined' ? (payload.content || '') : '';
+    const reasoning = payload.reasoning_content;
+    const toolCalls = payload.tool_calls;
+
+    console.log('[render] seq=' + msg.seq + ' variantIdx=' + variantIdx + ' variantsLen=' + variants.length);
+    console.log('[render] variant=', variant);
+    console.log('[render] payload=', payload);
+    console.log('[render] role=' + role + ' contentLen=' + (content ? content.length : 0) + ' contentPreview=' + (content ? content.substring(0, 30) : 'EMPTY'));
+
+    const div = document.createElement('div');
+    const seq = msg.seq;
+    if (role === 'user') {
+      div.className = 'msg user';
+      div.innerHTML = '<div class="role">You</div>' + escapeHtml(content);
+      console.log('[render] user HTML:', div.innerHTML);
+    } else if (role === 'assistant') {
+      div.className = 'msg assistant';
+      div.setAttribute('data-seq', seq);
+      div.setAttribute('data-variant', variantIdx);
+
+      let roleHtml = '<div class="role"><span>Assistant';
+      if (variants.length > 1) {
+        roleHtml += ' <span class="variant-switch" data-seq="' + seq + '">v' + (variantIdx + 1) + '/' + variants.length + '</span>';
+      }
+      roleHtml += '</span><button class="regenerate-btn" data-seq="' + seq + '" title="重新生成">↻ 重新生成</button></div>';
+
+      let html = roleHtml;
+      if (reasoning) html += '<div style="color:#888;font-style:italic;margin-bottom:4px">[思考] ' + escapeHtml(reasoning) + '</div>';
+      html += escapeHtml(content);
+      if (toolCalls && toolCalls.length > 0) {
+        html += '<div style="margin-top:6px;font-size:12px;color:#c0a0ff">';
+        toolCalls.forEach(tc => {
+          const fn = (tc && tc.function) ? tc.function : {};
+          html += '🔧 ' + escapeHtml(fn.name || '') + '(' + escapeHtml(fn.arguments || '') + ')<br>';
+        });
+        html += '</div>';
+      }
+      div.innerHTML = html;
+    } else if (role === 'tool') {
+      div.className = 'msg tool';
+      div.innerHTML = '<div class="role">Tool</div>' + escapeHtml(content);
+    } else {
+      div.className = 'msg system';
+      div.innerHTML = '[' + escapeHtml(role) + '] ' + escapeHtml(content);
+    }
+    messagesEl.appendChild(div);
+  }
+
+  function addUserMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'msg user';
+    div.innerHTML = '<div class="role">You</div>' + escapeHtml(text);
+    messagesEl.appendChild(div);
+    scrollBottom();
+    const prev = messagesEl.querySelector('.msg.assistant.cursor');
+    if (prev) prev.classList.remove('cursor');
+  }
+
+  function createAssistantBubble() {
+    const div = document.createElement('div');
+    div.className = 'msg assistant cursor';
+    div.innerHTML = '<div class="role">Assistant</div><span class="content"></span>';
+    messagesEl.appendChild(div);
+    scrollBottom();
+    return div.querySelector('.content');
+  }
+
+  function scrollBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    const result = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (typeof str === 'string' && str.length > 0 && result.length === 0) {
+      console.error('[escapeHtml] WARNING: non-empty input produced empty output, type=' + typeof str);
+    }
+    return result;
+  }
+
+  /* ---- History loading ---- */
+  async function loadHistory(maxSeq) {
+    console.log('[loadHistory] ENTER convId=' + CONVERSATION_ID + ' maxSeq=' + maxSeq);
+    try {
+      const url = API_STREAM_CHAT + '?conversationId=' + encodeURIComponent(CONVERSATION_ID);
+      console.log('[loadHistory] fetching: ' + url);
+      const resp = await fetch(url);
+      console.log('[loadHistory] resp status=' + resp.status + ' ok=' + resp.ok);
+      if (!resp.ok) {
+        console.log('[loadHistory] non-OK response, status=' + resp.status);
+        if (resp.status === 404) return;
+        throw new Error('HTTP ' + resp.status);
+      }
+      const json = await resp.json();
+      console.log('[loadHistory] json.message=' + json.message + ' dataLen=' + (json.data ? json.data.length : 'null'));
+      if (json.message !== 'success') {
+        console.log('[loadHistory] message is not success: ' + json.message);
+        addSystemMsg('加载历史失败: ' + (json.message || 'unknown'));
+        return;
+      }
+      VARIANTS_CACHE.clear();
+      if (json.data && json.data.length > 0) {
+        console.log('[loadHistory] first msg raw:', JSON.stringify(json.data[0]).substring(0, 300));
+        messagesEl.innerHTML = '';
+        for (const msg of json.data) {
+          if (maxSeq != null && msg.seq > maxSeq) {
+            console.log('[loadHistory] breaking at seq=' + msg.seq + ' > maxSeq=' + maxSeq);
+            break;
+          }
+          // Cache all variants from the variants array
+          if (msg.variants && msg.variants.length > 0) {
+            VARIANTS_CACHE.set(msg.seq, msg.variants);
+            console.log('[loadHistory] cached seq=' + msg.seq + ' variantsLen=' + msg.variants.length);
+          }
+          console.log('[loadHistory] calling renderHistoryMessage seq=' + msg.seq);
+          renderHistoryMessage(msg, 0);
+        }
+        scrollBottom();
+        console.log('[loadHistory] render complete, children=' + messagesEl.children.length);
+      } else {
+        console.log('[loadHistory] no data returned');
+      }
+    } catch (e) {
+      console.error('[loadHistory] EXCEPTION:', e);
+    }
+  }
+
+  /* ---- Send message (POST, SSE stream) ---- */
+  async function sendMessage() {
+    console.log('[sendMessage] ENTER');
+    const text = inputEl.value.trim();
+    if (!text) { console.log('[sendMessage] empty text, return'); return; }
+    const modelId = modelSelect.value;
+    if (!modelId) {
+      console.log('[sendMessage] no model selected, return');
+      addErrorMsg('请先选择模型');
+      return;
+    }
+
+    inputEl.value = '';
+    sendBtn.disabled = true;
+    inputEl.disabled = true;
+    addUserMsg(text);
+
+    const contentEl = createAssistantBubble();
+    let buffer = '';
+
+    try {
+      const resp = await fetch(API_STREAM_CHAT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Conversation-Id': CONVERSATION_ID,
+          'X-Model-Id': modelId
+        },
+        body: JSON.stringify({ role: 'user', content: text })
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '无错误详情');
+        throw new Error('HTTP ' + resp.status + ': ' + errText);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const result = await reader.read();
+        done = result.done;
+        buffer += decoder.decode(result.value || new Uint8Array(), { stream: !done });
+
+        const lines = buffer.split('\r\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.substring(6);
+          if (data === '[DONE]') {
+            done = true;
+            break;
+          }
+          try {
+            const json = JSON.parse(data);
+            const choices = json.choices;
+            if (!choices || !choices.length) continue;
+            const delta = choices[0].delta;
+            if (!delta) continue;
+            if (delta.content) {
+              contentEl.textContent += delta.content;
+              scrollBottom();
+            }
+            if (delta.reasoning_content) {
+              const rcSpan = contentEl.querySelector('.reasoning');
+              if (!rcSpan) {
+                const span = document.createElement('span');
+                span.className = 'reasoning';
+                span.style.cssText = 'color:#888;font-style:italic';
+                span.textContent = '[思考] ' + delta.reasoning_content;
+                contentEl.prepend(span);
+              } else {
+                rcSpan.textContent += delta.reasoning_content;
+              }
+              scrollBottom();
+            }
+          } catch (e) { /* skip */ }
+        }
+      }
+    } catch (e) {
+      console.error('[sendMessage] EXCEPTION:', e);
+      contentEl.textContent = 'Error: ' + e.message;
+      contentEl.parentElement.classList.add('error');
+      contentEl.parentElement.classList.remove('assistant');
+    } finally {
+      console.log('[sendMessage] FINALLY, re-enabling UI');
+      contentEl.parentElement.classList.remove('cursor');
+      sendBtn.disabled = false;
+      inputEl.disabled = false;
+      inputEl.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  inputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  /* ---- Event delegation for regenerate buttons and variant switchers ---- */
+  messagesEl.addEventListener('click', e => {
+    if (e.target.classList.contains('regenerate-btn')) {
+      const seq = parseInt(e.target.getAttribute('data-seq'));
+      console.log('[click] regenerate-btn seq=' + seq);
+      regenerateMessage(seq);
+      return;
+    }
+    if (e.target.classList.contains('variant-switch')) {
+      const seq = parseInt(e.target.getAttribute('data-seq'));
+      console.log('[click] variant-switch seq=' + seq);
+      const el = messagesEl.querySelector('.msg.assistant[data-seq="' + seq + '"]');
+      if (!el) return;
+      const current = parseInt(el.getAttribute('data-variant'));
+      const variants = VARIANTS_CACHE.get(seq);
+      console.log('[click] current=' + current + ' variantsLen=' + (variants ? variants.length : 'null'));
+      if (!variants || variants.length <= 1) return;
+      const next = (current + 1) % variants.length;
+      switchVariant(seq, next);
+    }
+  });
+  console.log('[init] event listeners attached');
+
+  /* ---- Switch variant ---- */
+  function switchVariant(seq, variantIdx) {
+    console.log('[switchVariant] seq=' + seq + ' variantIdx=' + variantIdx);
+    const el = messagesEl.querySelector('.msg.assistant[data-seq="' + seq + '"]');
+    if (!el) { console.log('[switchVariant] no element found'); return; }
+    const variants = VARIANTS_CACHE.get(seq);
+    if (!variants || variantIdx >= variants.length) { console.log('[switchVariant] invalid index'); return; }
+
+    // All variants are in the variants array
+    const v = variants[variantIdx];
+    const payload = v.content || {};
+    const content = payload.content || '';
+    const reasoning = payload.reasoning_content;
+
+    el.setAttribute('data-variant', variantIdx);
+    const switchEl = el.querySelector('.variant-switch');
+    if (switchEl) switchEl.textContent = 'v' + (variantIdx + 1) + '/' + variants.length;
+
+    let html = '';
+    if (reasoning) html += '<div style="color:#888;font-style:italic;margin-bottom:4px">[思考] ' + escapeHtml(reasoning) + '</div>';
+    html += escapeHtml(content);
+    const roleDiv = el.querySelector('.role');
+    el.innerHTML = '';
+    el.appendChild(roleDiv);
+    el.insertAdjacentHTML('beforeend', html);
+    scrollBottom();
+  }
+
+  /* ---- Regenerate message ---- */
+  async function regenerateMessage(seq) {
+    console.log('[regenerate] ENTER seq=' + seq);
+    const modelId = modelSelect.value;
+    if (!modelId) {
+      console.log('[regenerate] no model, return');
+      addErrorMsg('请先选择模型');
+      return;
+    }
+
+    // Collect X-Variants: all assistant messages' current variant indices
+    const asstEls = messagesEl.querySelectorAll('.msg.assistant');
+    const variantPairs = [];
+    asstEls.forEach(el => {
+      const s = parseInt(el.getAttribute('data-seq'));
+      const v = parseInt(el.getAttribute('data-variant'));
+      if (s !== seq) {
+        variantPairs.push(s + ':' + v);
+      }
+    });
+    console.log('[regenerate] variantPairs:', variantPairs.join(','));
+
+    sendBtn.disabled = true;
+    inputEl.disabled = true;
+    const contentEl = createAssistantBubble();
+    contentEl.parentElement.classList.add('regenerating');
+    let buffer = '';
+
+    try {
+      const headers = {
+        'X-Conversation-Id': CONVERSATION_ID,
+        'X-Model-Id': modelId,
+        'X-Regenerate-Id': String(seq)
+      };
+      if (variantPairs.length > 0) {
+        headers['X-Variants'] = variantPairs.join(',');
+      }
+
+      const resp = await fetch(API_STREAM_CHAT, {
+        method: 'POST',
+        headers: headers,
+        body: null
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '无错误详情');
+        throw new Error('HTTP ' + resp.status + ': ' + errText);
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const result = await reader.read();
+        done = result.done;
+        buffer += decoder.decode(result.value || new Uint8Array(), { stream: !done });
+
+        const lines = buffer.split('\r\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.substring(6);
+          if (data === '[DONE]') {
+            done = true;
+            break;
+          }
+          try {
+            const json = JSON.parse(data);
+            const choices = json.choices;
+            if (!choices || !choices.length) continue;
+            const delta = choices[0].delta;
+            if (!delta) continue;
+            if (delta.content) {
+              contentEl.textContent += delta.content;
+              scrollBottom();
+            }
+            if (delta.reasoning_content) {
+              const rcSpan = contentEl.querySelector('.reasoning');
+              if (!rcSpan) {
+                const span = document.createElement('span');
+                span.className = 'reasoning';
+                span.style.cssText = 'color:#888;font-style:italic';
+                span.textContent = '[思考] ' + delta.reasoning_content;
+                contentEl.prepend(span);
+              } else {
+                rcSpan.textContent += delta.reasoning_content;
+              }
+              scrollBottom();
+            }
+          } catch (e) { /* skip */ }
+        }
+      }
+
+      // Stream complete — reload history to show new variant with proper structure
+      contentEl.parentElement.remove();
+      loadHistory(seq);
+    } catch (e) {
+      contentEl.textContent = '重新生成失败: ' + e.message;
+      contentEl.parentElement.classList.add('error');
+      contentEl.parentElement.classList.remove('assistant');
+    } finally {
+      sendBtn.disabled = false;
+      inputEl.disabled = false;
+      inputEl.focus();
+    }
+  }
+
+  /* ---- Init ---- */
+  console.log('[init] calling loadModels and loadHistory');
+  loadModels();
+  loadHistory();
+  console.log('===== IIFE END =====');
+})();
+</script>
+</body>
+</html>

@@ -501,12 +501,13 @@
     window.I18N = window.I18N || { t: function(key, fallback) { return fallback ?? key; } };
 
     const CHAT_ENDPOINT = '/v1/chat/completions';
+    const STREAM_CHAT_ENDPOINT = '/api/easy-chat/stream-chat';
     const MODELS_ENDPOINT = '/v1/models';
     const EASY_CHAT_STATE_ENDPOINT = '/api/easy-chat/state';
     const EASY_CHAT_STATE_REVISION_ENDPOINT = '/api/easy-chat/state/revision';
     const EASY_CHAT_CONVERSATION_ENDPOINT = '/api/easy-chat/conversation';
-    const EASY_CHAT_CONVERSATION_SAVE_ENDPOINT = '/api/easy-chat/conversation/save';
     const EASY_CHAT_SYNC_ENDPOINT = '/api/easy-chat/sync';
+    const EASY_CHAT_DELETE_ENDPOINT = '/api/easy-chat/delete';
     const STATE_REVISION_CONFLICT_CODE = 'STATE_REVISION_CONFLICT';
     const STATE_LOAD_TIMEOUT_MS = 30000;
     const STATE_SAVE_TIMEOUT_MS = 20000;
@@ -524,7 +525,6 @@
     let stateLoadedFromServer = false;
     let stateLoadInProgress = false;
     let conversationLoadInProgress = false;
-    let currentConversationDirty = false;
 
     const state = {
       model: '',
@@ -2551,7 +2551,10 @@
         toolCallId: typeof message?.toolCallId === 'string' ? message.toolCallId : '',
         toolName: typeof message?.toolName === 'string' ? message.toolName : '',
         toolResultCollapsed: typeof message?.toolResultCollapsed === 'boolean' ? message.toolResultCollapsed : true,
-        isError: !!message?.isError
+        isError: !!message?.isError,
+        id: message?.id,
+        order: message?.order,
+        fragmentSeq: message?.fragmentSeq
       };
       if (base.role !== 'assistant') {
         return base;
@@ -3065,24 +3068,6 @@
       };
     }
 
-    function buildConversationPayload() {
-      const currentConversation = getCurrentConversation();
-      if (!currentConversation || !isConversationLoaded(currentConversation)) {
-        return null;
-      }
-      return {
-        baseRevision: stateRevision,
-        conversation: {
-          id: currentConversation.id,
-          title: typeof currentConversation.title === 'string' ? currentConversation.title : window.I18N.t('page.chat.main.status.new_conversation_short', '新对话'),
-          createdAt: Number(currentConversation.createdAt || Date.now()),
-          updatedAt: Number(currentConversation.updatedAt || Date.now()),
-          assistantId: typeof currentConversation.assistantId === 'string' ? currentConversation.assistantId : '',
-          messages: Array.isArray(currentConversation.messages) ? currentConversation.messages : []
-        }
-      };
-    }
-
     function normalizeRevision(value) {
       return typeof value === 'string' ? value.trim() : '';
     }
@@ -3191,7 +3176,6 @@
 
     async function handleStateRevisionConflict() {
       pendingStatePayload = null;
-      currentConversationDirty = false;
       clearStateSaveRetryTimer();
       stateSaveInFlight = false;
       updateStorageHint(window.I18N.t('page.chat.main.settings.remote_state_changed', '检测到远端状态已变化，已停止自动覆盖，正在重新加载'));
@@ -3245,27 +3229,38 @@
       }
       setConversationLoadGuard(true, window.I18N.t('page.chat.main.status.loading_current_conversation', '正在从服务端加载当前会话…'));
       try {
-        const json = await fetchJson(EASY_CHAT_CONVERSATION_ENDPOINT + '?id=' + encodeURIComponent(id), {
+        const historyResp = await fetch(STREAM_CHAT_ENDPOINT + '?conversationId=' + encodeURIComponent(id), {
           headers: getHeaders(),
-          timeoutMs: STATE_LOAD_TIMEOUT_MS
+          signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), STATE_LOAD_TIMEOUT_MS); return c.signal; })()
         });
-        if (!json?.success) {
-          throw new Error(json?.error || window.I18N.t('page.chat.main.error.load_conversation', '加载会话失败'));
+        if (historyResp.ok) {
+          const historyJson = await historyResp.json();
+          if (historyJson.message === 'success' && Array.isArray(historyJson.data)) {
+            const messages = [];
+            for (const histMsg of historyJson.data) {
+              const msg = convertHistoryMessage(histMsg);
+              if (msg) messages.push(msg);
+            }
+            setConversationLoadedMessages(conversation, messages);
+            conversation.messageCount = messages.length;
+            if (messages.length > 0) {
+              const maxSeq = Math.max(...messages.map(m => m.order != null ? m.order : 0));
+              conversation.nextFragmentSeq = maxSeq + 1;
+            } else {
+              conversation.nextFragmentSeq = 0;
+            }
+          } else {
+            conversation.nextFragmentSeq = 0;
+          }
+        } else {
+          throw new Error(window.I18N.t('page.chat.main.error.load_conversation', '加载会话失败') + ': HTTP ' + historyResp.status);
         }
-        const loadedConversation = json?.data?.conversation || {};
-        setConversationLoadedMessages(conversation, loadedConversation.messages);
-        conversation.title = typeof loadedConversation.title === 'string'
-          ? normalizeConversationTitle(loadedConversation.title)
+
+        conversation.title = typeof conversation.title === 'string' && conversation.title
+          ? normalizeConversationTitle(conversation.title)
           : conversation.title;
-        conversation.createdAt = Number(loadedConversation.createdAt || conversation.createdAt || Date.now());
-        conversation.updatedAt = Number(loadedConversation.updatedAt || conversation.updatedAt || Date.now());
-        if (typeof loadedConversation.assistantId === 'string' && getAssistantById(loadedConversation.assistantId)) {
-          conversation.assistantId = loadedConversation.assistantId;
-        }
-        const serverRevision = normalizeRevision(json?.data?.revision);
-        if (serverRevision) {
-          stateRevision = serverRevision;
-        }
+        conversation.createdAt = Number(conversation.createdAt || Date.now());
+        conversation.updatedAt = Number(conversation.updatedAt || Date.now());
         return conversation;
       } catch (error) {
         if (options.showErrorToast !== false) {
@@ -3301,24 +3296,6 @@
       }
       stateRevision = normalizeRevision(json?.data?.revision);
       updateStorageHint('');
-      return true;
-    }
-
-    async function saveConversationToServer() {
-      const payload = buildConversationPayload();
-      if (!payload) {
-        return false;
-      }
-      const json = await fetchJson(EASY_CHAT_CONVERSATION_SAVE_ENDPOINT, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload),
-        timeoutMs: STATE_SAVE_TIMEOUT_MS
-      });
-      if (!json?.success) {
-        throw new Error(json?.error || window.I18N.t('page.chat.main.toast.save_failed', '保存失败'));
-      }
-      stateRevision = normalizeRevision(json?.data?.revision);
       return true;
     }
 
@@ -3359,26 +3336,8 @@
           }
           return false;
         }
-        if (currentConversationDirty) {
-          try {
-            await saveConversationToServer();
-          } catch (convError) {
-            console.error('Failed to save conversation', convError);
-            if (isStateRevisionConflictError(convError)) {
-              await handleStateRevisionConflict();
-              return false;
-            }
-            if (options.showErrorToast !== false) {
-              showToast('error', window.I18N.t('page.chat.main.error.save_failed', '保存会话失败：{error}').replace('{error}', convError.message || window.I18N.t('page.chat.main.misc.recording_error', '未知错误')));
-            }
-            pendingStatePayload = { saveOptions: options };
-            scheduleStateSaveRetry(typeof options.retryDelay === 'number' ? options.retryDelay : 2000);
-            return false;
-          }
-        }
-        const syncPayload = buildSyncPayload();
+   const syncPayload = buildSyncPayload();
         saved = await writeStateToServer(syncPayload, options);
-        currentConversationDirty = false;
         clearStateSaveRetryTimer();
         return true;
       } catch (error) {
@@ -3433,7 +3392,6 @@
     }
 
    async function loadState() {
-      currentConversationDirty = false;
       updateStorageHint(window.I18N.t('page.chat.main.settings.storage_loading', '正在从服务端加载聊天记录…'));
       setStateLoadGuard(true, window.I18N.t('page.chat.main.settings.storage_syncing', '正在从服务端同步聊天记录…'));
       let remoteState = {};
@@ -4131,7 +4089,8 @@
         toolCallId: typeof extra.toolCallId === 'string' ? extra.toolCallId : '',
         toolName: typeof extra.toolName === 'string' ? extra.toolName : '',
         toolResultCollapsed: typeof extra.toolResultCollapsed === 'boolean' ? extra.toolResultCollapsed : true,
-        isError: !!extra.isError
+        isError: !!extra.isError,
+        fragmentSeq: options.fragmentSeq != null ? options.fragmentSeq : undefined
       };
       if (role === 'assistant') {
         nextMessage.responses = [createAssistantResponseDraft({
@@ -4149,7 +4108,6 @@
       conversation.messages.push(nextMessage);
       conversation.messageCount = conversation.messages.length;
       conversation.updatedAt = Date.now();
-      currentConversationDirty = true;
       updateConversationTitle(conversation);
       renderConversationList();
       if (options.incremental) {
@@ -4169,7 +4127,6 @@
       }
       setConversationLoadedMessages(conversation, messages, { touchUpdatedAt: true });
       conversation.updatedAt = Date.now();
-      currentConversationDirty = true;
       state.editingMessageIndex = null;
       state.editingMessageDraft = null;
       updateConversationTitle(conversation);
@@ -4834,7 +4791,6 @@
       conversation.updatedAt = Date.now();
       state.editingMessageDraft = null;
       state.editingMessageIndex = null;
-      currentConversationDirty = true;
       updateConversationTitle(conversation);
       renderConversationList();
       renderMessages();
@@ -4892,25 +4848,50 @@
       state.editingMessageDraft = null;
       syncSendButtonState();
       updateMessageActionStates();
-      let historyMessages = Array.isArray(options.historyMessages) ? options.historyMessages : null;
-      let nextAssistantIndex = Number.isInteger(options.targetAssistantIndex) ? options.targetAssistantIndex : null;
+      const conversationId = state.currentConversationId || '';
+      const assistant = getCurrentAssistant();
+      const isRegenerate = options?.regenerateSeq != null;
+      let nextAssistantIndex = Number.isInteger(options?.targetAssistantIndex) ? options.targetAssistantIndex : null;
       let requestModel = state.model;
       let currentAssistantIndex = nextAssistantIndex;
-      let remainingToolRounds = Number.isFinite(Number(options.toolRoundsRemaining)) ? Number(options.toolRoundsRemaining) : 6;
+      let remainingToolRounds = Number.isFinite(Number(options?.toolRoundsRemaining)) ? Number(options.toolRoundsRemaining) : 6;
 
       try {
         while (true) {
-          const { payload, nodeId } = buildPayload(historyMessages);
-          requestModel = payload.model;
-          const enabledTools = mcpModule ? mcpModule.getEnabledTools(getCurrentAssistant()) : [];
           showTypingIndicator(requestModel);
           els.statusDot.classList.add('loading');
           updateStatus('ready', window.I18N.t('page.chat.main.status.generating', '正在生成回复…'), window.I18N.t('page.chat.main.status.generating_short', '生成中'));
 
-          const response = await fetch(CHAT_ENDPOINT, {
+          const streamHeaders = buildStreamChatHeaders(conversationId, assistant, {
+            regenerateSeq: isRegenerate ? options.regenerateSeq : undefined
+          });
+          const conversation = getCurrentConversation();
+
+          let bodyStr;
+          if (isRegenerate) {
+            bodyStr = null;
+          } else if (conversation?.messages?.some(m => m.role === 'tool')) {
+            const lastToolMsg = conversation?.messages?.findLast(m => m.role === 'tool') || {};
+            bodyStr = JSON.stringify({
+              role: 'tool',
+              content: typeof lastToolMsg.content === 'string' ? lastToolMsg.content : '',
+              tool_call_id: lastToolMsg.toolCallId || '',
+              name: lastToolMsg.toolName || ''
+            });
+          } else {
+            const lastUserMsg = conversation?.messages?.findLast(m => m.role === 'user') || {};
+            const userText = typeof lastUserMsg.content === 'string' ? lastUserMsg.content : '';
+            const userImages = getMessageImages(lastUserMsg);
+            const userFiles = getMessageTextFiles(lastUserMsg);
+            const userAudios = getMessageAudioFiles(lastUserMsg);
+            const userVideos = getMessageVideoFiles(lastUserMsg);
+            bodyStr = buildStreamUserMessage(userText, userImages, userFiles, userAudios, userVideos);
+          }
+
+          const response = await fetch(STREAM_CHAT_ENDPOINT, {
             method: 'POST',
-            headers: getHeaders(nodeId),
-            body: JSON.stringify(payload),
+            headers: streamHeaders,
+            body: bodyStr,
             signal: state.abortController.signal
           });
           if (!response.ok) {
@@ -4924,14 +4905,15 @@
           currentAssistantIndex = Number.isInteger(nextAssistantIndex) ? nextAssistantIndex : null;
           if (!Number.isInteger(currentAssistantIndex)) {
             pushMessage('assistant', '', { model: requestModel }, { incremental: true, persist: false });
-            const conversation = getCurrentConversation();
-            currentAssistantIndex = conversation ? conversation.messages.length - 1 : null;
+            const conv = getCurrentConversation();
+            currentAssistantIndex = conv ? conv.messages.length - 1 : null;
           }
           if (Number.isInteger(currentAssistantIndex)) {
             setAssistantResponseStreaming(currentAssistantIndex, true);
           }
+
           let result;
-          if (payload.stream && contentType.includes('text/event-stream')) {
+          if (contentType.includes('text/event-stream')) {
             result = await consumeSse(response, currentAssistantIndex);
             updateLastAssistantMessage(
               result.content || '',
@@ -4957,14 +4939,13 @@
 
           if (Array.isArray(result.toolCalls) && result.toolCalls.length && mcpModule && remainingToolRounds > 0) {
             updateStatus('ready', window.I18N.t('page.chat.main.status.tool_executing', '正在执行 MCP 工具…'), window.I18N.t('page.chat.main.status.tool_executing_short', '工具中'));
+            const enabledTools = mcpModule.getEnabledTools(assistant);
             const toolMessages = await mcpModule.executeToolCalls(result.toolCalls, enabledTools, {
               preparedQuery: ''
             });
             for (const toolMessage of toolMessages) {
               pushMessage('tool', toolMessage.content || '', toolMessage, { incremental: true, persist: false });
             }
-            await persistState({ immediate: true, showErrorToast: true });
-            historyMessages = getCurrentConversation()?.messages || [];
             nextAssistantIndex = null;
             currentAssistantIndex = null;
             remainingToolRounds -= 1;
@@ -4977,14 +4958,14 @@
           updateStatus('ready', window.I18N.t('page.chat.main.status.done', '回复生成完成'), window.I18N.t('page.chat.main.status.done_short', '已完成'));
           break;
         }
-        } catch (error) {
-          removeTypingIndicator();
-          if (error.name === 'AbortError') {
-            if (Number.isInteger(currentAssistantIndex)) {
-              setAssistantResponseStreaming(currentAssistantIndex, false);
-            }
-            updateStatus('ready', window.I18N.t('page.chat.main.status.aborted', '已停止'), window.I18N.t('page.chat.main.status.aborted_short', '已停止'));
-          } else {
+      } catch (error) {
+        removeTypingIndicator();
+        if (error.name === 'AbortError') {
+          if (Number.isInteger(currentAssistantIndex)) {
+            setAssistantResponseStreaming(currentAssistantIndex, false);
+          }
+          updateStatus('ready', window.I18N.t('page.chat.main.status.aborted', '已停止'), window.I18N.t('page.chat.main.status.aborted_short', '已停止'));
+        } else {
           if (Number.isInteger(currentAssistantIndex)) {
             updateLastAssistantMessage(window.I18N.t('page.chat.main.error.request_failed', '请求失败：{error}').replace('{error}', error.message || window.I18N.t('page.chat.main.misc.recording_error', '未知错误')), '', requestModel, null, currentAssistantIndex);
             setAssistantResponseStreaming(currentAssistantIndex, false);
@@ -5023,7 +5004,11 @@
       if (!message) {
         return;
       }
-
+      syncRuntimeStateFromCurrentAssistant();
+      if (!state.model) {
+        updateStatus('error', window.I18N.t('page.chat.main.status.no_model_selected', '请先选择模型'), window.I18N.t('page.chat.main.status.no_model_selected_short', '未选择模型'));
+        return;
+      }
       let userMessageIndex = index;
 
       if (message.role === 'assistant') {
@@ -5097,16 +5082,21 @@
         }
       }
 
-      conversation.updatedAt = Date.now();
+        conversation.updatedAt = Date.now();
       renderConversationList();
       renderMessages();
       persistState();
+      // Calculate regenerateSeq: AI seq = user fragmentSeq + 1
+      const userMsg = conversation.messages[userMessageIndex];
+      const userSeq = userMsg?.fragmentSeq != null ? userMsg.fragmentSeq : (userMsg?.order != null ? userMsg.order : null);
+      const regenerateSeq = userSeq != null ? userSeq + 1 : null;
       await requestAssistantResponse({
-        targetAssistantIndex: assistantMessageIndex
+        targetAssistantIndex: assistantMessageIndex,
+        regenerateSeq
       });
     }
 
-    function deleteMessage(index) {
+    async function deleteMessage(index) {
       if (state.isSending) {
         return;
       }
@@ -5116,21 +5106,47 @@
         return;
       }
       if (message.role === 'assistant' && Array.isArray(message.responses) && message.responses.length > 1) {
+        // AI variant deletion: clear the active variant on backend
+        const seq = message?.fragmentSeq != null ? message.fragmentSeq : (message?.order != null ? message.order : null);
+        const deleteIndex = Math.min(
+          Math.max(Number(message.activeResponseIndex || 0), 0),
+          message.responses.length - 1
+        );
+        if (seq != null) {
+          try {
+            await fetchJson(EASY_CHAT_DELETE_ENDPOINT, {
+              method: 'DELETE',
+              headers: getHeaders(),
+              body: JSON.stringify({ type: 'message', conversationId: conversation.id, seq, variantIndex: deleteIndex })
+            });
+          } catch (e) {
+            console.warn('[EasyChat] 删除变体失败', e);
+          }
+        }
         const nextMessages = conversation.messages.slice();
         const nextMessage = {
           ...message,
           responses: message.responses.slice()
         };
-        const deleteIndex = Math.min(
-          Math.max(Number(message.activeResponseIndex || 0), 0),
-          nextMessage.responses.length - 1
-        );
         nextMessage.responses.splice(deleteIndex, 1);
         nextMessage.activeResponseIndex = Math.min(deleteIndex, nextMessage.responses.length - 1);
         nextMessages[index] = nextMessage;
         setConversationMessages(nextMessages);
         showToast('info', window.I18N.t('page.chat.main.action.delete_response', '删除当前响应'));
         return;
+      }
+      // User message deletion: clear the fragment on backend
+      const seq = message?.fragmentSeq != null ? message.fragmentSeq : (message?.order != null ? message.order : null);
+      if (seq != null) {
+        try {
+          await fetchJson(EASY_CHAT_DELETE_ENDPOINT, {
+            method: 'DELETE',
+            headers: getHeaders(),
+            body: JSON.stringify({ type: 'message', conversationId: conversation.id, seq })
+          });
+        } catch (e) {
+          console.warn('[EasyChat] 删除消息失败', e);
+        }
       }
       const nextMessages = conversation.messages.slice();
       const removeCount = message.role === 'user' && nextMessages[index + 1]?.role === 'assistant' ? 2 : 1;
@@ -5229,6 +5245,154 @@
         throw new Error(text || window.I18N.t('page.chat.main.error.request_failed_status', '请求失败：{status}').replace('{status}', response.status));
       }
       return response.json();
+    }
+
+    /* ---- Stream-chat helpers ---- */
+
+    function buildSamplingParamsJson(assistant) {
+      const params = {};
+      const fields = [
+        ['temperature', 'temperature'],
+        ['maxTokens', 'max_tokens'],
+        ['topP', 'top_p'],
+        ['topK', 'top_k'],
+        ['minP', 'min_p'],
+        ['presencePenalty', 'presence_penalty'],
+        ['repeatPenalty', 'repeat_penalty'],
+        ['frequencyPenalty', 'frequency_penalty']
+      ];
+      for (const [key, paramKey] of fields) {
+        const raw = String(assistant?.[key] || '').trim();
+        if (raw) {
+          const n = Number(raw);
+          if (Number.isFinite(n)) {
+            params[paramKey] = n;
+          }
+        }
+      }
+      const stopRaw = String(assistant?.stopSequences || '').trim();
+      if (stopRaw) {
+        const stops = stopRaw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        if (stops.length) {
+          params.stop = stops;
+        }
+      }
+      return JSON.stringify(params);
+    }
+
+    function buildStreamChatHeaders(conversationId, assistant, options) {
+      options = options || {};
+      const headers = { 'Content-Type': 'application/json' };
+      if (currentApiKey) {
+        headers['Authorization'] = 'Bearer ' + currentApiKey;
+      }
+      headers['X-Conversation-Id'] = encodeURIComponent(conversationId);
+      const compositeKey = state.model || '';
+      const sep = compositeKey.lastIndexOf('::');
+      const bareModelId = sep >= 0 ? compositeKey.substring(0, sep) : compositeKey;
+      const nd = sep >= 0 ? compositeKey.substring(sep + 2) : '';
+      headers['X-Model-Id'] = encodeURIComponent(bareModelId);
+      if (nd) {
+        headers['X-Node-Id'] = encodeURIComponent(nd);
+      }
+      if (assistant?.name?.trim()) {
+        headers['X-Assistant-Name'] = encodeURIComponent(assistant.name.trim());
+      }
+      const samplingParams = buildSamplingParamsJson(assistant);
+      if (samplingParams && samplingParams !== '{}') {
+        headers['X-Sampling-Params'] = encodeURIComponent(samplingParams);
+      }
+      if (options.regenerateSeq != null) {
+        headers['X-Regenerate-Id'] = String(options.regenerateSeq);
+      }
+      if (options.variantsStr) {
+        headers['X-Variants'] = options.variantsStr;
+      }
+      const enabledTools = mcpModule ? mcpModule.getEnabledTools(assistant) : [];
+      if (enabledTools.length && mcpModule) {
+        headers['X-Tools'] = encodeURIComponent(JSON.stringify(enabledTools.map(tool => mcpModule.toModelTool(tool))));
+        headers['X-Tool-Choice'] = 'auto';
+      }
+      return headers;
+    }
+
+    function buildStreamUserMessage(text, images, files, audios, videos) {
+      const msg = { role: 'user' };
+      const parts = [];
+      if (text && text.trim()) {
+        parts.push({ type: 'text', text: text });
+      }
+      for (const img of (images || [])) {
+        if (img?.dataUrl) {
+          parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
+        }
+      }
+      for (const f of (files || [])) {
+        if (f?.text !== undefined) {
+          parts.push({ type: 'text', text: '[File: ' + (f.name || '') + ']\n' + f.text });
+        }
+      }
+      for (const a of (audios || [])) {
+        if (a?.dataUrl) {
+          parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+        }
+      }
+      for (const v of (videos || [])) {
+        if (v?.dataUrl) {
+          parts.push({ type: 'image_url', image_url: { url: v.dataUrl } });
+        }
+      }
+      if (parts.length === 1 && parts[0].type === 'text') {
+        msg.content = parts[0].text;
+      } else if (parts.length > 1) {
+        msg.content = parts;
+      } else {
+        msg.content = text || '';
+      }
+      return JSON.stringify(msg);
+    }
+
+    function convertHistoryMessage(msg) {
+      if (!msg || !msg.variants || !msg.variants.length) return null;
+      const variant = msg.variants[0];
+      const payload = variant?.content || {};
+      const role = payload.role || msg.role || '';
+      const content = typeof payload.content === 'string' ? payload.content : (typeof payload.content === 'object' ? JSON.stringify(payload.content) : '');
+      const out = {
+        id: 'hist-' + msg.seq,
+        role,
+        content,
+        order: msg.seq
+      };
+      if (role === 'assistant') {
+        if (payload.reasoning_content) {
+          out.reasoning = payload.reasoning_content;
+        }
+        if (payload.tool_calls && payload.tool_calls.length) {
+          out.toolCalls = normalizeMcpToolCalls(payload.tool_calls);
+        }
+        if (payload.timings && typeof payload.timings === 'object') {
+          out.timings = payload.timings;
+        }
+        if (msg.variants.length > 1) {
+          out.responses = msg.variants.map(v => {
+            const p = v?.content || {};
+            const resp = {
+              content: typeof p.content === 'string' ? p.content : '',
+              reasoning: p.reasoning_content || ''
+            };
+            if (p.tool_calls && p.tool_calls.length) {
+              resp.toolCalls = normalizeMcpToolCalls(p.tool_calls);
+            }
+            return resp;
+          });
+          out.activeResponseIndex = 0;
+        }
+      } else if (role === 'tool') {
+        out.toolCallId = payload.tool_call_id || '';
+        out.toolName = payload.name || '';
+      }
+      return out;
     }
 
     async function saveSettings(showSavedToast = true) {
@@ -5603,7 +5767,11 @@
         prompt = prefix.replace('{date}', dateStr).replace('{time}', timeStr) + '\n\n' + prompt;
       }
 
-      pushMessage('user', prompt, { images, files, audios, videos }, { persist: false });
+      pushMessage('user', prompt, { images, files, audios, videos }, { persist: false, fragmentSeq: (getCurrentConversation()?.nextFragmentSeq ?? 0) });
+      const conv = getCurrentConversation();
+      if (conv && conv.nextFragmentSeq != null) {
+        conv.nextFragmentSeq += 2;
+      }
       state.editingMessageIndex = null;
       state.editingMessageDraft = null;
       els.promptInput.value = '';
@@ -5634,6 +5802,7 @@
         messages: []
       });
       state.conversations.unshift(conversation);
+      conversation.nextFragmentSeq = 0;
       state.currentConversationId = conversation.id;
       state.chatAutoScroll = true;
       syncRuntimeStateFromCurrentAssistant();
@@ -5850,7 +6019,6 @@
       }
       setConversationLoadedMessages(conversation, []);
       conversation.updatedAt = Date.now();
-      currentConversationDirty = true;
       conversation.title = window.I18N.t('page.chat.main.status.new_conversation_short', '新对话');
       state.editingMessageIndex = null;
       state.editingMessageDraft = null;
@@ -5889,6 +6057,16 @@
       }
       if (state.abortController && id === state.currentConversationId) {
         state.abortController.abort();
+      }
+      // Delete backend fragments
+      try {
+        await fetchJson(EASY_CHAT_DELETE_ENDPOINT, {
+          method: 'DELETE',
+          headers: getHeaders(),
+          body: JSON.stringify({ type: 'conversation', conversationId: id })
+        });
+      } catch (e) {
+        console.warn('[EasyChat] 删除后端碎片失败', e);
       }
       state.conversationMenuId = '';
       const previousConversations = state.conversations.slice();

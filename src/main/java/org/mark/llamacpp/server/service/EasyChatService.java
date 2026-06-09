@@ -7,6 +7,7 @@ import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -81,6 +82,11 @@ public class EasyChatService {
 	// Fragment file constants
 	private static final int FRAG_HEADER_SIZE = 160;
 	private static final int FRAG_PAYLOAD_OFFSET = 160;
+	private static final int FRAG_COUNT_OFFSET = 32;
+	private static final int FRAG_LENGTHS_OFFSET = 34;
+	private static final int FRAG_MAX_VARIANTS = 10;
+	private static final int FRAG_LENGTH_ENTRY = 4;
+	private static final int FRAG_LENGTHS = FRAG_MAX_VARIANTS * FRAG_LENGTH_ENTRY;
 
 	private static final String FRAG_NAME_FMT = "%016d.bin";
 	private static final String INDEX_FILE = "index.bin";
@@ -103,10 +109,24 @@ public class EasyChatService {
 			this.startTime = startTime;
 			this.assistantName = assistantName;
 			this.seq = seq;
-		}
-	}
+       }
+    }
 
-	/* ---- Public API ---- */
+    /**
+     * Decode a URL-encoded header value. Returns the original string if decoding fails.
+     */
+    private static String decodeHeader(String value) {
+        if (value == null || value.isBlank()) {
+            return value;
+        }
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return value;
+        }
+    }
+
+    /* ---- Public API ---- */
 
 	/**
 	 * Handle stream-chat request.
@@ -121,35 +141,31 @@ public class EasyChatService {
 				return;
 			}
 
-			// Read metadata from headers
-			String hdrConvId = request.headers().get("X-Conversation-Id");
-			String conversationId = (hdrConvId != null) ? hdrConvId : "";
+        // Read metadata from headers
+            String hdrConvId = decodeHeader(request.headers().get("X-Conversation-Id"));
+            String conversationId = (hdrConvId != null) ? hdrConvId : "";
 			if (conversationId.isBlank()) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少conversationId"));
 				return;
 			}
 
-			String hdrModelId = request.headers().get("X-Model-Id");
-			String modelId = (hdrModelId != null) ? hdrModelId : "";
+       String hdrModelId = decodeHeader(request.headers().get("X-Model-Id"));
+            String modelId = (hdrModelId != null) ? hdrModelId : "";
 			if (modelId.isBlank()) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少modelId"));
 				return;
 			}
 
-			String hdrAsstName = request.headers().get("X-Assistant-Name");
-			String assistantName = (hdrAsstName != null) ? hdrAsstName : "";
+      String hdrAsstName = decodeHeader(request.headers().get("X-Assistant-Name"));
+            String assistantName = (hdrAsstName != null) ? hdrAsstName : "";
 
 			// Read body bytes directly (no JSON parsing)
 			byte[] bodyBytes = new byte[request.content().readableBytes()];
 			request.content().readBytes(bodyBytes);
-			if (bodyBytes.length == 0) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
-				return;
-			}
 
 			// Parse optional small headers (safe, tiny)
-			JsonArray toolsArr = null;
-			String toolsHeader = request.headers().get("X-Tools");
+       JsonArray toolsArr = null;
+            String toolsHeader = decodeHeader(request.headers().get("X-Tools"));
 			if (toolsHeader != null && !toolsHeader.isBlank()) {
 				try {
 					JsonElement el = JsonUtil.fromJson(toolsHeader, JsonElement.class);
@@ -166,8 +182,8 @@ public class EasyChatService {
 				toolChoice = "auto";
 			}
 
-			JsonObject samplingParams = null;
-			String spHeader = request.headers().get("X-Sampling-Params");
+       JsonObject samplingParams = null;
+            String spHeader = decodeHeader(request.headers().get("X-Sampling-Params"));
 			if (spHeader != null && !spHeader.isBlank()) {
 				try {
 					JsonElement el = JsonUtil.fromJson(spHeader, JsonElement.class);
@@ -206,6 +222,44 @@ public class EasyChatService {
 				}
 			}
 
+			// Parse regenerate headers
+			Long regenerateSeq = null;
+			String regHeader = request.headers().get("X-Regenerate-Id");
+			if (regHeader != null && !regHeader.isBlank()) {
+				try {
+					regenerateSeq = Long.parseLong(regHeader);
+				} catch (NumberFormatException e) {
+					logger.warn("[EasyChat] 解析X-Regenerate-Id失败: {}", regHeader);
+				}
+			}
+
+			Map<Long, Integer> variants = null;
+			String variantsHeader = request.headers().get("X-Variants");
+			if (variantsHeader != null && !variantsHeader.isBlank()) {
+				variants = new HashMap<>();
+				for (String pair : variantsHeader.split(",")) {
+					String[] parts = pair.split(":");
+					if (parts.length == 2) {
+						try {
+							long vSeq = Long.parseLong(parts[0].trim());
+							int vIdx = Integer.parseInt(parts[1].trim());
+							variants.put(vSeq, vIdx);
+						} catch (NumberFormatException e) {
+							logger.warn("[EasyChat] 解析X-Variants pair失败: {}", pair);
+						}
+					}
+				}
+			}
+
+			boolean isRegenerate = regenerateSeq != null;
+			if (isRegenerate) {
+				// For regenerate: no body needed, backend reads user message from fragment
+				// bodyBytes can be empty
+			} else if (bodyBytes.length == 0) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
+				return;
+			}
+
 			// Per-conversation lock
 			Object convLock = conversationLocks.computeIfAbsent(conversationId, k -> new Object());
 
@@ -229,16 +283,23 @@ public class EasyChatService {
 				}
 
 				Index idx = readIndex(indexPath);
-				userSeq = idx.seq;
-				aiSeq = idx.seq + 1;
-				writeSeq(indexPath, idx.seq + 2);
 
-				// Write user fragment (raw body bytes, no JSON parsing)
-				writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
-				Path fragFile = fragmentFile(convDir, userSeq);
-				logger.info("[EasyChat] 写入用户碎片 seq={} path={} exists={} size={}",
-					userSeq, fragFile.toAbsolutePath(), Files.exists(fragFile),
-					Files.exists(fragFile) ? Files.size(fragFile) : -1);
+				if (isRegenerate) {
+					// Regenerate: reuse existing AI seq, don't write user fragment
+					userSeq = -1;
+					aiSeq = regenerateSeq;
+				} else {
+					userSeq = idx.seq;
+					aiSeq = idx.seq + 1;
+					writeSeq(indexPath, idx.seq + 2);
+
+					// Write user fragment (raw body bytes, no JSON parsing)
+					writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
+					Path fragFile = fragmentFile(convDir, userSeq);
+					logger.info("[EasyChat] 写入用户碎片 seq={} path={} exists={} size={}",
+						userSeq, fragFile.toAbsolutePath(), Files.exists(fragFile),
+						Files.exists(fragFile) ? Files.size(fragFile) : -1);
+				}
 
 				// Write tools.bin if tools provided via header
 				if (toolsArr != null) {
@@ -259,6 +320,9 @@ public class EasyChatService {
 			final Path finalConvDir = convDir;
 			final byte[] finalToolsBytes = toolsBytes;
 			final JsonObject finalSamplingParams = samplingParams;
+			final boolean finalIsRegenerate = isRegenerate;
+			final Map<Long, Integer> finalVariants = variants;
+			final Long finalRegenerateSeq = regenerateSeq;
 
 			// Dispatch to worker thread
 			worker.execute(() -> {
@@ -270,7 +334,7 @@ public class EasyChatService {
 
 					// Stream request body to llama.cpp
 					writeRequestBody(connection, finalModelId, finalSystemPrompt, finalConvDir,
-						finalToolsBytes, finalSamplingParams);
+						finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq);
 
 					int responseCode = connection.getResponseCode();
 					logger.info("[EasyChat] llama.cpp响应码: {} conversation={}", responseCode, conversationId);
@@ -299,11 +363,17 @@ public class EasyChatService {
 					synchronized (convLock) {
 						if (accumulator.hasContent()) {
 							JsonObject aiMsg = buildAiMessage(accumulator);
-							writeFragment(finalConvDir, aiSeq, System.currentTimeMillis(),
-								JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8));
-							writeSeq(indexPath, aiSeq + 1);
+							byte[] aiBytes = JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8);
+							if (finalIsRegenerate) {
+								appendFragment(finalConvDir, aiSeq, aiBytes);
+							} else {
+								writeFragment(finalConvDir, aiSeq, System.currentTimeMillis(), aiBytes);
+								writeSeq(indexPath, aiSeq + 1);
+							}
 						}
-						updateStateMessageCount(conversationId, 2);
+						if (!finalIsRegenerate) {
+							updateStateMessageCount(conversationId, 2);
+						}
 					}
 
 					// Send SSE close
@@ -319,9 +389,13 @@ public class EasyChatService {
 						synchronized (convLock) {
 							if (accumulator.hasContent()) {
 								JsonObject aiMsg = buildAiMessage(accumulator);
-								writeFragment(finalConvDir, aiSeq, System.currentTimeMillis(),
-									JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8));
-								writeSeq(indexPath, aiSeq + 1);
+								byte[] aiBytes = JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8);
+								if (finalIsRegenerate) {
+									appendFragment(finalConvDir, aiSeq, aiBytes);
+								} else {
+									writeFragment(finalConvDir, aiSeq, System.currentTimeMillis(), aiBytes);
+									writeSeq(indexPath, aiSeq + 1);
+								}
 							}
 						}
 					} catch (Exception ex) {
@@ -342,6 +416,7 @@ public class EasyChatService {
 	/**
 	 * Stream conversation history as chunked JSON with zero-copy file regions.
 	 * Payload bytes leave disk via sendfile/splice and never enter JVM heap.
+	 * Returns all variants for AI messages that have been regenerated.
 	 */
 	public void handleStreamChatHistory(ChannelHandlerContext ctx, String conversationId) {
 		if (conversationId == null || conversationId.isBlank()) {
@@ -359,17 +434,33 @@ public class EasyChatService {
 			return;
 		}
 
-		// Phase 1: pre-scan metadata only (no payload bytes read)
+		// Phase 1: pre-scan metadata (read header for count/lengths)
 		long recordCount = 0;
 		long totalSize = 0;
+		long variantCount = 0;
 		try {
 			long seq = 0;
 			while (true) {
 				Path file = fragmentFile(convDir, seq);
 				if (!Files.isRegularFile(file)) break;
-				long sz = Files.size(file);
-				if (sz > FRAG_PAYLOAD_OFFSET) {
-					totalSize += (sz - FRAG_PAYLOAD_OFFSET);
+				int count;
+				try {
+					count = readFragmentCount(convDir, seq);
+				} catch (Exception e) {
+					// Old format without count field, assume 1
+					count = 1;
+				}
+				for (int v = 0; v < count; v++) {
+					int len;
+					try {
+						len = readFragmentLength(convDir, seq, v);
+					} catch (Exception e) {
+						// Old format, compute from file size
+						len = (int) (Files.size(file) - FRAG_PAYLOAD_OFFSET);
+						if (len < 0) len = 0;
+					}
+					totalSize += len;
+					if (v > 0) variantCount++;
 				}
 				recordCount++;
 				seq++;
@@ -382,37 +473,101 @@ public class EasyChatService {
 
 		// Phase 2: build JSON prefix
 		String prefix = "{\"message\":\"success\",\"totalSize\":" + totalSize
-			+ ",\"recordCount\":" + recordCount + ",\"data\":[";
+			+ ",\"recordCount\":" + recordCount + ",\"variantCount\":" + variantCount + ",\"data\":[";
 
 		// Start chunked response
 		HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
 		response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
 		response.headers().set(HttpHeaderNames.TRANSFER_ENCODING, HttpHeaderValues.CHUNKED);
 		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-		ctx.write(response);
-		ctx.write(Unpooled.wrappedBuffer(prefix.getBytes(StandardCharsets.UTF_8)));
+		ctx.writeAndFlush(response);
+		ctx.writeAndFlush(Unpooled.wrappedBuffer(prefix.getBytes(StandardCharsets.UTF_8)));
 
-		// Phase 3: zero-copy fragment loop
+		// Phase 3: zero-copy fragment loop, writeAndFlush for ordering
 		byte[] comma = ",".getBytes(StandardCharsets.UTF_8);
-		byte[] suffix = "]}".getBytes(StandardCharsets.UTF_8);
+		byte[] variantPrefix = "{\"content\":".getBytes(StandardCharsets.UTF_8);
+		byte[] variantSuffix = "}".getBytes(StandardCharsets.UTF_8);
+		byte[] msgSuffix = "]}" .getBytes(StandardCharsets.UTF_8);
+		byte[] dataSuffix = "]}".getBytes(StandardCharsets.UTF_8);
 		try {
 			long seq = 0;
 			boolean first = true;
 			while (true) {
 				Path file = fragmentFile(convDir, seq);
 				if (!Files.isRegularFile(file)) break;
-				long fileSize = Files.size(file);
-				if (fileSize > FRAG_PAYLOAD_OFFSET) {
-					if (!first) {
-						ctx.write(Unpooled.wrappedBuffer(comma));
-					}
-					ctx.write(new DefaultFileRegion(file.toFile(), FRAG_PAYLOAD_OFFSET, fileSize - FRAG_PAYLOAD_OFFSET));
-					first = false;
+
+				int count;
+				try {
+					count = readFragmentCount(convDir, seq);
+				} catch (Exception e) {
+					count = 1;
 				}
+
+				// Read first variant to extract role
+				byte[] firstPayload = readFragmentPayload(convDir, seq, 0);
+
+				// Skip empty messages (deleted messages: file size 188 = 160 header + 28 payload)
+				if (firstPayload != null && firstPayload.length == 28) {
+					seq++;
+					continue;
+				}
+
+				if (!first) {
+					ctx.writeAndFlush(Unpooled.wrappedBuffer(comma));
+				}
+				first = false;
+
+				String role = "unknown";
+				if (firstPayload != null && firstPayload.length > 0) {
+					try {
+						JsonObject msgObj = JsonUtil.tryParseObject(new String(firstPayload, StandardCharsets.UTF_8));
+						if (msgObj != null && msgObj.has("role")) {
+							role = msgObj.get("role").getAsString();
+						}
+					} catch (Exception e) {
+						// ignore
+					}
+				}
+
+				// {"seq":N,"role":"R","variants":[
+				String msgPrefix = "{\"seq\":" + seq + ",\"role\":\"" + escapeJsonString(role)
+					+ "\",\"variants\":[";
+				ctx.writeAndFlush(Unpooled.wrappedBuffer(msgPrefix.getBytes(StandardCharsets.UTF_8)));
+
+				// All variants
+				long variantOffset = FRAG_PAYLOAD_OFFSET;
+				for (int v = 0; v < count; v++) {
+					int vLen;
+					try {
+						vLen = readFragmentLength(convDir, seq, v);
+					} catch (Exception e) {
+						if (v == 0) {
+							vLen = (int) (Files.size(file) - FRAG_PAYLOAD_OFFSET);
+							if (vLen < 0) vLen = 0;
+						} else {
+							vLen = 0;
+						}
+					}
+
+					if (v > 0) {
+						ctx.writeAndFlush(Unpooled.wrappedBuffer(comma));
+					}
+					ctx.writeAndFlush(Unpooled.wrappedBuffer(variantPrefix));
+					if (vLen > 0) {
+						ctx.writeAndFlush(new DefaultFileRegion(file.toFile(), variantOffset, vLen));
+					} else {
+						ctx.writeAndFlush(Unpooled.wrappedBuffer("null".getBytes(StandardCharsets.UTF_8)));
+					}
+					ctx.writeAndFlush(Unpooled.wrappedBuffer(variantSuffix));
+					variantOffset += vLen;
+				}
+
+				ctx.writeAndFlush(Unpooled.wrappedBuffer(msgSuffix));
 				seq++;
 			}
-			ctx.write(Unpooled.wrappedBuffer(suffix));
-			logger.info("[EasyChat] 流式传输历史完成 conversation={} records={} bytes={}", conversationId, recordCount, totalSize);
+			ctx.writeAndFlush(Unpooled.wrappedBuffer(dataSuffix));
+			logger.info("[EasyChat] 流式传输历史完成 conversation={} records={} variants={} bytes={}",
+				conversationId, recordCount, variantCount, totalSize);
 			ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);
 		} catch (Exception e) {
 			logger.info("[EasyChat] 流式传输历史失败 conversation={}", conversationId, e);
@@ -421,7 +576,7 @@ public class EasyChatService {
 	}
 
 	private void sendHistoryError(ChannelHandlerContext ctx, String msg) {
-		byte[] body = ("{\"message\":\"" + msg + "\",\"totalSize\":0,\"recordCount\":0,\"data\":[]}")
+		byte[] body = ("{\"message\":\"" + msg + "\",\"totalSize\":0,\"recordCount\":0,\"variantCount\":0,\"data\":[]}")
 			.getBytes(StandardCharsets.UTF_8);
 		FullHttpResponse resp = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
 		resp.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
@@ -557,6 +712,10 @@ public class EasyChatService {
 			buf.putLong(timestamp);
 			// Seq
 			buf.putLong(seq);
+			// Message count = 1
+			buf.putShort((short) 1);
+			// Lengths table: first entry = payload length
+			buf.putInt(payload.length);
 			// Ensure full 160-byte header written (zero-padded to end)
 			buf.position(FRAG_HEADER_SIZE);
 			buf.flip();
@@ -580,22 +739,145 @@ public class EasyChatService {
 
 	/**
 	 * Read payload from a fragment file, skipping the 160-byte header.
+	 * Equivalent to readFragmentPayload(dir, seq, 0).
 	 */
 	byte[] readFragmentPayload(Path dir, long seq) throws IOException {
+		return readFragmentPayload(dir, seq, 0);
+	}
+
+	/**
+	 * Read a specific variant's payload from a fragment file.
+	 * Uses the length table in the header to locate the variant offset.
+	 */
+	byte[] readFragmentPayload(Path dir, long seq, int variantIndex) throws IOException {
 		Path file = fragmentFile(dir, seq);
 		if (!Files.isRegularFile(file)) {
 			return null;
 		}
-		long size = Files.size(file);
-		if (size <= FRAG_PAYLOAD_OFFSET) {
+		int[] lengths = readFragmentLengths(dir, seq);
+		if (lengths == null || variantIndex >= lengths.length || lengths[variantIndex] == 0) {
 			return new byte[0];
 		}
-		byte[] payload = new byte[(int) (size - FRAG_PAYLOAD_OFFSET)];
+		long offset = FRAG_PAYLOAD_OFFSET;
+		for (int i = 0; i < variantIndex; i++) {
+			offset += lengths[i];
+		}
+		byte[] payload = new byte[lengths[variantIndex]];
 		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
-			raf.seek(FRAG_PAYLOAD_OFFSET);
+			raf.seek(offset);
 			raf.readFully(payload);
 		}
 		return payload;
+	}
+
+	/**
+	 * Read fragment header info: returns array of message lengths (size = count).
+	 */
+	int[] readFragmentInfo(Path dir, long seq) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		if (!Files.isRegularFile(file)) {
+			return null;
+		}
+		int count = readFragmentCount(dir, seq);
+		int[] lengths = new int[count];
+		for (int i = 0; i < count; i++) {
+			lengths[i] = readFragmentLength(dir, seq, i);
+		}
+		return lengths;
+	}
+
+	/**
+	 * Read message count from fragment header (offset 32, 2 bytes).
+	 */
+	private int readFragmentCount(Path dir, long seq) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			raf.seek(FRAG_COUNT_OFFSET);
+			ByteBuffer buf = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
+			raf.getChannel().read(buf);
+			buf.flip();
+			return buf.getShort() & 0xFFFF;
+		}
+	}
+
+	/**
+	 * Read all lengths from fragment length table (offset 34, up to 10 × 4 bytes).
+	 * Returns array of FRAG_MAX_VARIANTS entries (remaining are 0).
+	 */
+	private int[] readFragmentLengths(Path dir, long seq) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		int[] lengths = new int[FRAG_MAX_VARIANTS];
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			raf.seek(FRAG_LENGTHS_OFFSET);
+			ByteBuffer buf = ByteBuffer.allocate(FRAG_LENGTHS).order(ByteOrder.LITTLE_ENDIAN);
+			raf.getChannel().read(buf);
+			buf.flip();
+			for (int i = 0; i < FRAG_MAX_VARIANTS; i++) {
+				lengths[i] = buf.getInt();
+			}
+		}
+		return lengths;
+	}
+
+	/**
+	 * Read a single length entry at given variant index.
+	 */
+	private int readFragmentLength(Path dir, long seq, int variantIndex) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			raf.seek(FRAG_LENGTHS_OFFSET + variantIndex * FRAG_LENGTH_ENTRY);
+			ByteBuffer buf = ByteBuffer.allocate(FRAG_LENGTH_ENTRY).order(ByteOrder.LITTLE_ENDIAN);
+			raf.getChannel().read(buf);
+			buf.flip();
+			return buf.getInt();
+		}
+	}
+
+	/**
+	 * Append a new variant to an existing fragment file.
+	 * Updates header: count++, lengths[newIdx], then appends payload at end of file.
+	 */
+	void appendFragment(Path dir, long seq, byte[] payload) throws IOException {
+		Path file = dir.resolve(fragmentFileName(seq));
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "rw")) {
+			// Read current count
+			raf.seek(FRAG_COUNT_OFFSET);
+			ByteBuffer countBuf = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
+			raf.getChannel().read(countBuf);
+			countBuf.flip();
+			short count = countBuf.getShort();
+
+			if (count >= FRAG_MAX_VARIANTS) {
+				throw new IOException("Fragment seq=" + seq + " already has " + count + " variants (max " + FRAG_MAX_VARIANTS + ")");
+			}
+
+			// Calculate new variant offset: header + sum of existing lengths
+			long payloadOffset = FRAG_PAYLOAD_OFFSET;
+			for (int i = 0; i < count; i++) {
+				raf.seek(FRAG_LENGTHS_OFFSET + i * FRAG_LENGTH_ENTRY);
+				ByteBuffer lenBuf = ByteBuffer.allocate(FRAG_LENGTH_ENTRY).order(ByteOrder.LITTLE_ENDIAN);
+				raf.getChannel().read(lenBuf);
+				lenBuf.flip();
+				payloadOffset += lenBuf.getInt();
+			}
+
+			// Update header: increment count, write new length
+			raf.seek(FRAG_COUNT_OFFSET);
+			ByteBuffer updBuf = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
+			updBuf.putShort((short) (count + 1));
+			updBuf.flip();
+			raf.getChannel().write(updBuf);
+
+			raf.seek(FRAG_LENGTHS_OFFSET + count * FRAG_LENGTH_ENTRY);
+			updBuf = ByteBuffer.allocate(FRAG_LENGTH_ENTRY).order(ByteOrder.LITTLE_ENDIAN);
+			updBuf.putInt(payload.length);
+			updBuf.flip();
+			raf.getChannel().write(updBuf);
+
+			// Append payload at end of file
+			raf.seek(payloadOffset);
+			raf.write(payload);
+		}
 	}
 
 	/* ---- Tools file I/O ---- */
@@ -618,24 +900,38 @@ public class EasyChatService {
 	/* ---- Request body streaming ---- */
 
 	private void writeRequestBody(HttpURLConnection conn, String modelId, String systemPrompt,
-		Path convDir, byte[] toolsBytes, JsonObject samplingParams) throws IOException {
+		Path convDir, byte[] toolsBytes, JsonObject samplingParams,
+		Map<Long, Integer> variants, Long regenerateSeq) throws IOException {
 
 		StringBuilder sb = new StringBuilder();
-		sb.append("{\"model\":\"").append(escapeJsonString(modelId)).append("\",\"stream\":true,\"messages\":[\n");
+		sb.append("{\"model\":\"").append(escapeJsonString(modelId)).append("\",\"stream\":true,\"timings_per_token\":true,\"return_progress\":true,\"messages\":[\n");
 
 		// System prompt
 		if (systemPrompt != null && !systemPrompt.isBlank()) {
 			sb.append("{\"role\":\"system\",\"content\":\"").append(escapeJsonString(systemPrompt)).append("\"},\n");
 		}
 
-		// Stream fragment payloads (includes the user message just written)
+		// Stream fragment payloads
 		long seq = 0;
 		boolean first = true;
-		logger.info("[EasyChat] 构建请求体 convDir={}", convDir.toAbsolutePath());
+		logger.info("[EasyChat] 构建请求体 convDir={} regenerateSeq={} variants={}",
+			convDir.toAbsolutePath(), regenerateSeq, variants);
 		while (true) {
 			byte[] payload = readFragmentPayload(convDir, seq);
 			logger.info("[EasyChat] 读取碎片 seq={} found={}", seq, payload != null);
 			if (payload == null) break;
+
+			// For regenerate: stop before the AI message being regenerated
+			if (regenerateSeq != null && seq == regenerateSeq) {
+				break;
+			}
+
+			// For AI messages, use specified variant if available
+			if (variants != null && variants.containsKey(seq)) {
+				int variantIdx = variants.get(seq);
+				payload = readFragmentPayload(convDir, seq, variantIdx);
+			}
+
 			if (!first) {
 				sb.append(',');
 			}
@@ -648,9 +944,14 @@ public class EasyChatService {
 		// Close messages array
 		sb.append(']');
 
-		// Tools
+		// Tools — parse and inline fields into the main JSON object
 		if (toolsBytes != null && toolsBytes.length > 0) {
-			sb.append(',').append(new String(toolsBytes, StandardCharsets.UTF_8));
+			JsonObject toolsObj = JsonUtil.tryParseObject(new String(toolsBytes, StandardCharsets.UTF_8));
+			if (toolsObj != null) {
+				for (String key : toolsObj.keySet()) {
+					sb.append(',').append('"').append(key).append('"').append(':').append(JsonUtil.toJson(toolsObj.get(key)));
+				}
+			}
 		}
 
 		// Sampling params from header (applied by ModelSamplingService)
@@ -664,7 +965,7 @@ public class EasyChatService {
 				if ("model".equals(key) || "stream".equals(key) || "messages".equals(key) || "samplingParams".equals(key)) {
 					continue;
 				}
-				sb.append(',').append(key).append(':').append(JsonUtil.toJson(tempReq.get(key)));
+				sb.append(',').append('"').append(key).append('"').append(':').append(JsonUtil.toJson(tempReq.get(key)));
 			}
 		}
 
@@ -715,6 +1016,7 @@ public class EasyChatService {
 		// Accumulated tool calls: index -> {id, type, function:{name, arguments}}
 		final Map<Integer, JsonObject> toolCalls = new HashMap<>();
 		String finishReason = null;
+		JsonObject timings = null;
 
 		boolean hasContent() {
 			return content.length() > 0 || reasoningContent.length() > 0 || !toolCalls.isEmpty();
@@ -752,6 +1054,9 @@ public class EasyChatService {
 				JsonObject json = JsonUtil.tryParseObject(data);
 				if (json != null) {
 					accumulateDelta(json, accumulator, toolCallIds);
+					if (json.has("timings")) {
+						accumulator.timings = json.getAsJsonObject("timings");
+					}
 					boolean changed = JsonUtil.ensureToolCallIds(json, toolCallIds);
 					if (changed) {
 						line = "data: " + JsonUtil.toJson(json);
@@ -888,6 +1193,10 @@ public class EasyChatService {
 			msg.add("tool_calls", tcArray);
 		}
 
+		if (acc.timings != null) {
+			msg.add("timings", acc.timings);
+		}
+
 		return msg;
 	}
 
@@ -954,6 +1263,172 @@ public class EasyChatService {
 			Files.createDirectories(dir);
 		}
 		return dir;
+	}
+
+	/* ---- Delete operations ---- */
+
+	/**
+	 * Delete an entire conversation: remove fragment directory.
+	 */
+	public void deleteConversation(String conversationId) throws Exception {
+		Path fragmentsBase = getFragmentsDir();
+		Path dir = fragmentsBase.resolve(conversationId);
+		if (!Files.exists(dir)) {
+			logger.info("[EasyChat] 删除会话: 目录不存在 conversationId={}", conversationId);
+			return;
+		}
+		Files.walkFileTree(dir, new java.nio.file.SimpleFileVisitor<Path>() {
+			@Override
+			public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) throws IOException {
+				Files.delete(file);
+				return java.nio.file.FileVisitResult.CONTINUE;
+			}
+			@Override
+			public java.nio.file.FileVisitResult postVisitDirectory(Path d, IOException exc) throws IOException {
+				Files.delete(d);
+				return java.nio.file.FileVisitResult.CONTINUE;
+			}
+		});
+		logger.info("[EasyChat] 删除会话成功 conversationId={}", conversationId);
+	}
+
+	/**
+	 * Delete a message: clear fragment payload.
+	 * If variantIndex is not null, only clear that variant (AI message).
+	 * If variantIndex is null, clear the entire payload (user message).
+	 */
+	public void deleteMessage(String conversationId, long seq, Integer variantIndex) throws Exception {
+		Path fragmentsBase = getFragmentsDir();
+		Path dir = fragmentsBase.resolve(conversationId);
+		if (!Files.exists(dir)) {
+			throw new IOException("Conversation directory not found: " + conversationId);
+		}
+		if (variantIndex != null) {
+			clearFragmentVariant(dir, seq, variantIndex);
+		} else {
+			clearFragmentPayload(dir, seq);
+		}
+	}
+
+	/**
+	 * Clear the entire payload of a fragment file.
+	 * Replaces the payload with empty JSON content.
+	 */
+	private void clearFragmentPayload(Path dir, long seq) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		if (!Files.isRegularFile(file)) {
+			logger.warn("[EasyChat] 清空碎片: 文件不存在 seq={}", seq);
+			return;
+		}
+		// Read header to preserve metadata
+		byte[] header = new byte[FRAG_HEADER_SIZE];
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			raf.readFully(header);
+		}
+		// Build empty payload
+		byte[] emptyPayload = "{\"role\":\"user\",\"content\":\"\"}".getBytes(StandardCharsets.UTF_8);
+		// Rewrite file: header + empty payload
+		Path temp = file.resolveSibling(file.getFileName().toString() + ".tmp");
+		try (RandomAccessFile raf = new RandomAccessFile(temp.toFile(), "rw")) {
+			FileChannel ch = raf.getChannel();
+			// Write header with updated length
+			ByteBuffer hdrBuf = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
+			// Reset count to 1
+			hdrBuf.position(FRAG_COUNT_OFFSET);
+			hdrBuf.putShort((short) 1);
+			// Reset lengths table
+			hdrBuf.position(FRAG_LENGTHS_OFFSET);
+			hdrBuf.putInt(emptyPayload.length);
+			// Zero out remaining length entries
+			for (int i = 1; i < FRAG_MAX_VARIANTS; i++) {
+				hdrBuf.putInt(0);
+			}
+			hdrBuf.position(FRAG_HEADER_SIZE);
+			hdrBuf.flip();
+			ch.write(hdrBuf);
+			ch.write(ByteBuffer.wrap(emptyPayload));
+		}
+		Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+		logger.info("[EasyChat] 清空碎片 payload 成功 seq={}", seq);
+	}
+
+	/**
+	 * Clear a specific variant in a fragment file.
+	 * Replaces the variant's payload with empty JSON, updates lengths table.
+	 */
+	private void clearFragmentVariant(Path dir, long seq, int variantIndex) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		if (!Files.isRegularFile(file)) {
+			logger.warn("[EasyChat] 清空变体: 文件不存在 seq={}", seq);
+			return;
+		}
+		// Read header
+		byte[] header = new byte[FRAG_HEADER_SIZE];
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			raf.readFully(header);
+		}
+		ByteBuffer hdrBuf = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
+		hdrBuf.position(FRAG_COUNT_OFFSET);
+		short count = hdrBuf.getShort();
+		if (variantIndex < 0 || variantIndex >= count) {
+			throw new IOException("Variant index " + variantIndex + " out of range for seq=" + seq + " (count=" + count + ")");
+		}
+		// Read all lengths
+		int[] lengths = new int[FRAG_MAX_VARIANTS];
+		hdrBuf.position(FRAG_LENGTHS_OFFSET);
+		for (int i = 0; i < FRAG_MAX_VARIANTS; i++) {
+			lengths[i] = hdrBuf.getInt();
+		}
+		// Read all variant payloads
+		byte[][] payloads = new byte[count][];
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			for (int i = 0; i < count; i++) {
+				if (lengths[i] == 0) {
+					payloads[i] = new byte[0];
+					continue;
+				}
+				long offset = FRAG_PAYLOAD_OFFSET;
+				for (int j = 0; j < i; j++) {
+					offset += lengths[j];
+				}
+				payloads[i] = new byte[lengths[i]];
+				raf.seek(offset);
+				raf.readFully(payloads[i]);
+			}
+		}
+		// Remove the target variant: shift remaining variants down
+		int newCount = count - 1;
+		for (int i = variantIndex; i < newCount; i++) {
+			payloads[i] = payloads[i + 1];
+			lengths[i] = lengths[i + 1];
+		}
+		lengths[newCount] = 0;
+		// Update count in header
+		hdrBuf.position(FRAG_COUNT_OFFSET);
+		hdrBuf.putShort((short) newCount);
+		// Rewrite file
+		Path temp = file.resolveSibling(file.getFileName().toString() + ".tmp");
+		try (RandomAccessFile raf = new RandomAccessFile(temp.toFile(), "rw")) {
+			FileChannel ch = raf.getChannel();
+			// Write header
+			ByteBuffer outBuf = ByteBuffer.allocate(FRAG_HEADER_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+			outBuf.put(header);
+			outBuf.position(FRAG_LENGTHS_OFFSET);
+			for (int i = 0; i < FRAG_MAX_VARIANTS; i++) {
+				outBuf.putInt(lengths[i]);
+			}
+			outBuf.position(FRAG_HEADER_SIZE);
+			outBuf.flip();
+			ch.write(outBuf);
+			// Write compacted payloads
+			for (int i = 0; i < newCount; i++) {
+				if (payloads[i].length > 0) {
+					ch.write(ByteBuffer.wrap(payloads[i]));
+				}
+			}
+		}
+		Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+		logger.info("[EasyChat] 删除变体成功 seq={} variantIndex={} count={} -> {}", seq, variantIndex, count, newCount);
 	}
 
 	private Path indexPath(Path convDir) {

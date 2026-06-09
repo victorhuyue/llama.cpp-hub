@@ -64,6 +64,7 @@ public class EasyChatController implements BaseController {
 	private static final String PATH_CONVERSATION_SAVE = "/api/easy-chat/conversation/save";
 	private static final String PATH_CONVERSATION = "/api/easy-chat/conversation";
 	private static final String PATH_SYNC = "/api/easy-chat/sync";
+	private static final String PATH_DELETE = "/api/easy-chat/delete";
 
 	@Override
 	public boolean handleRequest(String uri, ChannelHandlerContext ctx, FullHttpRequest request)
@@ -94,6 +95,10 @@ public class EasyChatController implements BaseController {
 		}
 		if (uri.startsWith(PATH_STATE)) {
 			this.handleStateRequest(ctx, request);
+			return true;
+		}
+		if (uri.startsWith(PATH_DELETE)) {
+			this.handleDeleteRequest(ctx, request);
 			return true;
 		}
 		return false;
@@ -278,6 +283,80 @@ public class EasyChatController implements BaseController {
 			logger.info("同步 easy-chat 状态失败", e);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("同步 easy-chat 状态失败: " + e.getMessage()));
 		}
+	}
+
+	private void handleDeleteRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		this.assertRequestMethod(request.method() != HttpMethod.DELETE, "只支持DELETE请求");
+		try {
+			JsonObject body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
+			if (body == null) {
+				return;
+			}
+			String type = JsonUtil.getJsonString(body, "type", "");
+			String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
+			if (type == null || type.isEmpty() || conversationId == null || conversationId.isEmpty()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("type 和 conversationId 为必填项"));
+				return;
+			}
+			EasyChatService service = EasyChatService.getInstance();
+			Path stateDir = this.getStateDirPath();
+			Path stateFile = this.getStateFilePath(stateDir);
+			if ("conversation".equals(type)) {
+				synchronized (STATE_LOCK) {
+					service.deleteConversation(conversationId);
+					this.removeFromStateConversations(stateFile, conversationId);
+				}
+			} else if ("message".equals(type)) {
+				long seq = body.has("seq") ? body.get("seq").getAsLong() : -1;
+				if (seq < 0) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("message 类型删除需要指定 seq"));
+					return;
+				}
+				Integer variantIndex = null;
+				if (body.has("variantIndex") && !body.get("variantIndex").isJsonNull()) {
+					variantIndex = body.get("variantIndex").getAsInt();
+				}
+				service.deleteMessage(conversationId, seq, variantIndex);
+			} else {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("未知的 type: " + type));
+				return;
+			}
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(Map.of("deleted", true)));
+		} catch (Exception e) {
+			logger.info("删除 easy-chat 数据失败", e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("删除失败: " + e.getMessage()));
+		}
+	}
+
+	private void removeFromStateConversations(Path stateFile, String conversationId) throws Exception {
+		JsonObject stored = this.readJsonObjectIfExists(stateFile);
+		if (stored == null || !stored.has("conversations")) {
+			return;
+		}
+		JsonArray conversations = stored.getAsJsonArray("conversations");
+		JsonArray filtered = new JsonArray();
+		for (int i = 0; i < conversations.size(); i++) {
+			JsonObject conv = conversations.get(i).getAsJsonObject();
+			String id = JsonUtil.getJsonString(conv, "id", "");
+			if (!conversationId.equals(id)) {
+				filtered.add(conv);
+			} else {
+				int messageCount = conv.has("messageCount") ? conv.get("messageCount").getAsInt() : 0;
+				updateStateMessageCount(stateFile, -messageCount);
+			}
+		}
+		stored.add("conversations", filtered);
+		this.writeJsonFile(stateFile, stored);
+	}
+
+	private void updateStateMessageCount(Path stateFile, int delta) throws Exception {
+		JsonObject stored = this.readJsonObjectIfExists(stateFile);
+		if (stored == null) {
+			return;
+		}
+		int current = stored.has("messageCount") ? stored.get("messageCount").getAsInt() : 0;
+		stored.addProperty("messageCount", Math.max(0, current + delta));
+		this.writeJsonFile(stateFile, stored);
 	}
 
 	private JsonObject loadStateSummary(Path stateFile) throws Exception {
@@ -505,10 +584,22 @@ public class EasyChatController implements BaseController {
 		}
 		Path tempFile = file.resolveSibling(file.getFileName().toString() + ".tmp");
 		Files.writeString(tempFile, JsonUtil.toJson(json), StandardCharsets.UTF_8);
-		try {
-			Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		} catch (Exception e) {
-			Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING);
+		for (int attempt = 0; attempt < 3; attempt++) {
+			try {
+				Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+				return;
+			} catch (Exception e) {
+				try {
+					Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING);
+					return;
+				} catch (Exception fallbackE) {
+					if (attempt < 2) {
+						Thread.sleep(50 + attempt * 100);
+					} else {
+						throw fallbackE;
+					}
+				}
+			}
 		}
 	}
 

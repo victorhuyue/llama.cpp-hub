@@ -65,6 +65,7 @@ public class EasyChatController implements BaseController {
 	private static final String PATH_CONVERSATION = "/api/easy-chat/conversation";
 	private static final String PATH_SYNC = "/api/easy-chat/sync";
 	private static final String PATH_DELETE = "/api/easy-chat/delete";
+	private static final String PATH_MESSAGE_UPDATE = "/api/easy-chat/message/update";
 
 	@Override
 	public boolean handleRequest(String uri, ChannelHandlerContext ctx, FullHttpRequest request)
@@ -99,6 +100,10 @@ public class EasyChatController implements BaseController {
 		}
 		if (uri.startsWith(PATH_DELETE)) {
 			this.handleDeleteRequest(ctx, request);
+			return true;
+		}
+		if (uri.startsWith(PATH_MESSAGE_UPDATE)) {
+			this.handleMessageUpdateRequest(ctx, request);
 			return true;
 		}
 		return false;
@@ -325,6 +330,43 @@ public class EasyChatController implements BaseController {
 		} catch (Exception e) {
 			logger.info("删除 easy-chat 数据失败", e);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("删除失败: " + e.getMessage()));
+		}
+	}
+
+	private void handleMessageUpdateRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+		try {
+			JsonObject body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
+			if (body == null) {
+				return;
+			}
+			String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
+			if (conversationId == null || conversationId.isEmpty()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("conversationId 为必填项"));
+				return;
+			}
+			if (!body.has("seq") || body.get("seq").isJsonNull()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("seq 为必填项"));
+				return;
+			}
+			long seq = body.get("seq").getAsLong();
+			int variantIndex = body.has("variantIndex") && !body.get("variantIndex").isJsonNull()
+				? body.get("variantIndex").getAsInt() : 0;
+			JsonObject payloadObj = body.has("payload") && !body.get("payload").isJsonNull()
+				? body.getAsJsonObject("payload") : null;
+			if (payloadObj == null) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("payload 为必填项"));
+				return;
+			}
+			byte[] payloadBytes = JsonUtil.toJson(payloadObj).getBytes(StandardCharsets.UTF_8);
+			EasyChatService service = EasyChatService.getInstance();
+			Path fragmentsBase = service.getFragmentsDir();
+			Path convDir = fragmentsBase.resolve(conversationId);
+			service.updateFragmentVariant(convDir, seq, variantIndex, payloadBytes);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(Map.of("updated", true, "seq", seq)));
+		} catch (Exception e) {
+			logger.info("更新 easy-chat 消息失败", e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("更新消息失败: " + e.getMessage()));
 		}
 	}
 

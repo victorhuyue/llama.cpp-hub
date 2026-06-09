@@ -508,6 +508,7 @@
     const EASY_CHAT_CONVERSATION_ENDPOINT = '/api/easy-chat/conversation';
     const EASY_CHAT_SYNC_ENDPOINT = '/api/easy-chat/sync';
     const EASY_CHAT_DELETE_ENDPOINT = '/api/easy-chat/delete';
+    const EASY_CHAT_MESSAGE_UPDATE_ENDPOINT = '/api/easy-chat/message/update';
     const STATE_REVISION_CONFLICT_CODE = 'STATE_REVISION_CONFLICT';
     const STATE_LOAD_TIMEOUT_MS = 30000;
     const STATE_SAVE_TIMEOUT_MS = 20000;
@@ -4776,13 +4777,13 @@
       }
       message.content = nextContent;
       if (message.role === 'assistant') {
-        message.reasoning = '';
+        const savedReasoning = message.reasoning || '';
         message.timings = null;
         message.performanceText = '';
         const activeResponse = getActiveAssistantResponse(message);
         if (activeResponse) {
           activeResponse.content = nextContent;
-          activeResponse.reasoning = '';
+          activeResponse.reasoning = savedReasoning;
           activeResponse.timings = null;
           activeResponse.performanceText = '';
           syncAssistantMessageState(message);
@@ -4795,6 +4796,28 @@
       renderConversationList();
       renderMessages();
       persistState();
+      // Sync fragment file
+      const seq = message.fragmentSeq != null
+        ? message.fragmentSeq
+        : (message.order != null ? message.order : null);
+      if (seq != null) {
+        const variantIndex = message.role === 'assistant'
+          ? (message.activeResponseIndex != null ? message.activeResponseIndex : 0)
+          : 0;
+        const payload = JSON.parse(buildFragmentPayload(message));
+        fetch(EASY_CHAT_MESSAGE_UPDATE_ENDPOINT, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            conversationId: conversation.id,
+            seq: seq,
+            variantIndex: variantIndex,
+            payload: payload
+          })
+        }).catch(function(err) {
+          console.error('[EasyChat] 同步消息碎片失败', err);
+        });
+      }
       showToast('success', window.I18N.t('page.chat.main.toast.message_updated', '消息已更新'));
     }
 
@@ -4862,10 +4885,24 @@
           els.statusDot.classList.add('loading');
           updateStatus('ready', window.I18N.t('page.chat.main.status.generating', '正在生成回复…'), window.I18N.t('page.chat.main.status.generating_short', '生成中'));
 
-          const streamHeaders = buildStreamChatHeaders(conversationId, assistant, {
-            regenerateSeq: isRegenerate ? options.regenerateSeq : undefined
-          });
           const conversation = getCurrentConversation();
+
+          // Collect X-Variants: seq:activeResponseIndex for each assistant message with multiple responses
+          const variantPairs = [];
+          for (const msg of (conversation?.messages || [])) {
+            if (msg.role === 'assistant' && msg.responses && msg.responses.length > 1) {
+              const msgSeq = msg.fragmentSeq != null ? msg.fragmentSeq : msg.order;
+              const msgIdx = msg.activeResponseIndex != null ? msg.activeResponseIndex : 0;
+              if (msgSeq != null) {
+                variantPairs.push(msgSeq + ':' + msgIdx);
+              }
+            }
+          }
+
+          const streamHeaders = buildStreamChatHeaders(conversationId, assistant, {
+            regenerateSeq: isRegenerate ? options.regenerateSeq : undefined,
+            variantsStr: variantPairs.length > 0 ? variantPairs.join(',') : undefined
+          });
 
           let bodyStr;
           if (isRegenerate) {
@@ -5042,9 +5079,11 @@
       }
 
       let assistantMessageIndex = conversation.messages.length - 1;
+      let truncatedMessages = null;
 
       if (message.role === 'assistant') {
         const assistantIdx = index;
+        truncatedMessages = conversation.messages.slice(assistantIdx + 1);
         conversation.messages = conversation.messages.slice(0, assistantIdx + 1);
         const assistantMessage = conversation.messages[assistantIdx];
         syncAssistantMessageState(assistantMessage);
@@ -5094,6 +5133,12 @@
         targetAssistantIndex: assistantMessageIndex,
         regenerateSeq
       });
+      // Restore messages that were truncated during regenerate
+      if (truncatedMessages && truncatedMessages.length > 0) {
+        conversation.messages.push(...truncatedMessages);
+        renderMessages();
+        persistState();
+      }
     }
 
     async function deleteMessage(index) {
@@ -5352,9 +5397,27 @@
       return JSON.stringify(msg);
     }
 
+    function buildFragmentPayload(message) {
+      if (!message || message.role === 'assistant') {
+        const obj = { role: message?.role || 'assistant', content: message?.content || '' };
+        const reasoning = message?.reasoning;
+        if (reasoning) {
+          obj.reasoning_content = reasoning;
+        }
+        return JSON.stringify(obj);
+      }
+      const text = message.content || '';
+      const images = getMessageImages(message);
+      const files = getMessageTextFiles(message);
+      const audios = getMessageAudioFiles(message);
+      const videos = getMessageVideoFiles(message);
+      return buildStreamUserMessage(text, images, files, audios, videos);
+    }
+
     function convertHistoryMessage(msg) {
       if (!msg || !msg.variants || !msg.variants.length) return null;
-      const variant = msg.variants[0];
+      const activeIdx = msg.activeVariant || 0;
+      const variant = msg.variants[activeIdx] || msg.variants[0];
       const payload = variant?.content || {};
       const role = payload.role || msg.role || '';
       const content = typeof payload.content === 'string' ? payload.content : (typeof payload.content === 'object' ? JSON.stringify(payload.content) : '');
@@ -5386,7 +5449,7 @@
             }
             return resp;
           });
-          out.activeResponseIndex = 0;
+          out.activeResponseIndex = activeIdx;
         }
       } else if (role === 'tool') {
         out.toolCallId = payload.tool_call_id || '';

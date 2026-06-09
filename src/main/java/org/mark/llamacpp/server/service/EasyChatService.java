@@ -24,8 +24,10 @@ import java.util.concurrent.Executors;
 
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
+import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.struct.CharactorDataStruct;
+import org.mark.llamacpp.server.struct.Timing;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,7 +85,8 @@ public class EasyChatService {
 	private static final int FRAG_HEADER_SIZE = 160;
 	private static final int FRAG_PAYLOAD_OFFSET = 160;
 	private static final int FRAG_COUNT_OFFSET = 32;
-	private static final int FRAG_LENGTHS_OFFSET = 34;
+	private static final int FRAG_ACTIVE_VARIANT_OFFSET = 34;
+	private static final int FRAG_LENGTHS_OFFSET = 36;
 	private static final int FRAG_MAX_VARIANTS = 10;
 	private static final int FRAG_LENGTH_ENTRY = 4;
 	private static final int FRAG_LENGTHS = FRAG_MAX_VARIANTS * FRAG_LENGTH_ENTRY;
@@ -95,24 +98,7 @@ public class EasyChatService {
 	private EasyChatService() {
 	}
 
-	/**
-	 * Index file data holder.
-	 */
-	private static final class Index {
-		final String convName;
-		final long startTime;
-		final String assistantName;
-		final long seq;
-
-		Index(String convName, long startTime, String assistantName, long seq) {
-			this.convName = convName;
-			this.startTime = startTime;
-			this.assistantName = assistantName;
-			this.seq = seq;
-       }
-    }
-
-    /**
+   /**
      * Decode a URL-encoded header value. Returns the original string if decoding fails.
      */
     private static String decodeHeader(String value) {
@@ -282,16 +268,16 @@ public class EasyChatService {
 					createIndex(indexPath, "", System.currentTimeMillis(), assistantName);
 				}
 
-				Index idx = readIndex(indexPath);
+				long idxSeq = readIndexSeq(indexPath);
 
 				if (isRegenerate) {
 					// Regenerate: reuse existing AI seq, don't write user fragment
 					userSeq = -1;
 					aiSeq = regenerateSeq;
 				} else {
-					userSeq = idx.seq;
-					aiSeq = idx.seq + 1;
-					writeSeq(indexPath, idx.seq + 2);
+					userSeq = idxSeq;
+					aiSeq = idxSeq + 1;
+					writeSeq(indexPath, idxSeq + 2);
 
 					// Write user fragment (raw body bytes, no JSON parsing)
 					writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
@@ -310,6 +296,13 @@ public class EasyChatService {
 					toolsBytes = JsonUtil.toJson(toolsObj).getBytes(StandardCharsets.UTF_8);
 				} else {
 					toolsBytes = readTools(convDir);
+				}
+
+				// Persist X-Variants to fragment headers
+				if (variants != null) {
+					for (Map.Entry<Long, Integer> entry : variants.entrySet()) {
+						writeActiveVariantIndex(convDir, entry.getKey(), entry.getValue());
+					}
 				}
 			}
 
@@ -357,7 +350,7 @@ public class EasyChatService {
 					ctx.flush();
 
 					// Read and proxy SSE stream
-					boolean finished = proxySseStream(ctx, connection, finalModelId, accumulator);
+					proxySseStream(ctx, connection, finalModelId, accumulator);
 
 					// Write AI fragment and update state (always, if buffer has content)
 					synchronized (convLock) {
@@ -373,6 +366,20 @@ public class EasyChatService {
 						}
 						if (!finalIsRegenerate) {
 							updateStateMessageCount(conversationId, 2);
+						}
+					}
+
+					// Record usage to LlamaRecordService
+					if (accumulator.timings != null) {
+						try {
+							Timing timing = timingFromJson(accumulator.timings);
+							ActiveRequest activeReq = new ActiveRequest(conversationId, finalModelId, "chat/completions");
+							activeReq.setTiming(timing);
+							activeReq.setStatus(ActiveRequest.RequestStatus.COMPLETED);
+							activeReq.setPhase(ActiveRequest.Phase.GENERATION);
+							LlamaRecordService.getInstance().recordRequest(activeReq);
+						} catch (Exception e) {
+							logger.warn("[EasyChat] 记录用量失败 conversation={}", conversationId, e);
 						}
 					}
 
@@ -400,6 +407,19 @@ public class EasyChatService {
 						}
 					} catch (Exception ex) {
 						logger.warn("[EasyChat] 异常状态下写入AI碎片失败", ex);
+					}
+					// Record usage even on error if timings available
+					if (accumulator.timings != null) {
+						try {
+							Timing timing = timingFromJson(accumulator.timings);
+							ActiveRequest activeReq = new ActiveRequest(conversationId, finalModelId, "chat/completions");
+							activeReq.setTiming(timing);
+							activeReq.setStatus(ActiveRequest.RequestStatus.FAILED);
+							activeReq.setPhase(ActiveRequest.Phase.GENERATION);
+							LlamaRecordService.getInstance().recordRequest(activeReq);
+						} catch (Exception ex) {
+							logger.warn("[EasyChat] 异常状态下记录用量失败 conversation={}", conversationId, ex);
+						}
 					}
 					sendOpenAIError(ctx, 500, e.getMessage());
 				} finally {
@@ -529,9 +549,10 @@ public class EasyChatService {
 					}
 				}
 
-				// {"seq":N,"role":"R","variants":[
+				// {"seq":N,"role":"R","activeVariant":N,"variants":[
+				int activeVariant = readActiveVariantIndex(convDir, seq);
 				String msgPrefix = "{\"seq\":" + seq + ",\"role\":\"" + escapeJsonString(role)
-					+ "\",\"variants\":[";
+					+ "\",\"activeVariant\":" + activeVariant + ",\"variants\":[";
 				ctx.writeAndFlush(Unpooled.wrappedBuffer(msgPrefix.getBytes(StandardCharsets.UTF_8)));
 
 				// All variants
@@ -648,39 +669,15 @@ public class EasyChatService {
 		}
 	}
 
-	private Index readIndex(Path indexPath) throws IOException {
-		try (RandomAccessFile raf = new RandomAccessFile(indexPath.toFile(), "r")) {
-			FileChannel ch = raf.getChannel();
-			ByteBuffer buf = ByteBuffer.allocate(INDEX_FILE_SIZE).order(ByteOrder.LITTLE_ENDIAN);
-			ch.read(buf);
-			buf.flip();
-
-			// Skip header
-			buf.position(IDX_HEADER);
-
-			// Conv name
-			int cnLen = buf.getInt();
-			byte[] cnBytes = new byte[cnLen];
-			buf.get(cnBytes);
-			String convName = new String(cnBytes, StandardCharsets.UTF_8);
-			buf.position(buf.position() + (IDX_CONV_NAME - cnLen));
-
-			// Start time
-			long startTime = buf.getLong();
-
-			// Assistant name
-			int anLen = buf.getInt();
-			byte[] anBytes = new byte[anLen];
-			buf.get(anBytes);
-			String assistantName = new String(anBytes, StandardCharsets.UTF_8);
-			buf.position(buf.position() + (IDX_ASSISTANT_NAME - anLen));
-
-			// Seq
-			long seq = buf.getLong();
-
-			return new Index(convName, startTime, assistantName, seq);
-		}
-	}
+   private long readIndexSeq(Path indexPath) throws IOException {
+        try (RandomAccessFile raf = new RandomAccessFile(indexPath.toFile(), "r")) {
+            raf.seek(INDEX_FILE_SIZE - IDX_SEQ);
+            ByteBuffer buf = ByteBuffer.allocate(IDX_SEQ).order(ByteOrder.LITTLE_ENDIAN);
+            raf.getChannel().read(buf);
+            buf.flip();
+            return buf.getLong();
+        }
+    }
 
 	private void writeSeq(Path indexPath, long seq) throws IOException {
 		try (RandomAccessFile raf = new RandomAccessFile(indexPath.toFile(), "rw")) {
@@ -714,6 +711,8 @@ public class EasyChatService {
 			buf.putLong(seq);
 			// Message count = 1
 			buf.putShort((short) 1);
+			// Active variant index = 0 (first/only variant)
+			buf.putShort((short) 0);
 			// Lengths table: first entry = payload length
 			buf.putInt(payload.length);
 			// Ensure full 160-byte header written (zero-padded to end)
@@ -834,6 +833,44 @@ public class EasyChatService {
 	}
 
 	/**
+	 * Read active variant index from fragment header (offset 34, 2 bytes).
+	 * Returns 0 if file doesn't exist or read fails.
+	 */
+	private int readActiveVariantIndex(Path dir, long seq) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		if (!Files.isRegularFile(file)) {
+			return 0;
+		}
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			raf.seek(FRAG_ACTIVE_VARIANT_OFFSET);
+			ByteBuffer buf = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
+			raf.getChannel().read(buf);
+			buf.flip();
+			short val = buf.getShort();
+			return val >= 0 ? val : 0;
+		} catch (Exception e) {
+			return 0;
+		}
+	}
+
+	/**
+	 * Write active variant index to fragment header (offset 34, 2 bytes).
+	 */
+	private void writeActiveVariantIndex(Path dir, long seq, int idx) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		if (!Files.isRegularFile(file)) {
+			return;
+		}
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "rw")) {
+			raf.seek(FRAG_ACTIVE_VARIANT_OFFSET);
+			ByteBuffer buf = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
+			buf.putShort((short) idx);
+			buf.flip();
+			raf.getChannel().write(buf);
+		}
+	}
+
+	/**
 	 * Append a new variant to an existing fragment file.
 	 * Updates header: count++, lengths[newIdx], then appends payload at end of file.
 	 */
@@ -871,6 +908,13 @@ public class EasyChatService {
 			raf.seek(FRAG_LENGTHS_OFFSET + count * FRAG_LENGTH_ENTRY);
 			updBuf = ByteBuffer.allocate(FRAG_LENGTH_ENTRY).order(ByteOrder.LITTLE_ENDIAN);
 			updBuf.putInt(payload.length);
+			updBuf.flip();
+			raf.getChannel().write(updBuf);
+
+			// Set active variant to the newly appended variant
+			raf.seek(FRAG_ACTIVE_VARIANT_OFFSET);
+			updBuf = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
+			updBuf.putShort((short) count);
 			updBuf.flip();
 			raf.getChannel().write(updBuf);
 
@@ -926,10 +970,15 @@ public class EasyChatService {
 				break;
 			}
 
-			// For AI messages, use specified variant if available
+			// For AI messages, use specified variant if available, fallback to fragment header
 			if (variants != null && variants.containsKey(seq)) {
 				int variantIdx = variants.get(seq);
 				payload = readFragmentPayload(convDir, seq, variantIdx);
+			} else {
+				int activeVariant = readActiveVariantIndex(convDir, seq);
+				if (activeVariant > 0) {
+					payload = readFragmentPayload(convDir, seq, activeVariant);
+				}
 			}
 
 			if (!first) {
@@ -1015,7 +1064,6 @@ public class EasyChatService {
 		final StringBuilder reasoningContent = new StringBuilder();
 		// Accumulated tool calls: index -> {id, type, function:{name, arguments}}
 		final Map<Integer, JsonObject> toolCalls = new HashMap<>();
-		String finishReason = null;
 		JsonObject timings = null;
 
 		boolean hasContent() {
@@ -1074,11 +1122,6 @@ public class EasyChatService {
 		JsonArray choices = json.getAsJsonArray("choices");
 		if (choices.size() == 0) return;
 		JsonObject choice = choices.get(0).getAsJsonObject();
-
-		// Finish reason
-		if (choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()) {
-			acc.finishReason = JsonUtil.getJsonString(choice, "finish_reason", null);
-		}
 
 		// Delta
 		if (!choice.has("delta") || !choice.get("delta").isJsonObject()) return;
@@ -1200,6 +1243,24 @@ public class EasyChatService {
 		return msg;
 	}
 
+	/* ---- Timing conversion ---- */
+
+	private Timing timingFromJson(JsonObject timingsJson) {
+		Timing timing = new Timing();
+		if (timingsJson.has("cache_n")) timing.setCache_n(timingsJson.get("cache_n").getAsInt());
+		if (timingsJson.has("prompt_n")) timing.setPrompt_n(timingsJson.get("prompt_n").getAsInt());
+		if (timingsJson.has("prompt_ms")) timing.setPrompt_ms(timingsJson.get("prompt_ms").getAsDouble());
+		if (timingsJson.has("prompt_per_token_ms")) timing.setPrompt_per_token_ms(timingsJson.get("prompt_per_token_ms").getAsDouble());
+		if (timingsJson.has("prompt_per_second")) timing.setPrompt_per_second(timingsJson.get("prompt_per_second").getAsDouble());
+		if (timingsJson.has("predicted_n")) timing.setPredicted_n(timingsJson.get("predicted_n").getAsInt());
+		if (timingsJson.has("predicted_ms")) timing.setPredicted_ms(timingsJson.get("predicted_ms").getAsDouble());
+		if (timingsJson.has("predicted_per_token_ms")) timing.setPredicted_per_token_ms(timingsJson.get("predicted_per_token_ms").getAsDouble());
+		if (timingsJson.has("predicted_per_second")) timing.setPredicted_per_second(timingsJson.get("predicted_per_second").getAsDouble());
+		if (timingsJson.has("draft_n")) timing.setDraft_n(timingsJson.get("draft_n").getAsInt());
+		if (timingsJson.has("draft_n_accepted")) timing.setDraft_n_accepted(timingsJson.get("draft_n_accepted").getAsInt());
+		return timing;
+	}
+
 	/* ---- State update ---- */
 
 	private void updateStateMessageCount(String conversationId, int increment) {
@@ -1249,7 +1310,7 @@ public class EasyChatService {
 
 	/* ---- Helpers ---- */
 
-	private Path getFragmentsDir() throws IOException {
+	public Path getFragmentsDir() throws IOException {
 		Path dir = LlamaServer.getCachePath().resolve("easy-chat").resolve("fragments");
 		if (!Files.exists(dir)) {
 			Files.createDirectories(dir);
@@ -1336,6 +1397,8 @@ public class EasyChatService {
 			// Reset count to 1
 			hdrBuf.position(FRAG_COUNT_OFFSET);
 			hdrBuf.putShort((short) 1);
+			// Reset active variant index to 0
+			hdrBuf.putShort((short) 0);
 			// Reset lengths table
 			hdrBuf.position(FRAG_LENGTHS_OFFSET);
 			hdrBuf.putInt(emptyPayload.length);
@@ -1370,12 +1433,12 @@ public class EasyChatService {
 		ByteBuffer hdrBuf = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
 		hdrBuf.position(FRAG_COUNT_OFFSET);
 		short count = hdrBuf.getShort();
+		short activeVariant = hdrBuf.getShort();
 		if (variantIndex < 0 || variantIndex >= count) {
 			throw new IOException("Variant index " + variantIndex + " out of range for seq=" + seq + " (count=" + count + ")");
 		}
-		// Read all lengths
+		// Read all lengths (position already at FRAG_LENGTHS_OFFSET after reading activeVariant)
 		int[] lengths = new int[FRAG_MAX_VARIANTS];
-		hdrBuf.position(FRAG_LENGTHS_OFFSET);
 		for (int i = 0; i < FRAG_MAX_VARIANTS; i++) {
 			lengths[i] = hdrBuf.getInt();
 		}
@@ -1403,6 +1466,12 @@ public class EasyChatService {
 			lengths[i] = lengths[i + 1];
 		}
 		lengths[newCount] = 0;
+		// Adjust active variant index after deletion
+		if (activeVariant == variantIndex) {
+			activeVariant = newCount > 0 ? (short) 0 : (short) 0;
+		} else if (activeVariant > variantIndex) {
+			activeVariant--;
+		}
 		// Update count in header
 		hdrBuf.position(FRAG_COUNT_OFFSET);
 		hdrBuf.putShort((short) newCount);
@@ -1413,6 +1482,8 @@ public class EasyChatService {
 			// Write header
 			ByteBuffer outBuf = ByteBuffer.allocate(FRAG_HEADER_SIZE).order(ByteOrder.LITTLE_ENDIAN);
 			outBuf.put(header);
+			outBuf.position(FRAG_ACTIVE_VARIANT_OFFSET);
+			outBuf.putShort(activeVariant);
 			outBuf.position(FRAG_LENGTHS_OFFSET);
 			for (int i = 0; i < FRAG_MAX_VARIANTS; i++) {
 				outBuf.putInt(lengths[i]);
@@ -1429,10 +1500,6 @@ public class EasyChatService {
 		}
 		Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
 		logger.info("[EasyChat] 删除变体成功 seq={} variantIndex={} count={} -> {}", seq, variantIndex, count, newCount);
-	}
-
-	private Path indexPath(Path convDir) {
-		return convDir.resolve(INDEX_FILE);
 	}
 
 	private String readErrorBody(HttpURLConnection conn) throws IOException {
@@ -1481,6 +1548,70 @@ public class EasyChatService {
 		resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
 		resp.content().writeBytes(bytes);
 		ctx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
+	}
+
+	/**
+	 * Update a specific variant's payload in an existing fragment file.
+	 * Reads header, replaces the target variant, rewrites the entire file.
+	 */
+	public void updateFragmentVariant(Path dir, long seq, int variantIndex, byte[] newPayload) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		if (!Files.isRegularFile(file)) {
+			throw new IOException("Fragment file not found seq=" + seq);
+		}
+		byte[] header = new byte[FRAG_HEADER_SIZE];
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			raf.readFully(header);
+		}
+		ByteBuffer hdrBuf = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN);
+		hdrBuf.position(FRAG_COUNT_OFFSET);
+		short count = hdrBuf.getShort();
+		if (variantIndex < 0 || variantIndex >= count) {
+			throw new IOException("Variant index " + variantIndex + " out of range for seq=" + seq + " (count=" + count + ")");
+		}
+		int[] lengths = new int[FRAG_MAX_VARIANTS];
+		hdrBuf.position(FRAG_LENGTHS_OFFSET);
+		for (int i = 0; i < FRAG_MAX_VARIANTS; i++) {
+			lengths[i] = hdrBuf.getInt();
+		}
+		byte[][] payloads = new byte[count][];
+		try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
+			for (int i = 0; i < count; i++) {
+				if (lengths[i] == 0) {
+					payloads[i] = new byte[0];
+					continue;
+				}
+				long offset = FRAG_PAYLOAD_OFFSET;
+				for (int j = 0; j < i; j++) {
+					offset += lengths[j];
+				}
+				payloads[i] = new byte[lengths[i]];
+				raf.seek(offset);
+				raf.readFully(payloads[i]);
+			}
+		}
+		lengths[variantIndex] = newPayload.length;
+		payloads[variantIndex] = newPayload;
+		Path temp = file.resolveSibling(file.getFileName().toString() + ".tmp");
+		try (RandomAccessFile raf = new RandomAccessFile(temp.toFile(), "rw")) {
+			FileChannel ch = raf.getChannel();
+			ByteBuffer outBuf = ByteBuffer.allocate(FRAG_HEADER_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+			outBuf.put(header);
+			outBuf.position(FRAG_LENGTHS_OFFSET);
+			for (int i = 0; i < FRAG_MAX_VARIANTS; i++) {
+				outBuf.putInt(lengths[i]);
+			}
+			outBuf.position(FRAG_HEADER_SIZE);
+			outBuf.flip();
+			ch.write(outBuf);
+			for (int i = 0; i < count; i++) {
+				if (payloads[i].length > 0) {
+					ch.write(ByteBuffer.wrap(payloads[i]));
+				}
+			}
+		}
+		Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+		logger.info("[EasyChat] 更新碎片变体成功 seq={} variantIndex={} newLength={}", seq, variantIndex, newPayload.length);
 	}
 
 	/**

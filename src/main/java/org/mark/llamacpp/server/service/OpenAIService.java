@@ -26,6 +26,7 @@ import org.mark.llamacpp.server.LlamaCppProcess;
 import org.mark.llamacpp.server.LlamaHubNode;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
+import org.mark.llamacpp.server.io.NettyWriteHelper;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.Timing;
 import org.mark.llamacpp.server.tools.JsonUtil;
@@ -752,14 +753,15 @@ public class OpenAIService {
 				response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
 				response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 				response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
-				ctx.write(response);
-				ctx.flush();
+				if (!NettyWriteHelper.writeAndFlushBlocking(ctx, response, logger, "[OpenAIService-remote]")) {
+					return;
+				}
 
 				Map<Integer, String> toolCallIds = new HashMap<>();
 				try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
 					String line;
 					while ((line = br.readLine()) != null) {
-						if (!ctx.channel().isActive() || !ctx.channel().isWritable()) {
+						if (!ctx.channel().isActive()) {
 							logger.info("客户端连接已断开，中止远程节点流式代理: endpoint={}", endpoint);
 							break;
 						}
@@ -786,22 +788,46 @@ public class OpenAIService {
 							ByteBuf content = ctx.alloc().buffer();
 							content.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
 							content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
-							ctx.writeAndFlush(new DefaultHttpContent(content));
+							if (!NettyWriteHelper.writeAndFlushBlocking(
+									ctx,
+									new DefaultHttpContent(content),
+									logger,
+									"[OpenAIService-remote]")) {
+								return;
+							}
 						} else if (line.startsWith("event: ")) {
 							ByteBuf content = ctx.alloc().buffer();
 							content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
 							content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
-							ctx.writeAndFlush(new DefaultHttpContent(content));
+							if (!NettyWriteHelper.writeAndFlushBlocking(
+									ctx,
+									new DefaultHttpContent(content),
+									logger,
+									"[OpenAIService-remote]")) {
+								return;
+							}
 						} else if (line.isEmpty()) {
 							ByteBuf content = ctx.alloc().buffer();
 							content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
-							ctx.writeAndFlush(new DefaultHttpContent(content));
+							if (!NettyWriteHelper.writeAndFlushBlocking(
+									ctx,
+									new DefaultHttpContent(content),
+									logger,
+									"[OpenAIService-remote]")) {
+								return;
+							}
 						}
 					}
 				}
 
-				LastHttpContent lastContent = LastHttpContent.EMPTY_LAST_CONTENT;
-				ctx.writeAndFlush(lastContent).addListener(ChannelFutureListener.CLOSE);
+				if (ctx.channel().isActive()
+						&& NettyWriteHelper.writeAndFlushBlocking(
+								ctx,
+								LastHttpContent.EMPTY_LAST_CONTENT,
+								logger,
+								"[OpenAIService-remote]")) {
+					ctx.close();
+				}
 			} catch (Exception e) {
 				logger.info("转发流式请求到远程节点时发生错误", e);
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, e.getMessage(), null);
@@ -1472,8 +1498,9 @@ public class OpenAIService {
 		response.headers().set(HttpHeaderNames.ETAG, buildEtag((modelName + ":" + responseCode + ":" + System.nanoTime()).getBytes(StandardCharsets.UTF_8)));
 		
 		// 发送响应头
-		ctx.write(response);
-		ctx.flush();
+		if (!NettyWriteHelper.writeAndFlushBlocking(ctx, response, logger, "[OpenAIService-local]")) {
+			return;
+		}
 		
 		logger.info("llama.cpp - 响应码: {}", responseCode);
 		
@@ -1492,14 +1519,6 @@ public class OpenAIService {
 				// 检查客户端连接是否仍然活跃
 				if (!ctx.channel().isActive()) {
 					logger.info("检测到客户端连接已断开，停止流式响应处理");
-					if (connection != null) {
-						connection.disconnect();
-					}
-					break;
-				}
-				// 检查客户端连接是否可写
-				if(!ctx.channel().isWritable()) {
-					logger.info("检测到客户端连接不可写，停止流式响应处理");
 					if (connection != null) {
 						connection.disconnect();
 					}
@@ -1540,16 +1559,16 @@ public class OpenAIService {
 					// 创建HTTP内容块
 					HttpContent httpContent = new DefaultHttpContent(content);
 					
-					// 发送数据块，并添加监听器检查写入是否成功
-					ChannelFuture future = ctx.writeAndFlush(httpContent);
-					
-					// 检查写入是否失败，如果失败可能是客户端断开连接
-					future.addListener((ChannelFutureListener) channelFuture -> {
-						if (!channelFuture.isSuccess()) {
-							logger.info("写入流式数据失败，可能是客户端断开连接: {}", channelFuture.cause().getMessage());
-							ctx.close();
+					if (!NettyWriteHelper.writeAndFlushBlocking(
+							ctx,
+							httpContent,
+							logger,
+							"[OpenAIService-local]")) {
+						if (connection != null) {
+							connection.disconnect();
 						}
-					});
+						break;
+					}
 					
 					chunkCount++;
 					
@@ -1564,14 +1583,32 @@ public class OpenAIService {
 					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
 					
 					HttpContent httpContent = new DefaultHttpContent(content);
-					ctx.writeAndFlush(httpContent);
+					if (!NettyWriteHelper.writeAndFlushBlocking(
+							ctx,
+							httpContent,
+							logger,
+							"[OpenAIService-local]")) {
+						if (connection != null) {
+							connection.disconnect();
+						}
+						break;
+					}
 				} else if (line.isEmpty()) {
 					// 发送空行作为分隔符
 					ByteBuf content = ctx.alloc().buffer();
 					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
 					
 					HttpContent httpContent = new DefaultHttpContent(content);
-					ctx.writeAndFlush(httpContent);
+					if (!NettyWriteHelper.writeAndFlushBlocking(
+							ctx,
+							httpContent,
+							logger,
+							"[OpenAIService-local]")) {
+						if (connection != null) {
+							connection.disconnect();
+						}
+						break;
+					}
 				}
 			}
 			
@@ -1589,13 +1626,14 @@ public class OpenAIService {
 		}
 		
 		// 发送结束标记
-		LastHttpContent lastContent = LastHttpContent.EMPTY_LAST_CONTENT;
-		ctx.writeAndFlush(lastContent).addListener(new ChannelFutureListener() {
-			@Override
-			public void operationComplete(ChannelFuture future) {
-				ctx.close();
-			}
-		});
+		if (ctx.channel().isActive()
+				&& NettyWriteHelper.writeAndFlushBlocking(
+						ctx,
+						LastHttpContent.EMPTY_LAST_CONTENT,
+						logger,
+						"[OpenAIService-local]")) {
+			ctx.close();
+		}
 	}
 
 //	private static String safeString(JsonObject obj, String key) {

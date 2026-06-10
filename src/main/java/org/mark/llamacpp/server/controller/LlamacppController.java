@@ -30,6 +30,7 @@ import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.exception.RequestMethodException;
+import org.mark.llamacpp.server.io.NettyWriteHelper;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.struct.LlamaCppConfig;
 import org.mark.llamacpp.server.struct.LlamaCppDataStruct;
@@ -51,7 +52,6 @@ import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
-import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpMethod;
@@ -995,6 +995,7 @@ public class LlamacppController implements BaseController {
 	 */
 	private void proxyRawBytes(ChannelHandlerContext ctx, String targetUrl, byte[] bodyBytes) {
 		HttpURLConnection connection = null;
+		boolean responseStarted = false;
 		try {
 			connection = (HttpURLConnection) URI.create(targetUrl).toURL().openConnection();
 			connection.setRequestMethod("POST");
@@ -1013,30 +1014,53 @@ public class LlamacppController implements BaseController {
 
 			HttpResponse header = new DefaultHttpResponse(
 				HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responseCode));
-			header.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
+			String contentType = connection.getContentType();
+			if (contentType == null || contentType.isBlank()) {
+				contentType = "application/json; charset=UTF-8";
+			}
+			header.headers().set(HttpHeaderNames.CONTENT_TYPE, contentType);
+			header.headers().set(HttpHeaderNames.TRANSFER_ENCODING, HttpHeaderValues.CHUNKED);
 			header.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
 			header.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 			header.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
-			ctx.write(header);
-			ctx.flush();
+			if (!NettyWriteHelper.writeAndFlushBlocking(ctx, header, logger, "[proxyRawBytes]")) {
+				return;
+			}
+			responseStarted = true;
 
 			if (stream != null) {
+				try (InputStream responseStream = stream) {
 				byte[] buffer = new byte[8192];
 				int read;
-				while ((read = stream.read(buffer)) != -1) {
-					if (!ctx.channel().isActive() || !ctx.channel().isWritable()) {
+				while ((read = responseStream.read(buffer)) != -1) {
+					if (!ctx.channel().isActive()) {
+						logger.info("[proxyRawBytes] 客户端连接已断开，中止响应转发: {}", targetUrl);
 						break;
 					}
 					io.netty.buffer.ByteBuf content = ctx.alloc().buffer(read);
 					content.writeBytes(buffer, 0, read);
-					ctx.writeAndFlush(new DefaultHttpContent(content));
+					if (!NettyWriteHelper.writeAndFlushBlocking(
+							ctx,
+							new DefaultHttpContent(content),
+							logger,
+							"[proxyRawBytes]")) {
+						return;
+					}
+				}
 				}
 			}
 
-			ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);
+			if (ctx.channel().isActive()
+					&& NettyWriteHelper.writeAndFlushBlocking(ctx, LastHttpContent.EMPTY_LAST_CONTENT, logger, "[proxyRawBytes]")) {
+				ctx.close();
+			}
 		} catch (Exception e) {
 			logger.info("proxyRawBytes失败: {}", targetUrl, e);
-			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "代理转发失败: " + e.getMessage());
+			if (!responseStarted && ctx.channel().isActive()) {
+				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "代理转发失败: " + e.getMessage());
+			} else if (ctx.channel().isActive()) {
+				ctx.close();
+			}
 		} finally {
 			if (connection != null) {
 				connection.disconnect();

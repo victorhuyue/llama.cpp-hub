@@ -8,6 +8,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.*;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.NodeManager;
+import org.mark.llamacpp.server.io.NettyWriteHelper;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,15 +102,16 @@ public class NodeProxyService {
                 response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
                 response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
 
-                ctx.write(response);
-                ctx.flush();
+                if (!NettyWriteHelper.writeAndFlushBlocking(ctx, response, logger, "[NodeProxyService]")) {
+                    return;
+                }
 
                 Map<Integer, String> toolCallIds = new HashMap<>();
 
                 try (BufferedReader br = new BufferedReader(new InputStreamReader(result.getBody(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = br.readLine()) != null) {
-                        if (!ctx.channel().isActive() || !ctx.channel().isWritable()) {
+                        if (!ctx.channel().isActive()) {
                             logger.info("客户端连接已断开，中止远程节点流式代理: nodeId={}", nodeId);
                             break;
                         }
@@ -130,28 +132,46 @@ public class NodeProxyService {
                             ByteBuf content = ctx.alloc().buffer();
                             content.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
                             content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
-                            ctx.writeAndFlush(new DefaultHttpContent(content));
+                            if (!NettyWriteHelper.writeAndFlushBlocking(
+                                    ctx,
+                                    new DefaultHttpContent(content),
+                                    logger,
+                                    "[NodeProxyService]")) {
+                                return;
+                            }
                         } else if (line.startsWith("event: ")) {
                             ByteBuf content = ctx.alloc().buffer();
                             content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
                             content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
-                            ctx.writeAndFlush(new DefaultHttpContent(content));
+                            if (!NettyWriteHelper.writeAndFlushBlocking(
+                                    ctx,
+                                    new DefaultHttpContent(content),
+                                    logger,
+                                    "[NodeProxyService]")) {
+                                return;
+                            }
                         } else if (line.isEmpty()) {
                             ByteBuf content = ctx.alloc().buffer();
                             content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
-                            ctx.writeAndFlush(new DefaultHttpContent(content));
+                            if (!NettyWriteHelper.writeAndFlushBlocking(
+                                    ctx,
+                                    new DefaultHttpContent(content),
+                                    logger,
+                                    "[NodeProxyService]")) {
+                                return;
+                            }
                         }
                     }
                 }
 
-                LastHttpContent lastContent = LastHttpContent.EMPTY_LAST_CONTENT;
-                ctx.writeAndFlush(lastContent).addListener(f -> {
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException ignored) {
-                    }
+                if (ctx.channel().isActive()
+                        && NettyWriteHelper.writeAndFlushBlocking(
+                                ctx,
+                                LastHttpContent.EMPTY_LAST_CONTENT,
+                                logger,
+                                "[NodeProxyService]")) {
                     ctx.close();
-                });
+                }
             } catch (IOException e) {
                 logger.warn("流式代理失败: nodeId={}, path={}, error={}", nodeId, path, e.getMessage());
                 LlamaServer.sendJsonResponse(ctx,

@@ -20,6 +20,7 @@ import java.util.concurrent.Executors;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
+import org.mark.llamacpp.server.io.NettyWriteHelper;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.struct.Timing;
@@ -341,8 +342,9 @@ public class EasyChatService {
 						sseResp.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
 						sseResp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 						sseResp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
-						ctx.write(sseResp);
-						ctx.flush();
+						if (!NettyWriteHelper.writeAndFlushBlocking(ctx, sseResp, logger, "[EasyChat]")) {
+							return;
+						}
 
 						// Read and proxy SSE stream
 						proxySseStream(ctx, connection, accumulator);
@@ -754,22 +756,23 @@ public class EasyChatService {
 
 			String line;
 			while ((line = br.readLine()) != null) {
-				if (!ctx.channel().isActive() || !ctx.channel().isWritable()) {
+				if (!ctx.channel().isActive()) {
 					logger.info("[EasyChat] 客户端断开，中止流式代理");
 					return false;
 				}
 
 				if (!line.startsWith("data: ")) {
 					// Pass through non-data lines
-					writeSseLine(ctx, line);
+					if (!writeSseLine(ctx, line)) {
+						return false;
+					}
 					continue;
 				}
 
 				String data = line.substring(6);
 				if ("[DONE]".equals(data)) {
 					logger.info("[EasyChat] 流式响应结束");
-					writeSseLine(ctx, line);
-					return true;
+					return writeSseLine(ctx, line);
 				}
 
 				// Parse and accumulate
@@ -785,7 +788,9 @@ public class EasyChatService {
 					}
 				}
 
-				writeSseLine(ctx, line);
+				if (!writeSseLine(ctx, line)) {
+					return false;
+				}
 			}
 		}
 		return true;
@@ -880,11 +885,11 @@ public class EasyChatService {
 		}
 	}
 
-	private void writeSseLine(ChannelHandlerContext ctx, String line) {
+	private boolean writeSseLine(ChannelHandlerContext ctx, String line) {
 		ByteBuf content = ctx.alloc().buffer();
 		content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
 		content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
-		ctx.writeAndFlush(new DefaultHttpContent(content));
+		return NettyWriteHelper.writeAndFlushBlocking(ctx, new DefaultHttpContent(content), logger, "[EasyChat]");
 	}
 
 	/* ---- AI message building ---- */
@@ -1167,8 +1172,9 @@ public class EasyChatService {
 		sseResp.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
 		sseResp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 		sseResp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
-		ctx.write(sseResp);
-		ctx.flush();
+		if (!NettyWriteHelper.writeAndFlushBlocking(ctx, sseResp, logger, "[EasyChat][Remote]")) {
+			return;
+		}
 
 		// Proxy SSE stream from remote node to client
 		proxySseStreamFromRemote(ctx, streamResult.getBody(), accumulator);
@@ -1186,13 +1192,15 @@ public class EasyChatService {
 		try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
 			String line;
 			while ((line = reader.readLine()) != null) {
-				if (!ctx.channel().isActive() || !ctx.channel().isWritable()) {
+				if (!ctx.channel().isActive()) {
 					logger.info("[EasyChat][Remote] 客户端断开，中止流式代理");
 					return;
 				}
 
 				if (!line.startsWith("data: ")) {
-					writeSseLine(ctx, line);
+					if (!writeSseLine(ctx, line)) {
+						return;
+					}
 					continue;
 				}
 
@@ -1215,7 +1223,9 @@ public class EasyChatService {
 					}
 				}
 
-				writeSseLine(ctx, line);
+				if (!writeSseLine(ctx, line)) {
+					return;
+				}
 			}
 		}
 	}

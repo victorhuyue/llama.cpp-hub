@@ -147,6 +147,9 @@ public class EasyChatService {
 				toolChoice = "auto";
 			}
 
+			String ephemeralMode = decodeHeader(request.headers().get("X-Ephemeral-Mode"));
+			boolean isEphemeral = ephemeralMode != null && !ephemeralMode.isBlank();
+
        JsonObject samplingParams = null;
             String spHeader = decodeHeader(request.headers().get("X-Sampling-Params"));
 			if (spHeader != null && !spHeader.isBlank()) {
@@ -233,32 +236,37 @@ public class EasyChatService {
 			// Per-conversation lock
 			Object convLock = conversationLocks.computeIfAbsent(conversationId, k -> new Object());
 
-			Path convDir = storage.getConversationDir(conversationId);
+			Path convDir = isEphemeral ? null : storage.getConversationDir(conversationId);
 
 			long userSeq;
 			long aiSeq;
 			byte[] toolsBytes;
 
 			synchronized (convLock) {
-				Path indexPath = storage.indexFile(convDir);
-				storage.ensureIndex(convDir, assistantName);
-				long idxSeq = storage.readIndexSeq(indexPath);
-
-				if (isRegenerate) {
-					// Regenerate: reuse existing AI seq, don't write user fragment
+				if (isEphemeral) {
 					userSeq = -1;
-					aiSeq = regenerateSeq;
+					aiSeq = -1;
 				} else {
-					userSeq = idxSeq;
-					aiSeq = idxSeq + 1;
-					storage.writeIndexSeq(indexPath, idxSeq + 2);
+					Path indexPath = storage.indexFile(convDir);
+					storage.ensureIndex(convDir, assistantName);
+					long idxSeq = storage.readIndexSeq(indexPath);
 
-					// Write user fragment (raw body bytes, no JSON parsing)
-					storage.writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
-					Path fragFile = storage.fragmentFile(convDir, userSeq);
-					logger.info("[EasyChat] 写入用户碎片 seq={} path={} exists={} size={}",
-						userSeq, fragFile.toAbsolutePath(), Files.exists(fragFile),
-						Files.exists(fragFile) ? Files.size(fragFile) : -1);
+					if (isRegenerate) {
+						// Regenerate: reuse existing AI seq, don't write user fragment
+						userSeq = -1;
+						aiSeq = regenerateSeq;
+					} else {
+						userSeq = idxSeq;
+						aiSeq = idxSeq + 1;
+						storage.writeIndexSeq(indexPath, idxSeq + 2);
+
+						// Write user fragment (raw body bytes, no JSON parsing)
+						storage.writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
+						Path fragFile = storage.fragmentFile(convDir, userSeq);
+						logger.info("[EasyChat] 写入用户碎片 seq={} path={} exists={} size={}",
+							userSeq, fragFile.toAbsolutePath(), Files.exists(fragFile),
+							Files.exists(fragFile) ? Files.size(fragFile) : -1);
+					}
 				}
 
 				// Write tools.bin if tools provided via header
@@ -266,14 +274,16 @@ public class EasyChatService {
 					JsonObject toolsObj = new JsonObject();
 					toolsObj.add("tools", toolsArr);
 					toolsObj.addProperty("tool_choice", toolChoice);
-					storage.writeTools(convDir, JsonUtil.toJson(toolsObj).getBytes(StandardCharsets.UTF_8));
 					toolsBytes = JsonUtil.toJson(toolsObj).getBytes(StandardCharsets.UTF_8);
+					if (!isEphemeral) {
+						storage.writeTools(convDir, toolsBytes);
+					}
 				} else {
-					toolsBytes = storage.readTools(convDir);
+					toolsBytes = isEphemeral ? null : storage.readTools(convDir);
 				}
 
 				// Persist X-Variants to fragment headers
-				if (variants != null) {
+				if (!isEphemeral && variants != null) {
 					for (Map.Entry<Long, Integer> entry : variants.entrySet()) {
 						storage.writeActiveVariantIndex(convDir, entry.getKey(), entry.getValue());
 					}
@@ -290,26 +300,29 @@ public class EasyChatService {
 			final byte[] finalToolsBytes = toolsBytes;
 			final JsonObject finalSamplingParams = samplingParams;
 			final boolean finalIsRegenerate = isRegenerate;
+			final boolean finalIsEphemeral = isEphemeral;
 			final Map<Long, Integer> finalVariants = variants;
 			final Long finalRegenerateSeq = regenerateSeq;
+			final byte[] finalBodyBytes = bodyBytes;
 
 			// Dispatch to worker thread
 			final EasyChatGlobalLock.Lease finalGlobalLease = globalLease;
 			worker.execute(() -> {
 				HttpURLConnection connection = null;
 				StreamAccumulator accumulator = new StreamAccumulator();
-				Path indexPath = storage.indexFile(finalConvDir);
+				Path indexPath = finalConvDir == null ? null : storage.indexFile(finalConvDir);
 				try {
 					if (finalIsRemoteNode) {
 						handleRemoteNodeRequest(ctx, conversationId, finalNodeId, finalModelId,
 							finalSystemPrompt, finalConvDir, finalToolsBytes, finalSamplingParams,
-							finalVariants, finalRegenerateSeq, accumulator);
+							finalVariants, finalRegenerateSeq, finalBodyBytes, finalIsEphemeral, accumulator);
 					} else {
 						connection = openTrackedConnection(ctx, finalModelId, finalModelPort);
 
 						// Stream request body to llama.cpp
 						writeRequestBody(connection, finalModelId, finalSystemPrompt, finalConvDir,
-							finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq);
+							finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
+							finalBodyBytes, finalIsEphemeral);
 
 						int responseCode = connection.getResponseCode();
 						logger.info("[EasyChat] llama.cpp响应码: {} conversation={}", responseCode, conversationId);
@@ -336,19 +349,18 @@ public class EasyChatService {
 					}
 
 					// Write AI fragment and update state (always, if buffer has content)
-					synchronized (convLock) {
-						if (accumulator.hasContent()) {
-							JsonObject aiMsg = buildAiMessage(accumulator);
-							byte[] aiBytes = JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8);
-							if (finalIsRegenerate) {
-								storage.appendVariant(finalConvDir, aiSeq, aiBytes);
-							} else {
-								storage.writeFragment(finalConvDir, aiSeq, System.currentTimeMillis(), aiBytes);
-								storage.writeIndexSeq(indexPath, aiSeq + 1);
+					if (!finalIsEphemeral) {
+						synchronized (convLock) {
+							if (accumulator.hasContent()) {
+								JsonObject aiMsg = buildAiMessage(accumulator);
+								byte[] aiBytes = JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8);
+								boolean wroteNewAssistantFragment = persistAssistantFragment(finalConvDir, aiSeq, aiBytes, finalIsRegenerate, indexPath);
+								if (!finalIsRegenerate) {
+									updateStateMessageCount(conversationId, 2);
+								} else if (wroteNewAssistantFragment) {
+									updateStateMessageCount(conversationId, 1);
+								}
 							}
-						}
-						if (!finalIsRegenerate) {
-							updateStateMessageCount(conversationId, 2);
 						}
 					}
 
@@ -376,15 +388,15 @@ public class EasyChatService {
 					logger.info("[EasyChat] 处理流式聊天失败 conversation={}", conversationId, e);
 					// Still write fragment if we have partial content
 					try {
-						synchronized (convLock) {
-							if (accumulator.hasContent()) {
-								JsonObject aiMsg = buildAiMessage(accumulator);
-								byte[] aiBytes = JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8);
-								if (finalIsRegenerate) {
-									storage.appendVariant(finalConvDir, aiSeq, aiBytes);
-								} else {
-									storage.writeFragment(finalConvDir, aiSeq, System.currentTimeMillis(), aiBytes);
-									storage.writeIndexSeq(indexPath, aiSeq + 1);
+						if (!finalIsEphemeral) {
+							synchronized (convLock) {
+								if (accumulator.hasContent()) {
+									JsonObject aiMsg = buildAiMessage(accumulator);
+									byte[] aiBytes = JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8);
+									boolean wroteNewAssistantFragment = persistAssistantFragment(finalConvDir, aiSeq, aiBytes, finalIsRegenerate, indexPath);
+									if (finalIsRegenerate && wroteNewAssistantFragment) {
+										updateStateMessageCount(conversationId, 1);
+									}
 								}
 							}
 						}
@@ -661,13 +673,34 @@ public class EasyChatService {
 	 * @throws IOException
 	 */
 	private void writeRequestBody(HttpURLConnection conn, String modelId, String systemPrompt, Path convDir,
-			byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq)
+			byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
+			byte[] transientUserMessage, boolean skipHistory)
 			throws IOException {
 		try (OutputStream os = conn.getOutputStream()) {
 			requestWriter.writeRequestBody(os,
 				new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-					samplingParams, variants, regenerateSeq));
+					samplingParams, variants, regenerateSeq, transientUserMessage, skipHistory));
 		}
+	}
+
+	private boolean persistAssistantFragment(Path convDir, long aiSeq, byte[] aiBytes, boolean isRegenerate, Path indexPath)
+			throws IOException {
+		if (convDir == null || aiSeq < 0 || aiBytes == null) {
+			return false;
+		}
+		EasyChatStorage.FragmentHeader existingHeader = storage.readFragmentHeader(convDir, aiSeq);
+		if (isRegenerate && existingHeader != null) {
+			storage.appendVariant(convDir, aiSeq, aiBytes);
+			return false;
+		}
+		if (isRegenerate && existingHeader == null) {
+			logger.warn("[EasyChat] regenerate目标碎片不存在，降级为新写入 seq={}", aiSeq);
+		}
+		storage.writeFragment(convDir, aiSeq, System.currentTimeMillis(), aiBytes);
+		if (indexPath != null) {
+			storage.writeIndexSeq(indexPath, aiSeq + 1);
+		}
+		return true;
 	}
 
 	private String escapeJsonString(String s) {
@@ -1097,6 +1130,7 @@ public class EasyChatService {
 	private void handleRemoteNodeRequest(ChannelHandlerContext ctx, String conversationId, String nodeId,
 		String modelId, String systemPrompt, Path convDir, byte[] toolsBytes,
 		JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
+		byte[] transientUserMessage, boolean skipHistory,
 		StreamAccumulator accumulator) throws Exception {
 
 		logger.info("[EasyChat][Remote] 转发到远程节点: nodeId={}, model={}, conversation={}", nodeId, modelId, conversationId);
@@ -1107,7 +1141,7 @@ public class EasyChatService {
 			nodeId, "POST", "v1/chat/completions",
 			output -> requestWriter.writeRequestBody(output,
 				new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-					samplingParams, variants, regenerateSeq)),
+					samplingParams, variants, regenerateSeq, transientUserMessage, skipHistory)),
 			null, 60000);
 		trackConnection(ctx, streamResult::abort);
 

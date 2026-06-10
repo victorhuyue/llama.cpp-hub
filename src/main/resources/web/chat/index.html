@@ -5567,7 +5567,7 @@
 
     /* ---- Stream-chat helpers ---- */
 
-    function buildSamplingParamsJson(assistant) {
+    function buildSamplingParamsJson(assistant, overrides) {
       const params = {};
       const fields = [
         ['temperature', 'temperature'],
@@ -5604,6 +5604,23 @@
           params.thinking_budget_tokens = thinkingBudget;
         }
       }
+      if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+        for (const [key, value] of Object.entries(overrides)) {
+          if (value == null) {
+            delete params[key];
+            continue;
+          }
+          if (key === 'chat_template_kwargs' && value && typeof value === 'object' && !Array.isArray(value)) {
+            params.chat_template_kwargs = Object.assign(
+              {},
+              params.chat_template_kwargs && typeof params.chat_template_kwargs === 'object' ? params.chat_template_kwargs : {},
+              value
+            );
+            continue;
+          }
+          params[key] = value;
+        }
+      }
       return JSON.stringify(params);
     }
 
@@ -5614,7 +5631,7 @@
         headers['Authorization'] = 'Bearer ' + currentApiKey;
       }
       headers['X-Conversation-Id'] = encodeURIComponent(conversationId);
-      const compositeKey = state.model || '';
+      const compositeKey = options.modelOverride || state.model || '';
       const sep = compositeKey.lastIndexOf('::');
       const bareModelId = sep >= 0 ? compositeKey.substring(0, sep) : compositeKey;
       const nd = sep >= 0 ? compositeKey.substring(sep + 2) : '';
@@ -5625,7 +5642,10 @@
       if (assistant?.name?.trim()) {
         headers['X-Assistant-Name'] = encodeURIComponent(assistant.name.trim());
       }
-      const samplingParams = buildSamplingParamsJson(assistant);
+      if (options.ephemeralMode) {
+        headers['X-Ephemeral-Mode'] = encodeURIComponent(String(options.ephemeralMode));
+      }
+      const samplingParams = buildSamplingParamsJson(assistant, options.samplingOverrides);
       if (samplingParams && samplingParams !== '{}') {
         headers['X-Sampling-Params'] = encodeURIComponent(samplingParams);
       }
@@ -5635,7 +5655,7 @@
       if (options.variantsStr) {
         headers['X-Variants'] = options.variantsStr;
       }
-      const enabledTools = mcpModule ? mcpModule.getEnabledTools(assistant) : [];
+      const enabledTools = options.disableTools ? [] : (mcpModule ? mcpModule.getEnabledTools(assistant) : []);
       if (enabledTools.length && mcpModule) {
         headers['X-Tools'] = encodeURIComponent(JSON.stringify(enabledTools.map(tool => mcpModule.toModelTool(tool))));
         headers['X-Tool-Choice'] = 'auto';
@@ -6080,39 +6100,97 @@
       return { payload, nodeId: nd || '' };
     }
 
-    function extractTextFromJson(json) {
-      const choice = Array.isArray(json?.choices) ? json.choices[0] : null;
-      const message = choice?.message;
-      const delta = choice?.delta;
-      const rawContent = message?.content ?? delta?.content ?? json?.message?.content ?? json?.content ?? '';
-      const result = {
-        model: typeof json?.model === 'string' ? json.model : '',
-        timings: normalizeTimings(json?.timings),
-        content: contentToText(rawContent),
-        reasoning:
-          message?.reasoning_content ??
-          message?.reasoning ??
-          delta?.reasoning_content ??
-          delta?.reasoning ??
-          '',
-        toolCalls: normalizeMcpToolCalls(
-          message?.tool_calls ??
-          delta?.tool_calls ??
-          json?.message?.tool_calls ??
-          json?.tool_calls ??
-          []
-        )
-      };
-      if (Array.isArray(rawContent)) {
-        const extracted = extractMediaFromContent(rawContent);
-        result.images = extracted.images;
-        result.audios = extracted.audios;
-        result.videos = extracted.videos;
+    function buildMessagePromptText(message) {
+      if (!message) {
+        return '';
       }
-      return result;
+      if (message.role === 'user') {
+        return contentToText(buildUserContent(message)).trim();
+      }
+      if (message.role === 'assistant' || message.role === 'tool') {
+        return contentToText(message.content).trim();
+      }
+      return '';
     }
 
-    async function consumeSse(response, targetIndex) {
+    function buildConversationPromptTranscript(messages) {
+      const lines = [];
+      for (const message of (messages || [])) {
+        if (!message || !['user', 'assistant', 'tool'].includes(message.role)) {
+          continue;
+        }
+        const text = buildMessagePromptText(message);
+        if (!text) {
+          continue;
+        }
+        const roleLabel = message.role === 'user'
+          ? '用户'
+          : message.role === 'assistant'
+            ? '助手'
+            : '工具';
+        lines.push(roleLabel + '：\n' + text);
+      }
+      return lines.join('\n\n');
+    }
+
+    function waitMs(ms) {
+      return new Promise(resolve => {
+        window.setTimeout(resolve, Math.max(0, Number(ms) || 0));
+      });
+    }
+
+    async function requestEphemeralStreamChat(options = {}) {
+      const conversationId = typeof options.conversationId === 'string' ? options.conversationId.trim() : '';
+      const compositeModel = typeof options.compositeModel === 'string' ? options.compositeModel.trim() : '';
+      const prompt = typeof options.prompt === 'string' ? options.prompt.trim() : '';
+      if (!conversationId) {
+        throw new Error(window.I18N.t('page.chat.main.error.no_conversation', '缺少会话'));
+      }
+      if (!compositeModel) {
+        throw new Error(window.I18N.t('page.chat.main.auto_reply.no_model', '请先选择模型'));
+      }
+      if (!prompt) {
+        throw new Error(window.I18N.t('page.chat.main.error.empty_prompt', '提示词为空'));
+      }
+      let lastError = null;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        if (attempt > 0) {
+          await waitMs(250 * attempt);
+        }
+        const headers = buildStreamChatHeaders(conversationId, options.assistant || null, {
+          modelOverride: compositeModel,
+          disableTools: true,
+          ephemeralMode: options.mode || 'ephemeral',
+          samplingOverrides: options.samplingOverrides || null
+        });
+        const response = await fetch(STREAM_CHAT_ENDPOINT, {
+          method: 'POST',
+          headers,
+          body: buildStreamUserMessage(prompt, [], [], [], [])
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          const error = new Error(errorText || window.I18N.t('page.chat.main.error.request_failed_status', '请求失败：{status}').replace('{status}', response.status));
+          if (response.status === 423 || isGlobalLockBusyError(error)) {
+            lastError = error;
+            continue;
+          }
+          throw error;
+        }
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('text/event-stream')) {
+        return consumeEphemeralSse(response);
+        }
+        const jsonResp = await response.json();
+        if (jsonResp.success === false && jsonResp.error) {
+          throw new Error(jsonResp.error);
+        }
+        return extractTextFromJson(jsonResp);
+      }
+      throw lastError || new Error(window.I18N.t('page.chat.main.status.busy', '系统忙，请稍后重试'));
+    }
+
+    async function consumeEphemeralSse(response) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let buffer = '';
@@ -6157,8 +6235,140 @@
         if (extractedTimings) {
           timings = mergeTimings(timings, extractedTimings);
         }
+        const choice = Array.isArray(json.choices) ? json.choices[0] : null;
+        const delta = choice?.delta || {};
+        const incomingToolCalls =
+          choice?.message?.tool_calls ??
+          delta?.tool_calls ??
+          json?.message?.tool_calls ??
+          json?.tool_calls ??
+          [];
+        if (Array.isArray(incomingToolCalls) && incomingToolCalls.length) {
+          toolCalls = mergeMcpToolCallChunks(toolCalls, incomingToolCalls);
+        }
+        const chunkContent = contentToText(delta.content);
+        if (Array.isArray(delta.content)) {
+          lastContentArray = delta.content;
+        }
+        const chunkReasoning =
+          typeof delta.reasoning_content === 'string'
+            ? delta.reasoning_content
+            : typeof delta.reasoning === 'string'
+              ? delta.reasoning
+              : '';
+        answer += chunkContent;
+        reasoning += chunkReasoning;
+        return null;
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        for (const rawLine of lines) {
+          const result = processSseLine(rawLine);
+          if (result) {
+            return result;
+          }
+        }
+      }
+      if (buffer) {
+        const tailLines = buffer.split(/\r?\n/);
+        buffer = '';
+        for (const rawLine of tailLines) {
+          const result = processSseLine(rawLine);
+          if (result) {
+            return result;
+          }
+        }
+      }
+      return finalizeResult();
+    }
+
+    function extractTextFromJson(json) {
+      const choice = Array.isArray(json?.choices) ? json.choices[0] : null;
+      const message = choice?.message;
+      const delta = choice?.delta;
+      const rawContent = message?.content ?? delta?.content ?? json?.message?.content ?? json?.content ?? '';
+      const result = {
+        model: typeof json?.model === 'string' ? json.model : '',
+        timings: normalizeTimings(json?.timings),
+        content: contentToText(rawContent),
+        reasoning:
+          message?.reasoning_content ??
+          message?.reasoning ??
+          delta?.reasoning_content ??
+          delta?.reasoning ??
+          '',
+        toolCalls: normalizeMcpToolCalls(
+          message?.tool_calls ??
+          delta?.tool_calls ??
+          json?.message?.tool_calls ??
+          json?.tool_calls ??
+          []
+        )
+      };
+      if (Array.isArray(rawContent)) {
+        const extracted = extractMediaFromContent(rawContent);
+        result.images = extracted.images;
+        result.audios = extracted.audios;
+        result.videos = extracted.videos;
+      }
+      return result;
+    }
+
+    async function consumeSse(response, targetIndex, options = {}) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      const liveUpdate = options.liveUpdate !== false;
+      let buffer = '';
+      let answer = '';
+      let reasoning = '';
+      let model = '';
+      let timings = null;
+      let toolCalls = [];
+      let lastContentArray = null;
+      const finalizeResult = function () {
+        const result = { content: answer, reasoning, model, timings, toolCalls: finalizeMcpToolCalls(toolCalls) };
+        if (Array.isArray(lastContentArray)) {
+          const extracted = extractMediaFromContent(lastContentArray);
+          result.images = extracted.images;
+          result.audios = extracted.audios;
+          result.videos = extracted.videos;
+        }
+        return result;
+      };
+      const processSseLine = function (rawLine) {
+        const line = typeof rawLine === 'string' ? rawLine.trim() : '';
+        if (!line.startsWith('data:')) {
+          return null;
+        }
+        const data = line.slice(5).trim();
+        if (!data) {
+          return null;
+        }
+        if (data === '[DONE]') {
+          return finalizeResult();
+        }
+        let json;
+        try {
+          json = JSON.parse(data);
+        } catch (error) {
+          return null;
+        }
+        if (!model && typeof json?.model === 'string' && json.model.trim()) {
+          model = json.model.trim();
+        }
+        const extractedTimings = normalizeTimings(json?.timings);
+        if (extractedTimings) {
+          timings = mergeTimings(timings, extractedTimings);
+        }
         const pp = parsePromptProgress(json?.prompt_progress);
-        if (pp) {
+        if (pp && liveUpdate) {
           updatePromptProgress(pp, targetIndex);
         }
         const choice = Array.isArray(json.choices) ? json.choices[0] : null;
@@ -6171,7 +6381,7 @@
           [];
         if (Array.isArray(incomingToolCalls) && incomingToolCalls.length) {
           toolCalls = mergeMcpToolCallChunks(toolCalls, incomingToolCalls);
-          if (Number.isInteger(targetIndex)) {
+          if (liveUpdate && Number.isInteger(targetIndex)) {
             updateAssistantToolCalls(targetIndex, toolCalls);
           }
         }
@@ -6188,7 +6398,9 @@
         answer += chunkContent;
         reasoning += chunkReasoning;
         const isFinished = choice?.finish_reason !== undefined && choice?.finish_reason !== null;
-        updateLastAssistantMessage(answer, reasoning, model, timings, targetIndex, isFinished);
+        if (liveUpdate) {
+          updateLastAssistantMessage(answer, reasoning, model, timings, targetIndex, isFinished);
+        }
         return null;
       };
 
@@ -6404,47 +6616,45 @@
       if (!compositeKey) {
         return;
       }
-      const sep = compositeKey.lastIndexOf('::');
-      const bareModelId = sep >= 0 ? compositeKey.substring(0, sep) : compositeKey;
-      const nd = sep >= 0 ? compositeKey.substring(sep + 2) : '';
-      const messages = [];
-      if (convAssistant?.systemPrompt?.trim()) {
-        messages.push({ role: 'system', content: convAssistant.systemPrompt.trim() });
-      }
-      messages.push({ role: 'user', content: userContent });
-      messages.push({ role: 'assistant', content: assistantContent });
-      messages.push({
-        role: 'user',
-        content: 'Based on our conversation so far, can you suggest a name for this conversation? Put the name in the <name> tags. For example "<name>Student Loan Planning</name>".'
-      });
-      const body = {
-        model: bareModelId,
-        messages,
-        max_tokens: 30,
-        temperature: 0.3,
-        enable_thinking: false,
-        stream: false
-      };
+      const prompt = [
+        '你是一个对话标题生成助手。',
+        '请根据下面的对话内容，生成一个简短准确的会话标题。',
+        '要求：',
+        '1. 只输出标题本身',
+        '2. 不要加引号、标签或额外说明',
+        '3. 尽量控制在 18 个汉字以内',
+        '',
+        '[用户首条消息]',
+        contentToText(userContent),
+        '',
+        '[助手首条回复]',
+        assistantContent
+      ].join('\n');
       try {
-        const response = await fetch(CHAT_ENDPOINT, {
-          method: 'POST',
-          headers: getHeaders(nd),
-          body: JSON.stringify(body)
+        const result = await requestEphemeralStreamChat({
+          conversationId: conversation.id,
+          assistant: convAssistant,
+          compositeModel: compositeKey,
+          mode: 'title',
+          prompt,
+          samplingOverrides: {
+            max_tokens: 30,
+            temperature: 0.3,
+            chat_template_kwargs: {
+              enable_thinking: false
+            }
+          }
         });
-        if (!response.ok) {
-          return;
-        }
-        const data = await response.json();
-        const raw = data?.choices?.[0]?.message?.content || '';
-        const match = raw.match(/<name>([^<]*)<\/name>/);
-        const title = match ? match[1].trim() : '';
+        const raw = contentToText(result?.content || '').trim();
+        const title = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean)[0] || '';
         if (title) {
           conversation.title = title;
           renderConversationList();
           syncConversationMeta();
           await persistState({ immediate: true });
         }
-      } catch {
+      } catch (error) {
+        console.warn('[EasyChat][TitleGen] 标题生成失败', error);
       }
     }
 
@@ -6463,32 +6673,35 @@
       }
       const assistant = getCurrentAssistant();
       const userInput = els.promptInput.value.trim();
-      const conversationMessages = [];
-      if (assistant?.systemPrompt?.trim()) {
-        conversationMessages.push({ role: 'system', content: assistant.systemPrompt.trim() });
+      const transcript = buildConversationPromptTranscript(conversation.messages);
+      if (!transcript) {
+        showToast('info', window.I18N.t('page.chat.main.auto_reply.no_context', '暂无对话上下文，无法生成回复'));
+        return;
       }
-      for (const msg of conversation.messages) {
-        const content = typeof msg.content === 'string' ? msg.content : '';
-        if (msg.role === 'user') {
-          conversationMessages.push({ role: 'user', content: buildUserContent(msg) });
-        } else if (msg.role === 'assistant' && content.trim()) {
-          conversationMessages.push({ role: 'assistant', content });
-        } else if (msg.role === 'tool' && content.trim()) {
-          conversationMessages.push({ role: 'tool', content, tool_call_id: msg.toolCallId || '', name: msg.toolName || '' });
-        }
-      }
+      let prompt = '';
       if (userInput) {
-        conversationMessages.push({
-          role: 'user',
-          content: '我正在输入以下内容，请帮我补全这条回复，直接输出补全的完整内容，不要加引号或额外说明：\n' + userInput
-        });
+        prompt = [
+          '你是一个聊天帮答助手。',
+          '下面是当前对话上下文：',
+          transcript,
+          '',
+          '用户正在输入一条回复草稿：',
+          userInput,
+          '',
+          '请站在用户角度，在保留原意和语气的前提下补全这条消息。',
+          '只输出最终可直接发送的回复正文，不要加引号，不要解释。'
+        ].join('\n');
       } else {
         const lastAssistant = conversation.messages.findLast(m => m.role === 'assistant' && contentToText(m.content).trim());
         if (lastAssistant) {
-          conversationMessages.push({
-            role: 'user',
-            content: '请根据上面的对话内容，站在用户的角度生成一条合适的回复消息。直接输出回复内容，不要加引号或额外说明。'
-          });
+          prompt = [
+            '你是一个聊天帮答助手。',
+            '下面是当前对话上下文：',
+            transcript,
+            '',
+            '请根据以上对话，站在用户角度生成下一条合适的回复消息。',
+            '只输出最终可直接发送的回复正文，不要加引号，不要解释。'
+          ].join('\n');
         } else {
           showToast('info', window.I18N.t('page.chat.main.auto_reply.no_assistant_msg', '暂无助手回复，无法生成回复'));
           return;
@@ -6499,31 +6712,24 @@
         showToast('error', window.I18N.t('page.chat.main.auto_reply.no_model', '请先选择模型'));
         return;
       }
-      const sep = compositeKey.lastIndexOf('::');
-      const bareModelId = sep >= 0 ? compositeKey.substring(0, sep) : compositeKey;
-      const nd = sep >= 0 ? compositeKey.substring(sep + 2) : '';
-      const body = {
-        model: bareModelId,
-        messages: conversationMessages,
-        max_tokens: 512,
-        temperature: 0.7,
-        enable_thinking: false,
-        stream: false
-      };
       els.autoReplyBtn.disabled = true;
       els.autoReplyBtn.setAttribute('aria-label', window.I18N.t('page.chat.main.auto_reply.generating', '正在生成…'));
       try {
-        const response = await fetch(CHAT_ENDPOINT, {
-          method: 'POST',
-          headers: getHeaders(nd),
-          body: JSON.stringify(body)
+        const result = await requestEphemeralStreamChat({
+          conversationId: conversation.id,
+          assistant,
+          compositeModel: compositeKey,
+          mode: 'auto-reply',
+          prompt,
+          samplingOverrides: {
+            max_tokens: 512,
+            temperature: 0.7,
+            chat_template_kwargs: {
+              enable_thinking: false
+            }
+          }
         });
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || window.I18N.t('page.chat.main.error.request_failed_status', '请求失败：{status}').replace('{status}', response.status));
-        }
-        const data = await response.json();
-        const raw = data?.choices?.[0]?.message?.content || '';
+        const raw = contentToText(result?.content || '').trim();
         if (raw.trim()) {
           if (userInput) {
             els.promptInput.value = raw.trim();

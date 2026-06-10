@@ -1490,13 +1490,22 @@ public class OpenAIService {
 			Map<Integer, String> toolCallIds = new HashMap<>();
 			while ((line = br.readLine()) != null) {
 				// 检查客户端连接是否仍然活跃
-				if (!ctx.channel().isActive() || !ctx.channel().isWritable()) {
+				if (!ctx.channel().isActive()) {
 					logger.info("检测到客户端连接已断开，停止流式响应处理");
 					if (connection != null) {
 						connection.disconnect();
 					}
 					break;
 				}
+				// 检查客户端连接是否可写
+				if(!ctx.channel().isWritable()) {
+					logger.info("检测到客户端连接不可写，停止流式响应处理");
+					if (connection != null) {
+						connection.disconnect();
+					}
+					break;
+				}
+				
 				// 处理SSE格式的数据行
 				if (line.startsWith("data: ")) {
 					String data = line.substring(6); // 去掉 "data: " 前缀
@@ -1571,10 +1580,7 @@ public class OpenAIService {
 			String nodeCtx = this.resolveNodeName(nodeId);
 			logger.info("处理流式响应时发生错误 [{}]", nodeCtx, e);
 			// 检查是否是客户端断开连接导致的异常
-			if (e.getMessage() != null &&
-				(e.getMessage().contains("Connection reset by peer") ||
-				 e.getMessage().contains("Broken pipe") ||
-				 e.getMessage().contains("Connection closed"))) {
+			if (e.getMessage() != null && (e.getMessage().contains("Connection reset by peer") || e.getMessage().contains("Broken pipe") || e.getMessage().contains("Connection closed"))) {
 				logger.info("检测到客户端断开连接，尝试断开与llama.cpp的连接");
 				if (connection != null) {
 					connection.disconnect();

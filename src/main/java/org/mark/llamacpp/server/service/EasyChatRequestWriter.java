@@ -92,7 +92,7 @@ final class EasyChatRequestWriter {
 		}
 
 		JsonObject requestOptions = new JsonObject();
-		if (spec.samplingParams != null) {
+		if (!spec.skipSamplingInjection && spec.samplingParams != null) {
 			for (String key : spec.samplingParams.keySet()) {
 				requestOptions.add(key, spec.samplingParams.get(key));
 			}
@@ -102,7 +102,9 @@ final class EasyChatRequestWriter {
 		String resolvedModelId = SamplingInjectionBuilder.resolveModelName(spec.modelId);
 		requestOptions.addProperty("model", resolvedModelId == null || resolvedModelId.isBlank() ? spec.modelId : resolvedModelId);
 		applyMergedChatTemplateKwargs(requestOptions, resolvedModelId, clientEnableThinking);
-		ModelSamplingService.getInstance().handleOpenAI(requestOptions);
+		if (!spec.skipSamplingInjection) {
+			ModelSamplingService.getInstance().handleOpenAI(requestOptions);
+		}
 		writeObjectFields(output, requestOptions, "model", "messages", "stream");
 	}
 
@@ -238,19 +240,21 @@ final class EasyChatRequestWriter {
 		final Path conversationDir;
 		final byte[] toolsBytes;
 		final JsonObject samplingParams;
+		final boolean skipSamplingInjection;
 		final Map<Long, Integer> variants;
 		final Long regenerateSeq;
 		final byte[] transientUserMessage;
 		final boolean skipHistory;
 
 		RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
-			JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
+			JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
 			byte[] transientUserMessage, boolean skipHistory) {
 			this.modelId = modelId;
 			this.systemPrompt = systemPrompt;
 			this.conversationDir = conversationDir;
 			this.toolsBytes = toolsBytes;
 			this.samplingParams = samplingParams;
+			this.skipSamplingInjection = skipSamplingInjection;
 			this.variants = variants;
 			this.regenerateSeq = regenerateSeq;
 			this.transientUserMessage = transientUserMessage;

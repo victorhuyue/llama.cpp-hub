@@ -686,7 +686,7 @@ public class EasyChatService {
 		try (OutputStream os = conn.getOutputStream()) {
 			requestWriter.writeRequestBody(os,
 				new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-					samplingParams, variants, regenerateSeq, transientUserMessage, skipHistory));
+					samplingParams, false, variants, regenerateSeq, transientUserMessage, skipHistory));
 		}
 	}
 
@@ -1151,7 +1151,7 @@ public class EasyChatService {
 			nodeId, "POST", "v1/chat/completions",
 			output -> requestWriter.writeRequestBody(output,
 				new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-					samplingParams, variants, regenerateSeq, transientUserMessage, skipHistory)),
+					samplingParams, true, variants, regenerateSeq, transientUserMessage, skipHistory)),
 			null, STREAM_TIMEOUT_MS);
 		trackConnection(ctx, streamResult::abort);
 

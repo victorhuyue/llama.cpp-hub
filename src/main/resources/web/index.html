@@ -8,8 +8,7 @@
     <link href="css/css2.css" rel="stylesheet">
     <link rel="stylesheet" href="css/index.css">
     <style>
-        .sidebar-quick-links { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
-        .sidebar-quick-links-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); }
+        .sidebar-quick-links { display: flex; flex-direction: column; margin-bottom: 0.75rem; }
         .sidebar-quick-link { display: flex; align-items: flex-start; gap: 0.625rem; padding: 0.5rem 0.625rem; border: 1px solid rgba(229, 231, 235, 0.9); border-radius: 0.75rem; background: #ffffff; text-decoration: none; color: var(--text-primary); transition: border-color var(--transition-speed), background-color var(--transition-speed), transform var(--transition-speed); }
         .sidebar-quick-link:hover { background-color: #f9fafb; border-color: rgba(79, 70, 229, 0.35); transform: translateY(-1px); }
         .sidebar-quick-link:focus-visible { outline: none; border-color: rgba(79, 70, 229, 0.55); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); }
@@ -18,6 +17,13 @@
         .sidebar-quick-link-domain { font-size: 0.8rem; font-weight: 700; line-height: 1.1; word-break: break-all; }
         .sidebar-quick-link-desc { font-size: 0.7rem; color: var(--text-secondary); line-height: 1.2; }
         .sidebar-quick-link-ext { color: var(--text-secondary); opacity: 0.8; margin-top: 0.15rem; flex: 0 0 auto; }
+        .sidebar-quick-links-toggle { display: flex; align-items: center; gap: 0.5rem; width: 100%; padding: 0.5rem 0.625rem; border: 1px solid rgba(229, 231, 235, 0.9); border-radius: 0.75rem; background: #ffffff; color: var(--text-primary); font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: border-color var(--transition-speed), background-color var(--transition-speed); font-family: inherit; }
+        .sidebar-quick-links-toggle:hover { background-color: #f9fafb; border-color: rgba(79, 70, 229, 0.35); }
+        .sidebar-quick-links-toggle:focus-visible { outline: none; border-color: rgba(79, 70, 229, 0.55); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); }
+        .sidebar-quick-links-chevron { margin-left: auto; font-size: 0.65rem; color: var(--text-secondary); transition: transform 0.2s; }
+        .sidebar-quick-links.open .sidebar-quick-links-chevron { transform: rotate(180deg); }
+        .sidebar-quick-links-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; overflow: hidden; max-height: 0; transition: max-height 0.3s ease, opacity 0.2s ease; opacity: 0; }
+        .sidebar-quick-links.open .sidebar-quick-links-list { max-height: 500px; opacity: 1; }
         /* === Console Tab Bar === */
         .console-tab-bar { display:flex; gap:4px; margin:0 18px; background:var(--sidebar-bg); border:1px solid var(--border-color); border-radius:10px; padding:3px; flex-shrink:0; }
         .console-tab-btn { flex:1; padding:7px 12px; border:none; border-radius:7px; background:transparent; color:#6b7280; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s; font-family:inherit; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -309,6 +315,14 @@
             background-color: var(--hover-bg);
             border-color: rgba(129, 140, 248, 0.35);
         }
+        [data-theme="dark"] .sidebar-quick-links-toggle {
+            background: var(--card-bg);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        [data-theme="dark"] .sidebar-quick-links-toggle:hover {
+            background-color: var(--hover-bg);
+            border-color: rgba(129, 140, 248, 0.35);
+        }
         [data-theme="dark"] .console-tab-btn,
         [data-theme="dark"] .tab-bar button,
         [data-theme="dark"] #main-usage-report .tab-bar button,
@@ -433,42 +447,45 @@
         </nav>
         <div class="sidebar-footer">
             <div class="sidebar-quick-links">
-                <div class="sidebar-quick-links-title">
+                <button class="sidebar-quick-links-toggle" onclick="toggleQuickLinks()" type="button" title="Toggle quick links">
                     <i class="fas fa-link"></i>
                     <span data-i18n="sidebar.quick_links_title">sidebar.quick_links_title</span>
+                    <i class="fas fa-chevron-down sidebar-quick-links-chevron"></i>
+                </button>
+                <div class="sidebar-quick-links-list" id="sidebarQuickLinksList">
+                    <a class="sidebar-quick-link" href="https://huggingface.co/" target="_blank" rel="noopener noreferrer">
+                        <i class="fas fa-cloud sidebar-quick-link-icon"></i>
+                        <span class="sidebar-quick-link-text">
+                            <span class="sidebar-quick-link-domain">huggingface.co</span>
+                            <span class="sidebar-quick-link-desc" data-i18n="sidebar.quick_links.hf_desc">sidebar.quick_links.hf_desc</span>
+                        </span>
+                        <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
+                    </a>
+                    <a class="sidebar-quick-link" href="https://hf-mirror.com/" target="_blank" rel="noopener noreferrer">
+                        <i class="fas fa-globe sidebar-quick-link-icon"></i>
+                        <span class="sidebar-quick-link-text">
+                            <span class="sidebar-quick-link-domain">hf-mirror.com</span>
+                            <span class="sidebar-quick-link-desc" data-i18n="sidebar.quick_links.mirror_desc">sidebar.quick_links.mirror_desc</span>
+                        </span>
+                        <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
+                    </a>
+                    <a class="sidebar-quick-link" href="https://modelscope.com/" target="_blank" rel="noopener noreferrer">
+                        <i class="fas fa-box-open sidebar-quick-link-icon"></i>
+                        <span class="sidebar-quick-link-text">
+                            <span class="sidebar-quick-link-domain">modelscope.com</span>
+                            <span class="sidebar-quick-link-desc" data-i18n="sidebar.quick_links.modelscope_desc">sidebar.quick_links.modelscope_desc</span>
+                        </span>
+                        <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
+                    </a>
+                    <a class="sidebar-quick-link" href="https://github.com/ggml-org/llama.cpp/releases" target="_blank" rel="noopener noreferrer">
+                        <i class="fab fa-github sidebar-quick-link-icon"></i>
+                        <span class="sidebar-quick-link-text">
+                            <span class="sidebar-quick-link-domain">llama.cpp Releases</span>
+                            <span class="sidebar-quick-link-desc" data-i18n="sidebar.quick_links.github_desc">sidebar.quick_links.github_desc</span>
+                        </span>
+                        <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
+                    </a>
                 </div>
-                <a class="sidebar-quick-link" href="https://huggingface.co/" target="_blank" rel="noopener noreferrer">
-                    <i class="fas fa-cloud sidebar-quick-link-icon"></i>
-                    <span class="sidebar-quick-link-text">
-                        <span class="sidebar-quick-link-domain">huggingface.co</span>
-                        <span class="sidebar-quick-link-desc" data-i18n="sidebar.quick_links.hf_desc">sidebar.quick_links.hf_desc</span>
-                    </span>
-                    <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
-                </a>
-                <a class="sidebar-quick-link" href="https://hf-mirror.com/" target="_blank" rel="noopener noreferrer">
-                    <i class="fas fa-globe sidebar-quick-link-icon"></i>
-                    <span class="sidebar-quick-link-text">
-                        <span class="sidebar-quick-link-domain">hf-mirror.com</span>
-                        <span class="sidebar-quick-link-desc" data-i18n="sidebar.quick_links.mirror_desc">sidebar.quick_links.mirror_desc</span>
-                    </span>
-                    <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
-                </a>
-                <a class="sidebar-quick-link" href="https://modelscope.com/" target="_blank" rel="noopener noreferrer">
-                    <i class="fas fa-box-open sidebar-quick-link-icon"></i>
-                    <span class="sidebar-quick-link-text">
-                        <span class="sidebar-quick-link-domain">modelscope.com</span>
-                        <span class="sidebar-quick-link-desc" data-i18n="sidebar.quick_links.modelscope_desc">sidebar.quick_links.modelscope_desc</span>
-                    </span>
-                    <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
-                </a>
-                <a class="sidebar-quick-link" href="https://github.com/ggml-org/llama.cpp/releases" target="_blank" rel="noopener noreferrer">
-                    <i class="fab fa-github sidebar-quick-link-icon"></i>
-                    <span class="sidebar-quick-link-text">
-                        <span class="sidebar-quick-link-domain">llama.cpp Releases</span>
-                        <span class="sidebar-quick-link-desc" data-i18n="sidebar.quick_links.github_desc">sidebar.quick_links.github_desc</span>
-                    </span>
-                    <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
-                </a>
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.5rem 0;">
                 <button id="themeToggle" onclick="toggleTheme()" title="common.theme.toggle_title" data-i18n="common.theme.toggle_title" data-i18n-attr="title" style="background: none; border: 1px solid var(--border-color); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer; color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
@@ -1921,6 +1938,9 @@
         function toggleTheme() {
             const current = document.documentElement.getAttribute('data-theme');
             applyTheme(current === 'dark' ? 'light' : 'dark');
+        }
+        function toggleQuickLinks() {
+            document.querySelector('.sidebar-quick-links').classList.toggle('open');
         }
         function initTheme() {
             const saved = localStorage.getItem('llama-hub-theme');

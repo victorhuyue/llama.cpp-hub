@@ -16,6 +16,7 @@ import io.netty.util.CharsetUtil;
 import org.mark.llamacpp.server.LlamaHubNode;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
+import org.mark.llamacpp.server.io.NettyWriteHelper;
 import org.mark.llamacpp.server.struct.ActiveRequest.Phase;
 import org.mark.llamacpp.server.struct.Timing;
 import org.mark.llamacpp.server.tools.JsonUtil;
@@ -861,8 +862,9 @@ public class AnthropicService {
         response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
         response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
 
-        ctx.write(response);
-        ctx.flush();
+        if (!NettyWriteHelper.writeAndFlushBlocking(ctx, response, logger, "[AnthropicService]")) {
+            return;
+        }
 
         try (BufferedReader br = new BufferedReader(
             new InputStreamReader(
@@ -910,15 +912,16 @@ public class AnthropicService {
                     content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
 
                     HttpContent httpContent = new DefaultHttpContent(content);
-
-                    ChannelFuture future = ctx.writeAndFlush(httpContent);
-
-                    future.addListener((ChannelFutureListener) channelFuture -> {
-                        if (!channelFuture.isSuccess()) {
-                            logger.info("写入流式数据失败，可能是客户端断开连接: {}", channelFuture.cause().getMessage());
-                            ctx.close();
+                    if (!NettyWriteHelper.writeAndFlushBlocking(
+                            ctx,
+                            httpContent,
+                            logger,
+                            "[AnthropicService]")) {
+                        if (connection != null) {
+                            connection.disconnect();
                         }
-                    });
+                        return;
+                    }
 
                     chunkCount++;
                 } else if (line.startsWith("event: ")) {
@@ -927,13 +930,31 @@ public class AnthropicService {
                     content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
 
                     HttpContent httpContent = new DefaultHttpContent(content);
-                    ctx.writeAndFlush(httpContent);
+                    if (!NettyWriteHelper.writeAndFlushBlocking(
+                            ctx,
+                            httpContent,
+                            logger,
+                            "[AnthropicService]")) {
+                        if (connection != null) {
+                            connection.disconnect();
+                        }
+                        return;
+                    }
                 } else if (line.isEmpty()) {
                     ByteBuf content = ctx.alloc().buffer();
                     content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
 
                     HttpContent httpContent = new DefaultHttpContent(content);
-                    ctx.writeAndFlush(httpContent);
+                    if (!NettyWriteHelper.writeAndFlushBlocking(
+                            ctx,
+                            httpContent,
+                            logger,
+                            "[AnthropicService]")) {
+                        if (connection != null) {
+                            connection.disconnect();
+                        }
+                        return;
+                    }
                 }
             }
 
@@ -949,16 +970,20 @@ public class AnthropicService {
                     connection.disconnect();
                 }
             }
-            throw e;
-        }
-
-        LastHttpContent lastContent = LastHttpContent.EMPTY_LAST_CONTENT;
-        ctx.writeAndFlush(lastContent).addListener(new ChannelFutureListener() {
-            @Override
-            public void operationComplete(ChannelFuture future) {
+            if (ctx.channel().isActive()) {
                 ctx.close();
             }
-        });
+            return;
+        }
+
+        if (ctx.channel().isActive()
+                && NettyWriteHelper.writeAndFlushBlocking(
+                        ctx,
+                        LastHttpContent.EMPTY_LAST_CONTENT,
+                        logger,
+                        "[AnthropicService]")) {
+            ctx.close();
+        }
     }
 
 //    @Deprecated

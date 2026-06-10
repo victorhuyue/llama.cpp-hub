@@ -14,6 +14,7 @@ import java.util.stream.Stream;
 
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.exception.RequestMethodException;
+import org.mark.llamacpp.server.service.EasyChatGlobalLock;
 import org.mark.llamacpp.server.service.EasyChatService;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.tools.JsonUtil;
@@ -28,6 +29,7 @@ import com.google.gson.JsonObject;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 /**
  * EasyChat 后端状态接口。
@@ -57,6 +59,7 @@ public class EasyChatController implements BaseController {
 	private static final String STATE_REVISION_KEY = "_revision";
 	private static final String BASE_REVISION_FIELD = "baseRevision";
 	private static final String REVISION_CONFLICT_CODE = "STATE_REVISION_CONFLICT";
+	private final EasyChatGlobalLock globalLock = EasyChatGlobalLock.getInstance();
 	
 	/**
 	 * 	这个用来获取历史对话，或者提交请求。
@@ -85,34 +88,68 @@ public class EasyChatController implements BaseController {
 			return true;
 		}
 		if (uri.startsWith(PATH_STATE_REVISION)) {
-			this.handleRevisionRequest(ctx, request);
+			this.withGlobalLock(ctx, "easy-chat.state.revision", () -> this.handleRevisionRequest(ctx, request));
 			return true;
 		}
 		if (uri.startsWith(PATH_CONVERSATION_SAVE)) {
-			this.handleConversationSaveRequest(ctx, request);
+			this.withGlobalLock(ctx, "easy-chat.conversation.save", () -> this.handleConversationSaveRequest(ctx, request));
 			return true;
 		}
 		if (uri.startsWith(PATH_CONVERSATION)) {
-			this.handleConversationRequest(ctx, request);
+			this.withGlobalLock(ctx, "easy-chat.conversation", () -> this.handleConversationRequest(ctx, request));
 			return true;
 		}
 		if (uri.startsWith(PATH_SYNC)) {
-			this.handleSyncRequest(ctx, request);
+			this.withGlobalLock(ctx, "easy-chat.sync", () -> this.handleSyncRequest(ctx, request));
 			return true;
 		}
 		if (uri.startsWith(PATH_STATE)) {
-			this.handleStateRequest(ctx, request);
+			this.withGlobalLock(ctx, "easy-chat.state", () -> this.handleStateRequest(ctx, request));
 			return true;
 		}
 		if (uri.startsWith(PATH_DELETE)) {
-			this.handleDeleteRequest(ctx, request);
+			this.withGlobalLock(ctx, "easy-chat.delete", () -> this.handleDeleteRequest(ctx, request));
 			return true;
 		}
 		if (uri.startsWith(PATH_MESSAGE_UPDATE)) {
-			this.handleMessageUpdateRequest(ctx, request);
+			this.withGlobalLock(ctx, "easy-chat.message.update", () -> this.handleMessageUpdateRequest(ctx, request));
 			return true;
 		}
 		return false;
+	}
+
+	@FunctionalInterface
+	private interface LockedAction {
+		void run() throws RequestMethodException;
+	}
+
+	private void withGlobalLock(ChannelHandlerContext ctx, String operationName, LockedAction action)
+			throws RequestMethodException {
+		EasyChatGlobalLock.Lease lease = globalLock.tryAcquire(operationName);
+		if (lease == null) {
+			sendGlobalLockBusy(ctx, operationName);
+			return;
+		}
+		try (lease) {
+			action.run();
+		}
+	}
+
+	private void sendGlobalLockBusy(ChannelHandlerContext ctx, String requestedOperation) {
+		EasyChatGlobalLock.LockState current = globalLock.current();
+		String message = "Easy Chat 正在执行其它操作，请稍后再试";
+		Map<String, Object> data = new HashMap<>();
+		data.put("requestedOperation", requestedOperation);
+		if (current != null) {
+			if (current.operationName() != null && !current.operationName().isBlank()) {
+				message += "（当前操作: " + current.operationName() + "）";
+				data.put("activeOperation", current.operationName());
+			}
+			data.put("startedAt", current.startedAt());
+		}
+		ApiResponse response = ApiResponse.error(message);
+		response.setData(data);
+		LlamaServer.sendExpressJsonResponse(ctx, HttpResponseStatus.LOCKED, response, true);
 	}
 
 	private void handleStreamChatRequest(ChannelHandlerContext ctx, FullHttpRequest request) {

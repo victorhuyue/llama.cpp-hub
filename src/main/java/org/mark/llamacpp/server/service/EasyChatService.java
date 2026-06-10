@@ -67,6 +67,7 @@ public class EasyChatService {
 	private final Map<String, Object> conversationLocks = new ConcurrentHashMap<>();
 	private final EasyChatStorage storage = new EasyChatStorage();
 	private final EasyChatRequestWriter requestWriter = new EasyChatRequestWriter(storage);
+	private final EasyChatGlobalLock globalLock = EasyChatGlobalLock.getInstance();
 
 	private EasyChatService() {
 	}
@@ -94,9 +95,14 @@ public class EasyChatService {
 	 * then dispatches async processing.
 	 */
 	public void handleStreamChat(ChannelHandlerContext ctx, FullHttpRequest request) {
+		EasyChatGlobalLock.Lease globalLease = null;
 		try {
 			if (request.method() != HttpMethod.POST) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("只支持POST请求"));
+				return;
+			}
+			globalLease = acquireGlobalLease(ctx, "chat.stream");
+			if (globalLease == null) {
 				return;
 			}
 
@@ -288,6 +294,7 @@ public class EasyChatService {
 			final Long finalRegenerateSeq = regenerateSeq;
 
 			// Dispatch to worker thread
+			final EasyChatGlobalLock.Lease finalGlobalLease = globalLease;
 			worker.execute(() -> {
 				HttpURLConnection connection = null;
 				StreamAccumulator accumulator = new StreamAccumulator();
@@ -400,12 +407,18 @@ public class EasyChatService {
 					sendOpenAIError(ctx, 500, e.getMessage());
 				} finally {
 					cleanupConnection(ctx);
+					finalGlobalLease.close();
 				}
 			});
+			globalLease = null;
 
 		} catch (Exception e) {
 			logger.info("[EasyChat] 处理stream-chat请求失败", e);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("处理失败: " + e.getMessage()));
+		} finally {
+			if (globalLease != null) {
+				globalLease.close();
+			}
 		}
 	}
 
@@ -415,8 +428,13 @@ public class EasyChatService {
 	 * Returns all variants for AI messages that have been regenerated.
 	 */
 	public void handleStreamChatHistory(ChannelHandlerContext ctx, String conversationId) {
+		EasyChatGlobalLock.Lease globalLease = acquireGlobalLease(ctx, "chat.history");
+		if (globalLease == null) {
+			return;
+		}
 		if (conversationId == null || conversationId.isBlank()) {
 			sendHistoryError(ctx, "缺少conversationId");
+			globalLease.close();
 			return;
 		}
 
@@ -426,6 +444,7 @@ public class EasyChatService {
 		} catch (IOException e) {
 			logger.info("[EasyChat] 获取碎片目录失败 conversation={}", conversationId, e);
 			sendHistoryError(ctx, "获取目录失败: " + e.getMessage());
+			globalLease.close();
 			return;
 		}
 
@@ -454,6 +473,7 @@ public class EasyChatService {
 		} catch (Exception e) {
 			logger.info("[EasyChat] 预扫描碎片失败 conversation={}", conversationId, e);
 			sendHistoryError(ctx, "扫描碎片失败: " + e.getMessage());
+			globalLease.close();
 			return;
 		}
 
@@ -538,10 +558,19 @@ public class EasyChatService {
 			ctx.writeAndFlush(Unpooled.wrappedBuffer(dataSuffix));
 			logger.info("[EasyChat] 流式传输历史完成 conversation={} records={} variants={} bytes={}",
 				conversationId, recordCount, variantCount, totalSize);
-			ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);
+			final EasyChatGlobalLock.Lease finalGlobalLease = globalLease;
+			ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(future -> {
+				finalGlobalLease.close();
+				ctx.close();
+			});
+			globalLease = null;
 		} catch (Exception e) {
 			logger.info("[EasyChat] 流式传输历史失败 conversation={}", conversationId, e);
 			ctx.close();
+		} finally {
+			if (globalLease != null) {
+				globalLease.close();
+			}
 		}
 	}
 
@@ -554,6 +583,32 @@ public class EasyChatService {
 		resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 		resp.content().writeBytes(body);
 		ctx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
+	}
+
+	private EasyChatGlobalLock.Lease acquireGlobalLease(ChannelHandlerContext ctx, String operationName) {
+		EasyChatGlobalLock.Lease lease = globalLock.tryAcquire(operationName);
+		if (lease != null) {
+			return lease;
+		}
+		sendGlobalLockBusy(ctx, operationName);
+		return null;
+	}
+
+	private void sendGlobalLockBusy(ChannelHandlerContext ctx, String requestedOperation) {
+		EasyChatGlobalLock.LockState current = globalLock.current();
+		String message = "Easy Chat 正在执行其它操作，请稍后再试";
+		Map<String, Object> data = new HashMap<>();
+		data.put("requestedOperation", requestedOperation);
+		if (current != null) {
+			if (current.operationName() != null && !current.operationName().isBlank()) {
+				message += "（当前操作: " + current.operationName() + "）";
+				data.put("activeOperation", current.operationName());
+			}
+			data.put("startedAt", current.startedAt());
+		}
+		ApiResponse response = ApiResponse.error(message);
+		response.setData(data);
+		LlamaServer.sendExpressJsonResponse(ctx, HttpResponseStatus.LOCKED, response, true);
 	}
 
 	/* ---- Connection management ---- */

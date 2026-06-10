@@ -492,6 +492,16 @@
     <button class="image-lightbox-close" id="imageLightboxClose" type="button" aria-label="关闭" data-i18n-attr="aria-label" data-i18n="page.chat.main.lightbox.close">&times;</button>
     <img class="image-lightbox-img" id="imageLightboxImg" src="" alt="预览" data-i18n-attr="alt" data-i18n="page.chat.main.lightbox.alt">
   </div>
+  <div class="image-lightbox" id="videoLightbox" role="dialog" aria-modal="true" aria-label="视频预览">
+    <button class="image-lightbox-close" id="videoLightboxClose" type="button" aria-label="关闭">&times;</button>
+    <video id="videoLightboxPlayer" controls preload="metadata" style="max-width:min(92vw, 1100px);max-height:88vh;width:auto;height:auto;border-radius:16px;background:#000;box-shadow:0 18px 48px rgba(0,0,0,0.35);"></video>
+    <div id="videoLightboxFallback" style="display:none;max-width:min(92vw, 720px);padding:20px 22px;border-radius:16px;background:rgba(255,255,255,0.96);box-shadow:0 18px 48px rgba(0,0,0,0.22);color:#222;text-align:center;">
+      <div style="font-size:15px;font-weight:600;">当前浏览器无法直接预览该视频</div>
+      <div style="margin-top:8px;font-size:13px;color:#666;">请下载后使用本地播放器打开</div>
+      <a id="videoLightboxDownload" href="#" download="video.mp4" style="display:inline-flex;align-items:center;justify-content:center;margin-top:14px;padding:10px 16px;border-radius:999px;background:#111;color:#fff;text-decoration:none;font-size:14px;font-weight:600;">下载视频</a>
+    </div>
+    <pre id="videoLightboxDiagnostics" style="display:none;margin-top:12px;max-width:min(92vw, 1100px);max-height:26vh;overflow:auto;padding:12px 14px;border-radius:12px;background:rgba(0,0,0,0.72);color:#d7e3f4;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;"></pre>
+  </div>
   <script src="/js/marked.umd.js"></script>
   <script src="/js/highlight.min.js"></script>
   <script src="./chat-mcp.js"></script>
@@ -571,10 +581,17 @@
     let modelCapabilitiesMap = {};
     let modelNodeIdMap = {};
 
-    function isAudioSupported() {
-      const rawModel = typeof state.model === 'string' ? state.model : '';
+    function stripModelNodeSuffix(modelValue) {
+      const rawModel = typeof modelValue === 'string' ? modelValue.trim() : '';
+      if (!rawModel) {
+        return '';
+      }
       const sep = rawModel.lastIndexOf('::');
-      const modelName = sep >= 0 ? rawModel.substring(0, sep) : rawModel;
+      return sep >= 0 ? rawModel.substring(0, sep) : rawModel;
+    }
+
+    function isAudioSupported() {
+      const modelName = stripModelNodeSuffix(state.model);
       if (!modelName) {
         return false;
       }
@@ -1559,17 +1576,47 @@
     function createMessageVideoCard(video) {
       const card = document.createElement('div');
       card.className = 'message-file-card';
+      card.dataset.videoPreview = video.dataUrl || '';
+      card.dataset.videoName = video.name || 'video.mp4';
+      card.tabIndex = 0;
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-label', (video.name || '视频') + '，点击预览');
+      card.style.display = 'flex';
+      card.style.alignItems = 'center';
+      card.style.gap = '12px';
+      card.style.padding = '14px 16px';
+
+      const icon = document.createElement('div');
+      icon.setAttribute('aria-hidden', 'true');
+      icon.style.width = '38px';
+      icon.style.height = '38px';
+      icon.style.borderRadius = '10px';
+      icon.style.display = 'flex';
+      icon.style.alignItems = 'center';
+      icon.style.justifyContent = 'center';
+      icon.style.flex = '0 0 auto';
+      icon.style.background = 'rgba(127,127,127,0.10)';
+      icon.style.color = 'var(--text-muted, #666)';
+      icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>';
+
+      const textWrap = document.createElement('div');
+      textWrap.style.minWidth = '0';
+      textWrap.style.flex = '1 1 auto';
 
       const title = document.createElement('div');
       title.className = 'message-file-title';
       title.textContent = video.name || '视频';
+      title.style.margin = '0';
 
       const meta = document.createElement('div');
       meta.className = 'message-file-meta';
-      meta.textContent = formatFileSize(video.size);
+      meta.textContent = (video.size > 0 ? formatFileSize(video.size) : window.I18N.t('page.chat.main.message.video', '视频文件')) + ' · 点击播放';
+      meta.style.marginTop = '2px';
 
-      card.appendChild(title);
-      card.appendChild(meta);
+      textWrap.appendChild(title);
+      textWrap.appendChild(meta);
+      card.appendChild(icon);
+      card.appendChild(textWrap);
       return card;
     }
 
@@ -1589,6 +1636,91 @@
       backdrop.classList.remove('open');
       document.body.style.overflow = '';
       if (img) img.src = '';
+    }
+
+    function openVideoLightbox(src, fileName) {
+      const backdrop = document.getElementById('videoLightbox');
+      const player = document.getElementById('videoLightboxPlayer');
+      const fallback = document.getElementById('videoLightboxFallback');
+      const downloadLink = document.getElementById('videoLightboxDownload');
+      if (!backdrop || !player || !src) return;
+      closeVideoLightbox();
+      ensureVideoLightboxDiagnosticsBound();
+      const blob = dataUrlToBlob(src);
+      const playerSrc = blob ? URL.createObjectURL(blob) : src;
+      const mimeType = blob?.type || (typeof src === 'string' && src.startsWith('data:') ? (src.match(/^data:([^;,]+)/)?.[1] || '-') : '-');
+      const safeName = typeof fileName === 'string' && fileName.trim() ? fileName.trim() : 'video.mp4';
+      player.dataset.mimeType = mimeType;
+      player.dataset.canPlayType = mimeType && mimeType !== '-' ? (player.canPlayType(mimeType) || '(empty)') : '-';
+      player.dataset.blobSize = blob ? String(blob.size) : '-';
+      player.style.display = '';
+      if (fallback) {
+        fallback.style.display = 'none';
+      }
+      if (downloadLink) {
+        downloadLink.href = playerSrc;
+        downloadLink.download = safeName;
+      }
+      if (playerSrc.startsWith('blob:')) {
+        player.dataset.objectUrl = playerSrc;
+      } else {
+        delete player.dataset.objectUrl;
+      }
+      player.src = playerSrc;
+      player.load();
+      backdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      updateVideoLightboxDiagnostics(player, {
+        event: 'open',
+        mime: player.dataset.mimeType || '-',
+        canPlayType: player.dataset.canPlayType || '-',
+        objectUrl: player.dataset.objectUrl || '-',
+        blobSize: player.dataset.blobSize || '-'
+      });
+      const playPromise = player.play?.();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(error => {
+          updateVideoLightboxDiagnostics(player, {
+            event: 'play_rejected',
+            mime: player.dataset.mimeType || '-',
+            canPlayType: player.dataset.canPlayType || '-',
+            objectUrl: player.dataset.objectUrl || '-',
+            blobSize: player.dataset.blobSize || '-'
+          });
+          console.warn('[EasyChat][VideoLightbox] play() rejected', error);
+        });
+      }
+    }
+
+    function closeVideoLightbox() {
+      const backdrop = document.getElementById('videoLightbox');
+      const player = document.getElementById('videoLightboxPlayer');
+      if (!backdrop) return;
+      backdrop.classList.remove('open');
+      document.body.style.overflow = '';
+      if (player) {
+        player.pause();
+        player.removeAttribute('src');
+        player.load();
+        player.style.display = '';
+        if (player.dataset.objectUrl) {
+          URL.revokeObjectURL(player.dataset.objectUrl);
+          delete player.dataset.objectUrl;
+        }
+        delete player.dataset.mimeType;
+        delete player.dataset.canPlayType;
+        delete player.dataset.blobSize;
+        updateVideoLightboxDiagnostics(player, { event: 'closed' });
+      }
+      const fallback = document.getElementById('videoLightboxFallback');
+      if (fallback) {
+        fallback.style.display = 'none';
+      }
+      const downloadLink = document.getElementById('videoLightboxDownload');
+      if (downloadLink) {
+        downloadLink.href = '#';
+        downloadLink.download = 'video.mp4';
+      }
     }
 
     function escapeAttribute(value) {
@@ -2053,10 +2185,24 @@
           images.push({ id: makeImageId(), name: '图片', type: 'image/png', size: 0, dataUrl: item.image_url.url });
         } else if (item.type === 'input_audio' && item.input_audio && typeof item.input_audio.data === 'string') {
           const fmt = item.input_audio.format || 'wav';
-          audios.push({ id: makeAudioFileId(), name: 'audio.' + fmt, type: 'audio/' + fmt, size: 0, dataUrl: 'data:audio/' + fmt + ';base64,' + item.input_audio.data });
+          const size = estimateBase64ByteSize(item.input_audio.data);
+          audios.push({
+            id: makeAudioFileId(),
+            name: window.I18N.t('page.chat.main.message.audio', '音频') + '.' + fmt,
+            type: 'audio/' + fmt,
+            size,
+            dataUrl: 'data:audio/' + fmt + ';base64,' + item.input_audio.data
+          });
         } else if (item.type === 'input_video' && item.input_video && typeof item.input_video.data === 'string') {
           const fmt = item.input_video.format || 'mp4';
-          videos.push({ id: makeVideoFileId(), name: 'video.' + fmt, type: 'video/' + fmt, size: 0, dataUrl: 'data:video/' + fmt + ';base64,' + item.input_video.data });
+          const size = estimateBase64ByteSize(item.input_video.data);
+          videos.push({
+            id: makeVideoFileId(),
+            name: window.I18N.t('page.chat.main.message.video', '视频') + '.' + fmt,
+            type: 'video/' + fmt,
+            size,
+            dataUrl: 'data:video/' + fmt + ';base64,' + item.input_video.data
+          });
         }
       }
       return { text, images, audios, videos };
@@ -2336,13 +2482,13 @@
     }
 
     function getAssistantDisplayName(message, fallbackModel) {
-      const modelName = typeof message?.model === 'string' && message.model.trim()
-        ? message.model.trim()
-        : typeof fallbackModel === 'string' && fallbackModel.trim()
-          ? fallbackModel.trim()
-          : typeof state.model === 'string' && state.model.trim()
-            ? state.model.trim()
-            : window.I18N.t('page.chat.main.message.model', '模型');
+      const modelName = stripModelNodeSuffix(
+        typeof message?.model === 'string' && message.model.trim()
+          ? message.model
+          : typeof fallbackModel === 'string' && fallbackModel.trim()
+            ? fallbackModel
+            : state.model
+      ) || window.I18N.t('page.chat.main.message.model', '模型');
       return modelName;
     }
 
@@ -3059,12 +3205,12 @@
     }
 
     function scheduleStateSaveRetry(delay = 2000) {
-      if (stateSaveRetryTimer || !pendingStatePayload) {
+      if (stateSaveRetryTimer || !pendingStatePayload || state.isSending) {
         return;
       }
       stateSaveRetryTimer = window.setTimeout(() => {
         stateSaveRetryTimer = 0;
-        if (!pendingStatePayload || stateSaveInFlight) {
+        if (!pendingStatePayload || stateSaveInFlight || state.isSending) {
           return;
         }
         void flushStateSave({ showErrorToast: false });
@@ -3157,8 +3303,12 @@
       const operationName = String(options?.operationName || window.I18N.t('page.chat.main.misc.operation', '操作'));
       const showNetworkToast = options?.showNetworkToast !== false;
       const showConflictToast = options?.showConflictToast !== false;
+      const skipWhileSending = options?.skipWhileSending !== false;
       if (!ensureStateReadyForOperation()) {
         return { ok: false, reason: 'not_ready' };
+      }
+      if (skipWhileSending && state.isSending) {
+        return { ok: true, reason: 'sending' };
       }
       try {
         const json = await fetchJson(EASY_CHAT_STATE_REVISION_ENDPOINT, {
@@ -3187,6 +3337,9 @@
         }
         return { ok: true, reason: '' };
       } catch (error) {
+        if (isGlobalLockBusyError(error)) {
+          return { ok: false, reason: 'busy' };
+        }
         updateStatus('error', window.I18N.t('page.chat.main.status.precheck_failed', '{op}前状态校验失败：{error}').replace('{op}', operationName).replace('{error}', error?.message || window.I18N.t('page.chat.main.error.network', '网络错误：无法连接服务器加载会话数据，请先恢复连接')), window.I18N.t('page.chat.main.status.precheck_failed_short', '校验失败'));
         if (showNetworkToast) {
           showToast('error', window.I18N.t('page.chat.main.error.precheck_failed', '{op}前无法确认服务端状态，请检查网络后重试').replace('{op}', operationName));
@@ -3198,6 +3351,13 @@
     function isStateRevisionConflictError(error) {
       const message = String(error?.message || '');
       return message.includes(STATE_REVISION_CONFLICT_CODE);
+    }
+
+    function isGlobalLockBusyError(error) {
+      const message = String(error?.message || '');
+      return message.includes('423')
+        || message.includes('Easy Chat 正在执行其它操作')
+        || message.includes('"requestedOperation"');
     }
 
     async function handleStateRevisionConflict() {
@@ -3338,6 +3498,10 @@
       if (stateSaveInFlight) {
         return false;
       }
+      if (state.isSending) {
+        updateStorageHint(window.I18N.t('page.chat.main.settings.storage_waiting_stream', '正在生成回复，已暂停状态保存，结束后将自动落盘'));
+        return false;
+      }
       const pending = pendingStatePayload;
       if (!pending) {
         return true;
@@ -3350,12 +3514,17 @@
         const precheck = await ensureServerStateReady({
           operationName: window.I18N.t('page.chat.main.action.save', '保存'),
           showNetworkToast: options.showErrorToast !== false,
-          showConflictToast: options.showErrorToast !== false
+          showConflictToast: options.showErrorToast !== false,
+          skipWhileSending: true
         });
         if (!precheck.ok) {
           if (precheck.reason === 'conflict') {
             clearStateSaveRetryTimer();
             updateStorageHint(window.I18N.t('page.chat.main.settings.server_state_changed', '检测到服务端状态变化，已同步最新状态，本地修改请重新操作后再保存'));
+          } else if (precheck.reason === 'busy') {
+            pendingStatePayload = { saveOptions: options };
+            updateStorageHint(window.I18N.t('page.chat.main.settings.storage_busy_retry', 'Easy Chat 正忙，当前更改将在稍后自动重试保存'));
+            scheduleStateSaveRetry(typeof options.retryDelay === 'number' ? options.retryDelay : 2000);
           } else {
             pendingStatePayload = { saveOptions: options };
             scheduleStateSaveRetry(typeof options.retryDelay === 'number' ? options.retryDelay : 2000);
@@ -3407,6 +3576,10 @@
       if (stateSaveTimer) {
         clearTimeout(stateSaveTimer);
         stateSaveTimer = 0;
+      }
+      if (state.isSending) {
+        updateStorageHint(window.I18N.t('page.chat.main.settings.storage_waiting_stream', '正在生成回复，已暂停状态保存，结束后将自动落盘'));
+        return Promise.resolve(true);
       }
       if (options.immediate) {
         return flushStateSave(options);
@@ -5460,6 +5633,158 @@
       return headers;
     }
 
+    function getMediaBase64Data(file) {
+      const dataUrl = typeof file?.dataUrl === 'string' ? file.dataUrl : '';
+      const commaIndex = dataUrl.indexOf(',');
+      return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : '';
+    }
+
+    function estimateBase64ByteSize(base64Data) {
+      const source = typeof base64Data === 'string' ? base64Data.replace(/\s+/g, '') : '';
+      if (!source) {
+        return 0;
+      }
+      let padding = 0;
+      if (source.endsWith('==')) {
+        padding = 2;
+      } else if (source.endsWith('=')) {
+        padding = 1;
+      }
+      return Math.max(0, Math.floor(source.length * 3 / 4) - padding);
+    }
+
+    function dataUrlToBlob(dataUrl) {
+      const source = typeof dataUrl === 'string' ? dataUrl : '';
+      const match = source.match(/^data:([^;,]+)?;base64,(.+)$/);
+      if (!match) {
+        return null;
+      }
+      const mimeType = match[1] || 'application/octet-stream';
+      const base64Data = match[2];
+      try {
+        const binary = atob(base64Data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return new Blob([bytes], { type: mimeType });
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function getVideoPlayerErrorText(player) {
+      const code = Number(player?.error?.code || 0);
+      if (code === 1) return 'MEDIA_ERR_ABORTED';
+      if (code === 2) return 'MEDIA_ERR_NETWORK';
+      if (code === 3) return 'MEDIA_ERR_DECODE';
+      if (code === 4) return 'MEDIA_ERR_SRC_NOT_SUPPORTED';
+      return code ? 'UNKNOWN_' + code : 'none';
+    }
+
+    function formatVideoDiagnosticValue(value) {
+      if (typeof value === 'number') {
+        return Number.isFinite(value) ? String(value) : 'NaN';
+      }
+      if (typeof value === 'boolean') {
+        return value ? 'true' : 'false';
+      }
+      if (value == null || value === '') {
+        return '-';
+      }
+      return String(value);
+    }
+
+    function collectVideoDiagnosticLines(player, extra = {}) {
+      return [
+        ['event', extra.event || '-'],
+        ['mime', extra.mime || player?.currentSrc?.slice(0, 64) || '-'],
+        ['canPlayType', extra.canPlayType || '-'],
+        ['objectUrl', extra.objectUrl || '-'],
+        ['blobSize', extra.blobSize || '-'],
+        ['readyState', player?.readyState],
+        ['networkState', player?.networkState],
+        ['paused', player?.paused],
+        ['ended', player?.ended],
+        ['seeking', player?.seeking],
+        ['currentTime', player?.currentTime],
+        ['duration', player?.duration],
+        ['videoWidth', player?.videoWidth],
+        ['videoHeight', player?.videoHeight],
+        ['error', getVideoPlayerErrorText(player)]
+      ].map(([key, value]) => key + ': ' + formatVideoDiagnosticValue(value));
+    }
+
+    function updateVideoLightboxDiagnostics(player, extra = {}) {
+      const panel = document.getElementById('videoLightboxDiagnostics');
+      const lines = collectVideoDiagnosticLines(player, extra);
+      if (panel) {
+        panel.textContent = lines.join('\n');
+      }
+      console.info('[EasyChat][VideoLightbox]', Object.fromEntries(lines.map(line => {
+        const idx = line.indexOf(': ');
+        return idx >= 0 ? [line.slice(0, idx), line.slice(idx + 2)] : [line, ''];
+      })));
+    }
+
+    function ensureVideoLightboxDiagnosticsBound() {
+      const player = document.getElementById('videoLightboxPlayer');
+      if (!player || player.dataset.diagnosticsBound === 'true') {
+        return;
+      }
+      const events = ['loadstart', 'loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough', 'play', 'playing', 'pause', 'waiting', 'stalled', 'suspend', 'ended', 'error'];
+      for (const eventName of events) {
+        player.addEventListener(eventName, () => {
+          updateVideoLightboxDiagnostics(player, {
+            event: eventName,
+            mime: player.dataset.mimeType || '-',
+            canPlayType: player.dataset.canPlayType || '-',
+            objectUrl: player.dataset.objectUrl || '-',
+            blobSize: player.dataset.blobSize || '-'
+          });
+          syncVideoLightboxMode(player, eventName);
+        });
+      }
+      player.dataset.diagnosticsBound = 'true';
+    }
+
+    function syncVideoLightboxMode(player, eventName = '') {
+      const fallback = document.getElementById('videoLightboxFallback');
+      const downloadLink = document.getElementById('videoLightboxDownload');
+      if (!player || !fallback || !downloadLink) {
+        return;
+      }
+      const hasRenderableVideo = Number(player.videoWidth || 0) > 0 && Number(player.videoHeight || 0) > 0;
+      const shouldFallback = !hasRenderableVideo && ['loadeddata', 'canplay', 'canplaythrough', 'playing', 'error'].includes(eventName);
+      if (hasRenderableVideo) {
+        player.style.display = '';
+        fallback.style.display = 'none';
+        return;
+      }
+      if (shouldFallback) {
+        player.pause();
+        player.style.display = 'none';
+        fallback.style.display = 'block';
+      }
+    }
+
+    function getMediaFormat(file, fallbackFormat) {
+      const fallback = typeof fallbackFormat === 'string' && fallbackFormat ? fallbackFormat : 'bin';
+      const fileType = typeof file?.type === 'string' ? file.type.trim() : '';
+      if (fileType.includes('/')) {
+        const subtype = fileType.split('/')[1].split(';')[0].trim();
+        if (subtype) {
+          return subtype.toLowerCase();
+        }
+      }
+      const fileName = typeof file?.name === 'string' ? file.name.trim() : '';
+      const dotIndex = fileName.lastIndexOf('.');
+      if (dotIndex >= 0 && dotIndex < fileName.length - 1) {
+        return fileName.slice(dotIndex + 1).toLowerCase();
+      }
+      return fallback;
+    }
+
     function buildStreamUserMessage(text, images, files, audios, videos) {
       const msg = { role: 'user' };
       const parts = [];
@@ -5477,13 +5802,27 @@
         }
       }
       for (const a of (audios || [])) {
-        if (a?.dataUrl) {
-          parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+        const data = getMediaBase64Data(a);
+        if (data) {
+          parts.push({
+            type: 'input_audio',
+            input_audio: {
+              data: data,
+              format: getMediaFormat(a, 'wav')
+            }
+          });
         }
       }
       for (const v of (videos || [])) {
-        if (v?.dataUrl) {
-          parts.push({ type: 'image_url', image_url: { url: v.dataUrl } });
+        const data = getMediaBase64Data(v);
+        if (data) {
+          parts.push({
+            type: 'input_video',
+            input_video: {
+              data: data,
+              format: getMediaFormat(v, 'mp4')
+            }
+          });
         }
       }
       if (parts.length === 1 && parts[0].type === 'text') {
@@ -6458,6 +6797,11 @@
       });
       window.addEventListener('keydown', event => {
         if (event.key === 'Escape') {
+          const videoLightbox = document.getElementById('videoLightbox');
+          if (videoLightbox?.classList.contains('open')) {
+            closeVideoLightbox();
+            return;
+          }
           const lightbox = document.getElementById('imageLightbox');
           if (lightbox?.classList.contains('open')) {
             closeImageLightbox();
@@ -6476,6 +6820,11 @@
       document.getElementById('imageLightbox')?.addEventListener('click', event => {
         if (event.target === event.currentTarget || event.target.id === 'imageLightboxClose') {
           closeImageLightbox();
+        }
+      });
+      document.getElementById('videoLightbox')?.addEventListener('click', event => {
+        if (event.target === event.currentTarget || event.target.id === 'videoLightboxClose') {
+          closeVideoLightbox();
         }
       });
       window.addEventListener('click', event => {
@@ -6910,6 +7259,11 @@ function confirmAudioRecording() {
         const imageCard = event.target.closest('[data-image-preview]');
         if (imageCard) {
           openImageLightbox(imageCard.dataset.imagePreview);
+          return;
+        }
+        const videoCard = event.target.closest('[data-video-preview]');
+        if (videoCard) {
+          openVideoLightbox(videoCard.dataset.videoPreview, videoCard.dataset.videoName);
           return;
         }
         const removeEditImageButton = event.target.closest('button[data-edit-remove-image]');

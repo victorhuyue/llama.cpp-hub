@@ -1,7 +1,9 @@
 package org.mark.llamacpp.server.service;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -515,7 +517,7 @@ public class OpenAIService {
 			}
 
 			if (localPort != null) {
-				this.forwardRequestToLlamaCpp(ctx, request, modelName, localPort, "/v1/embeddings", false, JsonUtil.toJson(requestJson));
+				this.forwardEmbeddingsToLlamaCppRaw(ctx, request, modelName, localPort, requestJson);
 			} else {
 				this.forwardEmbeddingsToRemote(ctx, request, modelName, targetUrl, remoteApiKey, requestJson);
 			}
@@ -527,7 +529,64 @@ public class OpenAIService {
 
 	private void forwardEmbeddingsToRemote(ChannelHandlerContext ctx, FullHttpRequest request,
 			String modelName, String targetUrl, String remoteApiKey, JsonObject bodyJson) {
-		this.forwardNonStreamToRemote(ctx, request, modelName, targetUrl, remoteApiKey, "/v1/embeddings", bodyJson);
+		this.forwardRawJsonToTarget(ctx, request, modelName, targetUrl, remoteApiKey, "/v1/embeddings", bodyJson);
+	}
+
+	private void forwardEmbeddingsToLlamaCppRaw(ChannelHandlerContext ctx, FullHttpRequest request,
+			String modelName, int port, JsonObject bodyJson) {
+		String targetUrl = String.format("http://localhost:%d/v1/embeddings", port);
+		this.forwardRawJsonToTarget(ctx, request, modelName, targetUrl, null, "/v1/embeddings", bodyJson);
+	}
+
+	private void forwardRerankToRemoteRaw(ChannelHandlerContext ctx, FullHttpRequest request,
+			String modelName, String targetUrl, String remoteApiKey, String endpoint, JsonObject bodyJson) {
+		this.forwardRawJsonToTarget(ctx, request, modelName, targetUrl, remoteApiKey, endpoint, bodyJson);
+	}
+
+	private void forwardRerankToLlamaCppRaw(ChannelHandlerContext ctx, FullHttpRequest request,
+			String modelName, int port, String endpoint, JsonObject bodyJson) {
+		String targetUrl = String.format("http://localhost:%d%s", port, endpoint);
+		this.forwardRawJsonToTarget(ctx, request, modelName, targetUrl, null, endpoint, bodyJson);
+	}
+
+	private void forwardRawJsonToTarget(ChannelHandlerContext ctx, FullHttpRequest request,
+			String modelName, String targetUrl, String remoteApiKey, String endpoint, JsonObject bodyJson) {
+		byte[] bodyBytes = JsonUtil.toJson(bodyJson).getBytes(StandardCharsets.UTF_8);
+		Map<String, String> headers = new HashMap<>();
+		for (Map.Entry<String, String> entry : request.headers()) {
+			headers.put(entry.getKey(), entry.getValue());
+		}
+		HttpMethod method = request.method();
+
+		worker.execute(() -> {
+			String requestId = ModelRequestTracker.getInstance().createRequest(modelName, endpoint);
+			HttpURLConnection connection = null;
+			try {
+				connection = this.openTrackedConnection(ctx, targetUrl, method, headers, false);
+				if (remoteApiKey != null && !remoteApiKey.isBlank()) {
+					connection.setRequestProperty("Authorization", "Bearer " + remoteApiKey);
+				}
+				if (method == HttpMethod.POST && bodyBytes.length > 0) {
+					try (OutputStream os = connection.getOutputStream()) {
+						os.write(bodyBytes, 0, bodyBytes.length);
+					}
+				}
+
+				int responseCode = connection.getResponseCode();
+				ModelRequestTracker.getInstance().updatePhase(requestId, ActiveRequest.Phase.GENERATION);
+				byte[] responseBytes = this.readConnectionBodyBytes(connection, responseCode >= 200 && responseCode < 300);
+				this.recordRawProxyStats(modelName, requestId, responseBytes);
+				this.writeRawProxyResponse(ctx, responseCode, connection.getContentType(), responseBytes);
+			} catch (Exception e) {
+				logger.info("转发原始 JSON 请求时发生错误: endpoint={}", endpoint, e);
+				this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, e.getMessage(), null);
+			} catch (Throwable t) {
+				logger.error("虚拟线程异常已兜底: {}", t.getMessage(), t);
+			} finally {
+				ModelRequestTracker.getInstance().removeRequest(requestId);
+				this.cleanupTrackedConnection(ctx, connection);
+			}
+		});
 	}
 
 	private void forwardNonStreamToRemote(ChannelHandlerContext ctx, FullHttpRequest request,
@@ -551,9 +610,7 @@ public class OpenAIService {
 				connection.setConnectTimeout(36000 * 1000);
 				connection.setReadTimeout(36000 * 1000);
 				for (Map.Entry<String, String> entry : headers.entrySet()) {
-					if (!entry.getKey().equalsIgnoreCase("Connection") &&
-						!entry.getKey().equalsIgnoreCase("Content-Length") &&
-						!entry.getKey().equalsIgnoreCase("Transfer-Encoding")) {
+					if (this.shouldForwardRequestHeader(entry.getKey())) {
 						connection.setRequestProperty(entry.getKey(), entry.getValue());
 					}
 				}
@@ -652,9 +709,7 @@ public class OpenAIService {
 				connection.setConnectTimeout(36000 * 1000);
 				connection.setReadTimeout(36000 * 1000);
 				for (Map.Entry<String, String> entry : headers.entrySet()) {
-					if (!entry.getKey().equalsIgnoreCase("Connection") &&
-						!entry.getKey().equalsIgnoreCase("Content-Length") &&
-						!entry.getKey().equalsIgnoreCase("Transfer-Encoding")) {
+					if (this.shouldForwardRequestHeader(entry.getKey())) {
 						connection.setRequestProperty(entry.getKey(), entry.getValue());
 					}
 				}
@@ -762,7 +817,11 @@ public class OpenAIService {
 	}
 
 	private String[] resolveEmbeddingsFromRemoteNodes(String modelName) {
-		return this.resolveFromRemoteNodes(modelName, "[OpenAIEmbed路由]");
+		String[] remote = this.resolveFromRemoteNodes(modelName, "[OpenAIEmbed路由]");
+		if (remote == null) {
+			return null;
+		}
+		return new String[] { this.joinBaseUrlAndPath(remote[0], "/v1/embeddings"), remote[1] };
 	}
 
 	private String[] resolveRerankFromRemoteNodes(String modelName) {
@@ -771,6 +830,80 @@ public class OpenAIService {
 
 	private String[] resolveResponsesFromRemoteNodes(String modelName) {
 		return this.resolveFromRemoteNodes(modelName, "[OpenAIResponses路由]");
+	}
+
+	private String joinBaseUrlAndPath(String baseUrl, String path) {
+		if (baseUrl == null || baseUrl.isBlank()) {
+			return path;
+		}
+		if (path == null || path.isBlank()) {
+			return baseUrl;
+		}
+		if (baseUrl.endsWith("/") && path.startsWith("/")) {
+			return baseUrl.substring(0, baseUrl.length() - 1) + path;
+		}
+		if (!baseUrl.endsWith("/") && !path.startsWith("/")) {
+			return baseUrl + "/" + path;
+		}
+		return baseUrl + path;
+	}
+
+	private boolean shouldForwardRequestHeader(String headerName) {
+		if (headerName == null || headerName.isBlank()) {
+			return false;
+		}
+		return !headerName.equalsIgnoreCase("Connection") &&
+				!headerName.equalsIgnoreCase("Content-Length") &&
+				!headerName.equalsIgnoreCase("Transfer-Encoding") &&
+				!headerName.equalsIgnoreCase("Accept-Encoding") &&
+				!headerName.equalsIgnoreCase("X-Node-Id");
+	}
+
+	private byte[] readConnectionBodyBytes(HttpURLConnection connection, boolean success) throws IOException {
+		InputStream stream = success ? connection.getInputStream() : connection.getErrorStream();
+		if (stream == null) {
+			return new byte[0];
+		}
+		try (InputStream in = stream; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+			byte[] buffer = new byte[8192];
+			int read;
+			while ((read = in.read(buffer)) != -1) {
+				out.write(buffer, 0, read);
+			}
+			return out.toByteArray();
+		}
+	}
+
+	private void recordRawProxyStats(String modelName, String requestId, byte[] responseBytes) {
+		if (responseBytes == null || responseBytes.length == 0) {
+			return;
+		}
+		String responseBody = new String(responseBytes, StandardCharsets.UTF_8);
+		JsonObject parsed = JsonUtil.tryParseObject(responseBody);
+		if (parsed == null) {
+			return;
+		}
+		if (parsed.has("timings")) {
+			try {
+				Timing timing = JsonUtil.fromJson(parsed.get("timings"), Timing.class);
+				ModelRequestTracker.getInstance().updateTiming(requestId, timing);
+			} catch (Exception ignore) {
+			}
+		}
+		LlamaRecordService.getInstance().handleStream(modelName, responseBody, requestId);
+	}
+
+	private void writeRawProxyResponse(ChannelHandlerContext ctx, int responseCode, String contentType, byte[] bodyBytes) {
+		byte[] bytes = bodyBytes == null ? new byte[0] : bodyBytes;
+		FullHttpResponse response = new DefaultFullHttpResponse(
+			HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responseCode));
+		response.headers().set(HttpHeaderNames.CONTENT_TYPE,
+				(contentType == null || contentType.isBlank()) ? "application/json; charset=UTF-8" : contentType);
+		response.headers().set(HttpHeaderNames.CONTENT_LENGTH, bytes.length);
+		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
+		response.content().writeBytes(bytes);
+		ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
 	}
 
 	private String[] resolveFromRemoteNodes(String modelName, String logTag) {
@@ -910,9 +1043,9 @@ public class OpenAIService {
 			}
 
 			if (localPort != null) {
-				this.forwardRequestToLlamaCpp(ctx, request, modelName, localPort, endpoint, false, JsonUtil.toJson(requestJson));
+				this.forwardRerankToLlamaCppRaw(ctx, request, modelName, localPort, endpoint, requestJson);
 			} else {
-				this.forwardNonStreamToRemote(ctx, request, modelName, targetUrl, remoteApiKey, endpoint, requestJson);
+				this.forwardRerankToRemoteRaw(ctx, request, modelName, targetUrl, remoteApiKey, endpoint, requestJson);
 			}
 		} catch (Exception e) {
 			logger.info("处理OpenAI rerank 请求时发生错误", e);
@@ -1212,10 +1345,7 @@ public class OpenAIService {
 
 		connection.setRequestMethod(method.name());
 		for (Map.Entry<String, String> entry : headers.entrySet()) {
-			if (!entry.getKey().equalsIgnoreCase("Connection") &&
-				!entry.getKey().equalsIgnoreCase("Content-Length") &&
-				!entry.getKey().equalsIgnoreCase("Transfer-Encoding") &&
-				!entry.getKey().equalsIgnoreCase("X-Node-Id")) {
+			if (this.shouldForwardRequestHeader(entry.getKey())) {
 				connection.setRequestProperty(entry.getKey(), entry.getValue());
 			}
 		}

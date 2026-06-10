@@ -1,7 +1,6 @@
 package org.mark.llamacpp.server.controller;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -9,7 +8,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.nio.file.FileVisitResult;
@@ -48,12 +46,18 @@ import com.google.gson.JsonObject;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
+import io.netty.handler.codec.http.DefaultHttpContent;
+import io.netty.handler.codec.http.DefaultHttpResponse;
+import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.util.CharsetUtil;
 
 /**
@@ -987,7 +991,7 @@ public class LlamacppController implements BaseController {
 	}
 
 	/**
-	 * 纯字节代理：将请求体原样转发到目标URL，将响应原样返回给客户端。
+	 * 纯字节代理：流式转发，响应分块写回客户端，内存中仅保留单块缓冲区。
 	 */
 	private void proxyRawBytes(ChannelHandlerContext ctx, String targetUrl, byte[] bodyBytes) {
 		HttpURLConnection connection = null;
@@ -1004,8 +1008,32 @@ public class LlamacppController implements BaseController {
 			}
 
 			int responseCode = connection.getResponseCode();
-			byte[] responseBytes = readBodyBytes(connection, responseCode >= 200 && responseCode < 300);
-			writeRawResponse(ctx, responseCode, responseBytes);
+			boolean success = responseCode >= 200 && responseCode < 300;
+			InputStream stream = success ? connection.getInputStream() : connection.getErrorStream();
+
+			HttpResponse header = new DefaultHttpResponse(
+				HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responseCode));
+			header.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
+			header.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+			header.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+			header.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
+			ctx.write(header);
+			ctx.flush();
+
+			if (stream != null) {
+				byte[] buffer = new byte[8192];
+				int read;
+				while ((read = stream.read(buffer)) != -1) {
+					if (!ctx.channel().isActive() || !ctx.channel().isWritable()) {
+						break;
+					}
+					io.netty.buffer.ByteBuf content = ctx.alloc().buffer(read);
+					content.writeBytes(buffer, 0, read);
+					ctx.writeAndFlush(new DefaultHttpContent(content));
+				}
+			}
+
+			ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT).addListener(ChannelFutureListener.CLOSE);
 		} catch (Exception e) {
 			logger.info("proxyRawBytes失败: {}", targetUrl, e);
 			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "代理转发失败: " + e.getMessage());
@@ -1026,24 +1054,6 @@ public class LlamacppController implements BaseController {
 			writeRawResponse(ctx, 200, bytes);
 		} else {
 			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "远程节点" + path + "失败: " + result.getBody());
-		}
-	}
-
-	/**
-	 * 从HttpURLConnection读取响应体为字节数组。
-	 */
-	private byte[] readBodyBytes(HttpURLConnection connection, boolean success) throws IOException {
-		InputStream stream = success ? connection.getInputStream() : connection.getErrorStream();
-		if (stream == null) {
-			return new byte[0];
-		}
-		try (InputStream in = stream; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-			byte[] buffer = new byte[8192];
-			int read;
-			while ((read = in.read(buffer)) != -1) {
-				out.write(buffer, 0, read);
-			}
-			return out.toByteArray();
 		}
 	}
 

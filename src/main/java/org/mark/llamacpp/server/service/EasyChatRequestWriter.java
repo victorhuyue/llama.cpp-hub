@@ -7,7 +7,9 @@ import java.nio.file.Path;
 import java.util.Map;
 
 import org.mark.llamacpp.server.tools.JsonUtil;
+import org.mark.llamacpp.server.tools.ParamTool;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 final class EasyChatRequestWriter {
@@ -81,14 +83,84 @@ final class EasyChatRequestWriter {
 		}
 
 		JsonObject requestOptions = new JsonObject();
-		requestOptions.addProperty("model", spec.modelId);
-		ModelSamplingService.getInstance().handleOpenAI(requestOptions);
 		if (spec.samplingParams != null) {
 			for (String key : spec.samplingParams.keySet()) {
 				requestOptions.add(key, spec.samplingParams.get(key));
 			}
 		}
+		Boolean clientEnableThinking = readClientEnableThinking(requestOptions);
+		ParamTool.handleOpenAIChatThinking(requestOptions);
+		String resolvedModelId = SamplingInjectionBuilder.resolveModelName(spec.modelId);
+		requestOptions.addProperty("model", resolvedModelId == null || resolvedModelId.isBlank() ? spec.modelId : resolvedModelId);
+		applyStrongChatTemplateKwargsOverride(requestOptions, resolvedModelId, clientEnableThinking);
+		ModelSamplingService.getInstance().handleOpenAI(requestOptions);
 		writeObjectFields(output, requestOptions, "model", "messages", "stream");
+	}
+
+	private void applyStrongChatTemplateKwargsOverride(JsonObject requestOptions, String modelId, Boolean clientEnableThinking) {
+		if (requestOptions == null || modelId == null || modelId.isBlank()) {
+			return;
+		}
+		JsonObject sampling = ModelSamplingService.getInstance().getOpenAISampling(modelId);
+		boolean forceThinking = SamplingInjectionBuilder.readBoolean(sampling, "force_enable_thinking");
+		Boolean effectiveEnableThinking = forceThinking
+			? SamplingInjectionBuilder.readBooleanValue(sampling, "enable_thinking")
+			: clientEnableThinking;
+		JsonObject serverKwargs = ChatTemplateKwargsService.getInstance().getOpenAIChatTemplateKwargs(modelId);
+		if ((serverKwargs == null || serverKwargs.entrySet().isEmpty()) && effectiveEnableThinking == null) {
+			return;
+		}
+		JsonObject finalKwargs;
+		if (serverKwargs != null && !serverKwargs.entrySet().isEmpty()) {
+			finalKwargs = effectiveEnableThinking == null
+				? serverKwargs
+				: SamplingInjectionBuilder.buildMergedKwargs(modelId, effectiveEnableThinking.booleanValue());
+		} else {
+			finalKwargs = new JsonObject();
+			finalKwargs.addProperty("enable_thinking", effectiveEnableThinking);
+		}
+		requestOptions.add("chat_template_kwargs", finalKwargs);
+	}
+
+	private Boolean readClientEnableThinking(JsonObject requestOptions) {
+		if (requestOptions == null) {
+			return null;
+		}
+		Boolean directValue = readBooleanLenient(requestOptions.get("enable_thinking"));
+		if (directValue != null) {
+			return directValue;
+		}
+		JsonElement thinking = requestOptions.get("thinking");
+		if (thinking != null && thinking.isJsonObject()) {
+			JsonElement type = thinking.getAsJsonObject().get("type");
+			if (type != null && type.isJsonPrimitive()) {
+				try {
+					String value = type.getAsString();
+					if (value != null && "disabled".equalsIgnoreCase(value.trim())) {
+						return Boolean.FALSE;
+					}
+				} catch (Exception ignore) {
+				}
+			}
+		}
+		return null;
+	}
+
+	private Boolean readBooleanLenient(JsonElement element) {
+		if (element == null || element.isJsonNull() || !element.isJsonPrimitive()) {
+			return null;
+		}
+		try {
+			if (element.getAsJsonPrimitive().isBoolean()) {
+				return element.getAsBoolean();
+			}
+			if (element.getAsJsonPrimitive().isString()) {
+				return Boolean.parseBoolean(element.getAsString().trim());
+			}
+		} catch (Exception ignore) {
+			return null;
+		}
+		return null;
 	}
 
 	private void writeObjectFields(OutputStream output, JsonObject obj, String... ignoredKeys) throws IOException {

@@ -1421,10 +1421,11 @@ public class LlamaServerManager {
 		if (!cmdHasFlag(allArgs, "--metrics")) {
 			sb.append(" --metrics");
 		}
-		if (!cmdHasFlag(allArgs, "--slot-save-path")) {
-			sb.append(" --slot-save-path ");
-			sb.append(ParamTool.quoteIfNeeded(LlamaServer.getCachePath().toFile().getAbsolutePath()));
-		}
+		// 一些分支不兼容这玩意，先注释掉吧，后续改为可选参数。
+		//if (!cmdHasFlag(allArgs, "--slot-save-path")) {
+			//sb.append(" --slot-save-path ");
+			//sb.append(ParamTool.quoteIfNeeded(LlamaServer.getCachePath().toFile().getAbsolutePath()));
+		//}
 		//if (!cmdHasFlag(allArgs, "--cache-ram")) {
 			//sb.append(" --cache-ram -1");
 		//}
@@ -1437,8 +1438,8 @@ public class LlamaServerManager {
 		sb.append(" --timeout 36000");
 		// 允许任意IP地址访问
 		sb.append(" --host 0.0.0.0");
-		// 输出详细日志
-		sb.append(" -lv 4");
+		// 输出详细日志 一些分支不兼容这玩意，先注释掉吧，后续改为可选参数。
+		//sb.append(" -lv 4");
 		
 		return sb.toString().trim();
 	}

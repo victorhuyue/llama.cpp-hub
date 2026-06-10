@@ -1,6 +1,7 @@
 package org.mark.llamacpp.server.controller;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -9,6 +10,8 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,10 +45,15 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpVersion;
 import io.netty.util.CharsetUtil;
 
 /**
@@ -54,6 +62,8 @@ import io.netty.util.CharsetUtil;
 public class LlamacppController implements BaseController {
 
 	private static final Logger logger = LoggerFactory.getLogger(LlamacppController.class);
+	private static final ExecutorService worker = Executors.newVirtualThreadPerTaskExecutor();
+	private static final String HEADER_NODE_ID = "x-node-id";
 	
 	
 	public LlamacppController() {
@@ -699,7 +709,7 @@ public class LlamacppController implements BaseController {
 	}
 
 	/**
-	 * 	分词器接口，调用llamacpp对应的API进行分词。
+	 * 	分词器接口，纯代理转发到llamacpp子进程。
 	 * @param ctx
 	 * @param request
 	 * @throws RequestMethodException
@@ -710,132 +720,69 @@ public class LlamacppController implements BaseController {
 			return;
 		}
 		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
-		HttpURLConnection connection = null;
-		try {
-			String content = request.content().toString(CharsetUtil.UTF_8);
-			if (content == null || content.trim().isEmpty()) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "请求体为空");
-				return;
-			}
-			JsonObject obj = JsonUtil.fromJson(content, JsonObject.class);
-			if (obj == null) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "请求体解析失败");
-				return;
-			}
-			String text = JsonUtil.getJsonString(obj, "content", null);
-			if (text == null) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "缺少必需的content参数");
-				return;
-			}
-			boolean addSpecial = ParamTool.parseJsonBoolean(obj, "add_special", true);
-			boolean parseSpecial = ParamTool.parseJsonBoolean(obj, "parse_special", true);
-			boolean withPieces = ParamTool.parseJsonBoolean(obj, "with_pieces", false);
 
-			LlamaServerManager manager = LlamaServerManager.getInstance();
-			Map<String, String> params = ParamTool.getQueryParam(request.uri());
-			String modelId = JsonUtil.getJsonString(obj, "modelId", null);
-			if (modelId == null || modelId.trim().isEmpty()) {
-				modelId = params.get("modelId");
-			}
-			if (modelId != null) {
-				modelId = modelId.trim();
-				if (modelId.isEmpty()) {
-					modelId = null;
-				}
-			}
-			if (modelId == null) {
-				modelId = manager.getFirstModelName();
-			}
+		String content = request.content().toString(CharsetUtil.UTF_8);
+		if (content == null || content.trim().isEmpty()) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "请求体为空");
+			return;
+		}
 
-			JsonObject forward = new JsonObject();
-			forward.addProperty("content", text);
-			forward.addProperty("add_special", addSpecial);
-			forward.addProperty("parse_special", parseSpecial);
-			forward.addProperty("with_pieces", withPieces);
+		JsonObject obj = JsonUtil.fromJson(content, JsonObject.class);
+		if (obj == null) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "请求体解析失败");
+			return;
+		}
 
-			String nodeId = JsonUtil.getJsonString(obj, "nodeId", null);
-			if (nodeId != null && nodeId.trim().isEmpty()) {
-				nodeId = null;
-			}
-			if (nodeId != null && !nodeId.equals("local")) {
-				forward.addProperty("modelId", modelId);
-				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(nodeId, "POST", "tokenize", forward);
-				if (result.isSuccess()) {
-					JsonElement parsed = JsonUtil.fromJson(result.getBody(), JsonElement.class);
-					LlamaServer.sendJsonResponse(ctx, parsed);
-				} else {
-					LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "远程节点tokenize失败: " + result.getBody());
-				}
-				return;
-			}
-
-			if (!manager.getLoadedProcesses().containsKey(modelId)) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.NOT_FOUND, "模型未加载: " + modelId);
-				return;
-			}
-			if (modelId == null || modelId.trim().isEmpty()) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.SERVICE_UNAVAILABLE, "模型未加载");
-				return;
-			}
-			Integer port = manager.getModelPort(modelId);
-			if (port == null) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "未找到模型端口: " + modelId);
-				return;
-			}
-
-			String targetUrl = String.format("http://localhost:%d/tokenize", port.intValue());
-			URL url = URI.create(targetUrl).toURL();
-			connection = (HttpURLConnection) url.openConnection();
-			connection.setRequestMethod("POST");
-			connection.setDoOutput(true);
-			connection.setConnectTimeout(30000);
-			connection.setReadTimeout(30000);
-			connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-
-			byte[] outBytes = JsonUtil.toJson(forward).getBytes(StandardCharsets.UTF_8);
-			connection.setRequestProperty("Content-Length", String.valueOf(outBytes.length));
-			try (OutputStream os = connection.getOutputStream()) {
-				os.write(outBytes);
-			}
-
-			int responseCode = connection.getResponseCode();
-			String responseBody = this.readBody(connection, responseCode >= 200 && responseCode < 300);
-			JsonElement parsed = null;
-			try {
-				parsed = JsonUtil.fromJson(responseBody, JsonElement.class);
-			} catch (Exception ignore) {
-			}
-
-			if (responseCode >= 200 && responseCode < 300) {
-				if (parsed != null) {
-					LlamaServer.sendJsonResponse(ctx, parsed);
-				} else {
-					LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "模型返回了非JSON响应");
-				}
-				return;
-			}
-
-			if (parsed != null) {
-				LlamaServer.sendJsonResponse(ctx, parsed);
-				return;
-			}
-			String msg = responseBody == null || responseBody.isBlank() ? ("模型错误: HTTP " + responseCode) : responseBody;
-			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, msg);
-		} catch (Exception e) {
-			logger.info("tokenize失败", e);
-			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "tokenize失败: " + e.getMessage());
-		} finally {
-			if (connection != null) {
-				try {
-					connection.disconnect();
-				} catch (Exception ignore) {
-				}
+		LlamaServerManager manager = LlamaServerManager.getInstance();
+		Map<String, String> params = ParamTool.getQueryParam(request.uri());
+		String modelId = JsonUtil.getJsonString(obj, "modelId", null);
+		if (modelId == null || modelId.trim().isEmpty()) {
+			modelId = params.get("modelId");
+		}
+		if (modelId != null) {
+			modelId = modelId.trim();
+			if (modelId.isEmpty()) {
+				modelId = null;
 			}
 		}
+		if (modelId == null) {
+			modelId = manager.getFirstModelName();
+		}
+
+		String nodeId = request.headers().get(HEADER_NODE_ID);
+		if (nodeId != null && nodeId.trim().isEmpty()) {
+			nodeId = null;
+		}
+		if (nodeId != null && !nodeId.equals("local")) {
+			JsonObject forward = obj.deepCopy();
+			forward.addProperty("modelId", modelId);
+			proxyRemoteNode(ctx, forward, nodeId, "tokenize");
+			return;
+		}
+
+		if (!manager.getLoadedProcesses().containsKey(modelId)) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.NOT_FOUND, "模型未加载: " + modelId);
+			return;
+		}
+		if (modelId == null || modelId.trim().isEmpty()) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.SERVICE_UNAVAILABLE, "模型未加载");
+			return;
+		}
+		Integer port = manager.getModelPort(modelId);
+		if (port == null) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "未找到模型端口: " + modelId);
+			return;
+		}
+
+		byte[] bodyBytes = new byte[request.content().readableBytes()];
+		request.content().getBytes(0, bodyBytes);
+
+		String targetUrl = String.format("http://localhost:%d/tokenize", port.intValue());
+		worker.execute(() -> proxyRawBytes(ctx, targetUrl, bodyBytes));
 	}
 	
 	/**
-	 * 	模板化接口，调用llamacpp对应的API进行模板化。
+	 * 	模板化接口，纯代理转发到llamacpp子进程。
 	 * @param ctx
 	 * @param request
 	 * @throws RequestMethodException
@@ -846,119 +793,62 @@ public class LlamacppController implements BaseController {
 			return;
 		}
 		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
-		HttpURLConnection connection = null;
-		try {
-			String content = request.content().toString(CharsetUtil.UTF_8);
-			if (content == null || content.trim().isEmpty()) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "请求体为空");
-				return;
-			}
-			JsonObject obj = JsonUtil.fromJson(content, JsonObject.class);
-			if (obj == null) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "请求体解析失败");
-				return;
-			}
 
-			Map<String, String> params = ParamTool.getQueryParam(request.uri());
-			String modelId = JsonUtil.getJsonString(obj, "modelId", null);
-			if (modelId == null || modelId.trim().isEmpty()) {
-				modelId = params.get("modelId");
-			}
-			if (modelId == null || modelId.trim().isEmpty()) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "缺少必需的modelId参数");
-				return;
-			}
-			modelId = modelId.trim();
-
-			JsonObject forward = new JsonObject();
-			forward.add("messages", obj.get("messages"));
-
-			String nodeId = JsonUtil.getJsonString(obj, "nodeId", null);
-			if (nodeId != null && nodeId.trim().isEmpty()) {
-				nodeId = null;
-			}
-			if (nodeId != null && !nodeId.equals("local")) {
-				forward.addProperty("modelId", modelId);
-				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(nodeId, "POST", "apply-template", forward);
-				if (result.isSuccess()) {
-					JsonElement parsed = JsonUtil.fromJson(result.getBody(), JsonElement.class);
-					LlamaServer.sendJsonResponse(ctx, parsed);
-				} else {
-					LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "远程节点apply-template失败: " + result.getBody());
-				}
-				return;
-			}
-
-			if (!obj.has("messages") || obj.get("messages") == null || obj.get("messages").isJsonNull() || !obj.get("messages").isJsonArray()) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "缺少必需的messages参数");
-				return;
-			}
-
-			LlamaServerManager manager = LlamaServerManager.getInstance();
-			if (!manager.getLoadedProcesses().containsKey(modelId)) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.NOT_FOUND, "模型未加载: " + modelId);
-				return;
-			}
-			Integer port = manager.getModelPort(modelId);
-			if (port == null) {
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "未找到模型端口: " + modelId);
-				return;
-			}
-
-			String targetUrl = String.format("http://localhost:%d/apply-template", port.intValue());
-			URL url = URI.create(targetUrl).toURL();
-			connection = (HttpURLConnection) url.openConnection();
-			connection.setRequestMethod("POST");
-			connection.setDoOutput(true);
-			connection.setConnectTimeout(30000);
-			connection.setReadTimeout(30000);
-			connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-
-			byte[] outBytes = JsonUtil.toJson(forward).getBytes(StandardCharsets.UTF_8);
-			connection.setRequestProperty("Content-Length", String.valueOf(outBytes.length));
-			try (OutputStream os = connection.getOutputStream()) {
-				os.write(outBytes);
-			}
-
-			int responseCode = connection.getResponseCode();
-			String responseBody = this.readBody(connection, responseCode >= 200 && responseCode < 300);
-			JsonElement parsed = null;
-			try {
-				parsed = JsonUtil.fromJson(responseBody, JsonElement.class);
-			} catch (Exception ignore) {
-			}
-
-			if (responseCode >= 200 && responseCode < 300) {
-				if (parsed != null && parsed.isJsonObject()) {
-					JsonObject outObj = parsed.getAsJsonObject();
-					if (outObj.has("prompt") && outObj.get("prompt") != null && !outObj.get("prompt").isJsonNull()) {
-						Map<String, Object> data = new HashMap<>();
-						data.put("prompt", outObj.get("prompt").getAsString());
-						LlamaServer.sendJsonResponse(ctx, data);
-						return;
-					}
-				}
-				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "模型响应缺少prompt字段");
-				return;
-			}
-
-			if (parsed != null) {
-				LlamaServer.sendJsonResponse(ctx, parsed);
-				return;
-			}
-			String msg = responseBody == null || responseBody.isBlank() ? ("模型错误: HTTP " + responseCode) : responseBody;
-			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, msg);
-		} catch (Exception e) {
-			logger.info("apply-template失败", e);
-			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "apply-template失败: " + e.getMessage());
-		} finally {
-			if (connection != null) {
-				try {
-					connection.disconnect();
-				} catch (Exception ignore) {
-				}
-			}
+		String content = request.content().toString(CharsetUtil.UTF_8);
+		if (content == null || content.trim().isEmpty()) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "请求体为空");
+			return;
 		}
+
+		JsonObject obj = JsonUtil.fromJson(content, JsonObject.class);
+		if (obj == null) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "请求体解析失败");
+			return;
+		}
+
+		Map<String, String> params = ParamTool.getQueryParam(request.uri());
+		String modelId = JsonUtil.getJsonString(obj, "modelId", null);
+		if (modelId == null || modelId.trim().isEmpty()) {
+			modelId = params.get("modelId");
+		}
+		if (modelId == null || modelId.trim().isEmpty()) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "缺少必需的modelId参数");
+			return;
+		}
+		modelId = modelId.trim();
+
+		String nodeId = request.headers().get(HEADER_NODE_ID);
+		if (nodeId != null && nodeId.trim().isEmpty()) {
+			nodeId = null;
+		}
+		if (nodeId != null && !nodeId.equals("local")) {
+			JsonObject forward = obj.deepCopy();
+			forward.addProperty("modelId", modelId);
+			proxyRemoteNode(ctx, forward, nodeId, "apply-template");
+			return;
+		}
+
+		if (!obj.has("messages") || obj.get("messages") == null || obj.get("messages").isJsonNull() || !obj.get("messages").isJsonArray()) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "缺少必需的messages参数");
+			return;
+		}
+
+		LlamaServerManager manager = LlamaServerManager.getInstance();
+		if (!manager.getLoadedProcesses().containsKey(modelId)) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.NOT_FOUND, "模型未加载: " + modelId);
+			return;
+		}
+		Integer port = manager.getModelPort(modelId);
+		if (port == null) {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "未找到模型端口: " + modelId);
+			return;
+		}
+
+		byte[] bodyBytes = new byte[request.content().readableBytes()];
+		request.content().getBytes(0, bodyBytes);
+
+		String targetUrl = String.format("http://localhost:%d/apply-template", port.intValue());
+		worker.execute(() -> proxyRawBytes(ctx, targetUrl, bodyBytes));
 	}
 	
 	private void handleInfillRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
@@ -1094,5 +984,81 @@ public class LlamacppController implements BaseController {
 		} catch (Exception e) {
 			return "";
 		}
+	}
+
+	/**
+	 * 纯字节代理：将请求体原样转发到目标URL，将响应原样返回给客户端。
+	 */
+	private void proxyRawBytes(ChannelHandlerContext ctx, String targetUrl, byte[] bodyBytes) {
+		HttpURLConnection connection = null;
+		try {
+			connection = (HttpURLConnection) URI.create(targetUrl).toURL().openConnection();
+			connection.setRequestMethod("POST");
+			connection.setDoOutput(true);
+			connection.setConnectTimeout(30000);
+			connection.setReadTimeout(30000);
+			connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+
+			try (OutputStream os = connection.getOutputStream()) {
+				os.write(bodyBytes);
+			}
+
+			int responseCode = connection.getResponseCode();
+			byte[] responseBytes = readBodyBytes(connection, responseCode >= 200 && responseCode < 300);
+			writeRawResponse(ctx, responseCode, responseBytes);
+		} catch (Exception e) {
+			logger.info("proxyRawBytes失败: {}", targetUrl, e);
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "代理转发失败: " + e.getMessage());
+		} finally {
+			if (connection != null) {
+				connection.disconnect();
+			}
+		}
+	}
+
+	/**
+	 * 远程节点代理转发。
+	 */
+	private void proxyRemoteNode(ChannelHandlerContext ctx, JsonObject body, String nodeId, String path) {
+		NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(nodeId, "POST", path, body);
+		if (result.isSuccess()) {
+			byte[] bytes = result.getBody().getBytes(StandardCharsets.UTF_8);
+			writeRawResponse(ctx, 200, bytes);
+		} else {
+			LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "远程节点" + path + "失败: " + result.getBody());
+		}
+	}
+
+	/**
+	 * 从HttpURLConnection读取响应体为字节数组。
+	 */
+	private byte[] readBodyBytes(HttpURLConnection connection, boolean success) throws IOException {
+		InputStream stream = success ? connection.getInputStream() : connection.getErrorStream();
+		if (stream == null) {
+			return new byte[0];
+		}
+		try (InputStream in = stream; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+			byte[] buffer = new byte[8192];
+			int read;
+			while ((read = in.read(buffer)) != -1) {
+				out.write(buffer, 0, read);
+			}
+			return out.toByteArray();
+		}
+	}
+
+	/**
+	 * 将原始字节写入Netty响应并返回给客户端。
+	 */
+	private void writeRawResponse(ChannelHandlerContext ctx, int responseCode, byte[] bodyBytes) {
+		byte[] bytes = bodyBytes == null ? new byte[0] : bodyBytes;
+		FullHttpResponse response = new DefaultFullHttpResponse(
+			HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responseCode));
+		response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
+		response.headers().set(HttpHeaderNames.CONTENT_LENGTH, bytes.length);
+		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
+		response.content().writeBytes(bytes);
+		ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
 	}
 }

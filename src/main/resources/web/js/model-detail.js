@@ -1215,10 +1215,9 @@ async function calculateModelTokens() {
     try {
         const applyRes = await fetch('/apply-template', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-node-id': nodeId || '' },
             body: JSON.stringify({
                 modelId,
-                nodeId: nodeId || undefined,
                 messages: [{ role: 'user', content: userText }]
             })
         });
@@ -1233,10 +1232,9 @@ async function calculateModelTokens() {
 
         const tokRes = await fetch('/tokenize', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-node-id': nodeId || '' },
             body: JSON.stringify({
                 modelId,
-                nodeId: nodeId || undefined,
                 content: prompt,
                 add_special: true,
                 parse_special: true,

@@ -3,7 +3,8 @@ package org.mark.test.mcp.tools;
 import java.util.Map;
 
 import org.mark.llamacpp.server.service.ComputerService;
-import org.mark.llamacpp.server.tools.FastFetchHelper;
+import org.mark.llamacpp.server.tools.GPUInfoHelper;
+import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.test.mcp.IMCPTool;
 import org.mark.test.mcp.struct.McpMessage;
 import org.mark.test.mcp.struct.McpToolInputSchema;
@@ -82,25 +83,49 @@ public class GetMcpServiceInfoTool implements IMCPTool {
 		info.append("JVM Used Memory MB: ").append(jvmUsedMemoryMb).append("\n");
 		info.append("JVM Available Processors: ").append(jvmAvailableProcessors);
 
-		FastFetchHelper.ComputerInfo ffInfo = FastFetchHelper.getInstance().getInfo();
-		if (!ffInfo.hasError()) {
-			info.append("\n\n--- 详细硬件信息 (FastFetch) ---\n");
-			info.append("CPU 温度: ").append(ffInfo.getCpuTemperature()).append("°C\n");
-			info.append("物理核心: ").append(ffInfo.getPhysicalCores()).append(", 逻辑核心: ").append(ffInfo.getLogicalCores()).append("\n");
-
-			for (FastFetchHelper.GpuInfo gpu : ffInfo.getGpus()) {
-				info.append("GPU [").append(gpu.getIndex()).append("]: ")
-						.append(gpu.getVendor()).append(" ").append(gpu.getName())
-						.append(" (Driver: ").append(gpu.getDriver()).append(", Temp: ").append(gpu.getTemperature()).append("°C)\n");
-				info.append("  - 显存: Dedicated ").append(gpu.getDedicatedMemoryBytes() > 0 ? gpu.getDedicatedMemoryBytes() / 1024 / 1024 + "MB" : "未知")
-						.append(", Shared ").append(gpu.getSharedMemoryBytes() > 0 ? gpu.getSharedMemoryBytes() / 1024 / 1024 + "MB" : "未知").append("\n");
+		JsonObject gpuData = GPUInfoHelper.getInstance().getInfo();
+		if (gpuData != null && gpuData.has("system")) {
+			info.append("\n\n--- 详细硬件信息 (GpuInfo) ---\n");
+			JsonObject sys = gpuData.getAsJsonObject("system");
+			if (sys.has("cpu")) {
+				JsonObject cpu = sys.getAsJsonObject("cpu");
+				info.append("CPU: ").append(JsonUtil.getJsonString(cpu, "name", "")).append("\n");
+				info.append("物理核心: ").append(JsonUtil.getJsonInt(cpu, "cores", -1)).append(", 逻辑核心: ").append(JsonUtil.getJsonInt(cpu, "threads", -1)).append("\n");
+			}
+			if (sys.has("memory")) {
+				JsonObject mem = sys.getAsJsonObject("memory");
+				long totalBytes = JsonUtil.getJsonLong(mem, "total_bytes", -1L);
+				long memGb = totalBytes > 0 ? totalBytes / 1024L / 1024L / 1024L : 0;
+				info.append("内存: ").append(memGb).append(" GB\n");
 			}
 
-			for (FastFetchHelper.BatteryInfo bat : ffInfo.getBatteries()) {
-				info.append("电池 [").append(bat.getName()).append("]: 温度 ").append(bat.getTemperature()).append("°C, 容量 ").append(bat.getCapacity()).append("%\n");
+			if (gpuData.has("devices")) {
+				com.google.gson.JsonArray devices = gpuData.getAsJsonArray("devices");
+				int idx = 0;
+				for (int i = 0; i < devices.size(); i++) {
+					JsonObject gpu = devices.get(i).getAsJsonObject();
+					info.append("GPU [").append(idx).append("]: ")
+							.append(JsonUtil.getJsonString(gpu, "vendor", "")).append(" ")
+							.append(JsonUtil.getJsonString(gpu, "name", ""));
+					if (gpu.has("sensors")) {
+						JsonObject sensors = gpu.getAsJsonObject("sensors");
+						String driverVer = JsonUtil.getJsonString(sensors, "driver_version_str", null);
+						if (driverVer != null) {
+							info.append(" (Driver: ").append(driverVer).append(")");
+						}
+					}
+					info.append("\n");
+					if (gpu.has("memory")) {
+						JsonObject gmem = gpu.getAsJsonObject("memory");
+						long vramBytes = JsonUtil.getJsonLong(gmem, "dedicated_vram_bytes", -1L);
+						if (vramBytes > 0) {
+							long vramMb = vramBytes / 1024L / 1024L;
+							info.append("  - 显存: ").append(vramMb).append(" MB\n");
+						}
+					}
+					idx++;
+				}
 			}
-		} else {
-			info.append("\n\n(FastFetch 详细硬件信息获取失败: ").append(ffInfo.getError()).append(")");
 		}
 
 		return new McpMessage().addText(info.toString());

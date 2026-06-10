@@ -25,7 +25,7 @@ import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.exception.RequestMethodException;
 import org.mark.llamacpp.server.service.GpuService;
 import org.mark.llamacpp.server.service.ModelSamplingService;
-import org.mark.llamacpp.server.tools.FastFetchHelper;
+import org.mark.llamacpp.server.tools.GPUInfoHelper;
 import org.mark.llamacpp.server.tools.GGufMetaDataExtractor;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.tools.JsonUtil;
@@ -136,7 +136,7 @@ public class SystemController implements BaseController {
 			this.handleGpuInfoRequest(ctx, request);
 			return true;
 		}
-		// 查询GPU实时状态
+		// 查询GPU实时状态（弃用）
 		if (uri.startsWith("/api/sys/gpu/status")) {
 			this.handleGpuStatusRequest(ctx, request);
 			return true;
@@ -215,9 +215,9 @@ public class SystemController implements BaseController {
 			return true;
 		}
 
-		// 获取计算机信息（fastfetch）
-		if (uri.startsWith("/api/sys/fastfetch")) {
-			this.handleFastFetchRequest(ctx, request);
+		// 获取计算机信息（gpu-info）
+		if (uri.startsWith("/api/sys/sysinfo")) {
+			this.handleSysInfoRequest(ctx, request);
 			return true;
 		}
 
@@ -1511,9 +1511,9 @@ public class SystemController implements BaseController {
 	}
 
 	/**
-	 * 	获取计算机信息（通过 fastfetch）
+	 * 	获取计算机信息（通过 gpu-info）
 	 */
-	private void handleFastFetchRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+	private void handleSysInfoRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
 		if (request.method() == HttpMethod.OPTIONS) {
 			LlamaServer.sendCorsResponse(ctx);
 			return;
@@ -1524,7 +1524,7 @@ public class SystemController implements BaseController {
 			String nodeId = params.get("nodeId");
 			if (nodeId != null && !nodeId.isBlank() && !"local".equals(nodeId)) {
 				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
-						nodeId, "GET", "api/sys/fastfetch", null);
+						nodeId, "GET", "api/sys/sysinfo", null);
 				if (result.isSuccess()) {
 					JsonObject remoteResp = JsonUtil.fromJson(result.getBody(), JsonObject.class);
 					if (remoteResp != null && remoteResp.has("data")) {
@@ -1537,53 +1537,20 @@ public class SystemController implements BaseController {
 				}
 				return;
 			}
-			FastFetchHelper helper = FastFetchHelper.getInstance();
+			GPUInfoHelper helper = GPUInfoHelper.getInstance();
 			String initErr = helper.init();
-			FastFetchHelper.ComputerInfo cinfo = helper.getInfo();
+			JsonObject data = helper.getInfo();
 
-			Map<String, Object> data = new HashMap<>();
-			data.put("available", helper.isAvailable());
-			data.put("error", initErr != null ? initErr : cinfo.getError());
-			data.put("cpuModel", cinfo.getCpuModel());
-			data.put("cpuTemperature", cinfo.getCpuTemperature());
-			data.put("physicalCores", cinfo.getPhysicalCores());
-			data.put("logicalCores", cinfo.getLogicalCores());
-			data.put("memoryBytes", cinfo.getMemoryBytes());
-			data.put("memoryKB", cinfo.getMemoryKB());
-			data.put("rawOutput", cinfo.getRawOutput());
-
-			List<Map<String, Object>> gpuList = new ArrayList<>();
-			for (FastFetchHelper.GpuInfo gpu : cinfo.getGpus()) {
-				Map<String, Object> gpuMap = new HashMap<>();
-				gpuMap.put("name", gpu.getName());
-				gpuMap.put("vendor", gpu.getVendor());
-				gpuMap.put("type", gpu.getType());
-				gpuMap.put("driver", gpu.getDriver());
-				gpuMap.put("frequency", gpu.getFrequency());
-				gpuMap.put("temperature", gpu.getTemperature());
-				gpuMap.put("coreCount", gpu.getCoreCount());
-				gpuMap.put("coreUsage", gpu.getCoreUsage());
-				gpuMap.put("deviceId", gpu.getDeviceId());
-				gpuMap.put("index", gpu.getIndex());
-				gpuMap.put("dedicatedMemoryBytes", gpu.getDedicatedMemoryBytes());
-				gpuMap.put("dedicatedMemoryUsed", gpu.getDedicatedMemoryUsed());
-				gpuMap.put("sharedMemoryBytes", gpu.getSharedMemoryBytes());
-				gpuMap.put("sharedMemoryUsed", gpu.getSharedMemoryUsed());
-				gpuList.add(gpuMap);
+			Map<String, Object> resp = new HashMap<>();
+			resp.put("available", helper.isAvailable());
+			resp.put("error", initErr);
+			if (data != null) {
+				resp.put("data", data);
+			} else {
+				resp.put("data", null);
 			}
-			data.put("gpus", gpuList);
 
-			List<Map<String, Object>> batteryList = new ArrayList<>();
-			for (FastFetchHelper.BatteryInfo bat : cinfo.getBatteries()) {
-				Map<String, Object> batMap = new HashMap<>();
-				batMap.put("name", bat.getName());
-				batMap.put("temperature", bat.getTemperature());
-				batMap.put("capacity", bat.getCapacity());
-				batteryList.add(batMap);
-			}
-			data.put("batteries", batteryList);
-
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(resp));
 		} catch (Exception e) {
 			logger.info("获取计算机信息时发生错误", e);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取计算机信息失败: " + e.getMessage()));

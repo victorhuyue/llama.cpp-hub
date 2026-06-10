@@ -31,7 +31,7 @@
         .console-tab-btn.active { background:rgba(99,102,241,0.12); color:#4f46e5; font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,0.12); }
         .console-tab-container { flex:1 1 0; min-height:0; position:relative; margin:0 18px; }
         .console-tab-panel { position:absolute; inset:0; overflow:hidden; display:none; }
-        .console-tab-panel.active { display:block; }
+        .console-tab-panel.active { display:flex; }
         /* === Benchmark V3 Panel === */
         #main-benchmark-v3 { display:flex; flex-direction:column; overflow:hidden; }
         #main-benchmark-v3 .tab-bar { margin:0 18px; display:flex; gap:4px; background:var(--sidebar-bg); border:1px solid var(--border-color); border-radius:10px; padding:3px; flex-shrink:0; }
@@ -266,27 +266,47 @@
         #main-settings .llamacpp-progress-text { font-size:0.8rem; color:var(--text-secondary); min-width:36px; text-align:right; }
         #main-settings .llamacpp-asset-actions { display:flex; justify-content:flex-end; }
         #main-settings .llamacpp-installed-badge { display:inline-flex; align-items:center; gap:4px; font-size:0.8rem; font-weight:600; color:#10b981; padding:4px 10px; border-radius:6px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); }
-        /* === Fastfetch Split Layout === */
-        #main-fastfetch .ff-split { display:grid; grid-template-columns:1fr 1fr; gap:12px; height:100%; min-height:0; padding:12px 18px; }
-        #main-fastfetch .ff-panel { display:flex; flex-direction:column; min-height:0; background:var(--card-bg); border:1px solid var(--border-color); border-radius:10px; overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,0.06); }
-        #main-fastfetch .ff-panel-header { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border-color); flex-shrink:0; background:var(--sidebar-bg); }
-        #main-fastfetch .ff-panel-header i { color:var(--primary-color); }
-        #main-fastfetch .ff-panel-header span { font-size:13px; font-weight:600; }
-        #main-fastfetch .ff-panel-body { flex:1; min-height:0; overflow:auto; padding:12px; font-family:'Menlo', 'Monaco', 'Courier New', monospace; background:#0f172a; color:#e5e7eb; font-size:0.8rem; }
-        #main-fastfetch .ff-panel-body pre { margin:0; white-space:pre-wrap; word-break:break-word; overflow-wrap:break-word; }
-        #main-fastfetch .gpu-tool-block { margin-bottom:10px; }
-        #main-fastfetch .gpu-tool-block:last-child { margin-bottom:0; }
-        #main-fastfetch .gpu-tool-header { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
-        #main-fastfetch .gpu-tool-badge { display:inline-block; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; text-transform:uppercase; }
-        #main-fastfetch .gpu-tool-badge.available { background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); }
-        #main-fastfetch .gpu-tool-badge.unavailable { background:rgba(239,68,68,0.12); color:#ef4444; border:1px solid rgba(239,68,68,0.3); }
-        #main-fastfetch .gpu-tool-name { font-size:11px; color:#9ca3af; font-weight:600; }
-        #main-fastfetch .gpu-tool-os { font-size:10px; color:#6b7280; margin-left:auto; }
-        #main-fastfetch .gpu-tool-output { font-size:0.75rem; color:#e5e7eb; white-space:pre-wrap; word-break:break-word; overflow-wrap:break-word; padding:8px; background:rgba(0,0,0,0.3); border-radius:6px; border:1px solid rgba(255,255,255,0.06); line-height:1.4; }
-        #main-fastfetch .gpu-empty { text-align:center; color:#6b7280; padding:24px; font-size:12px; }
-        #main-fastfetch .ff-refresh-all { display:flex; align-items:center; gap:8px; margin-left:auto; }
+        /* === System Info Layout === */
+        #main-sysinfo .ff-content { flex:1; min-height:0; overflow:auto; padding:12px 18px; }
+        #main-sysinfo .ff-stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:12px; }
+        #main-sysinfo .ff-stat-card { background:var(--card-bg); border:1px solid var(--border-color); border-radius:10px; padding:14px 16px; box-shadow:0 8px 20px rgba(0,0,0,0.06); }
+        #main-sysinfo .ff-stat-icon { font-size:20px; color:var(--primary-color); margin-bottom:6px; }
+        #main-sysinfo .ff-stat-value { font-size:16px; font-weight:700; color:var(--text-primary); line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        #main-sysinfo .ff-stat-label { font-size:11px; color:var(--text-secondary); margin-top:2px; }
+        #main-sysinfo .ff-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        #main-sysinfo .ff-card { background:var(--card-bg); border:1px solid var(--border-color); border-radius:10px; padding:14px 16px; box-shadow:0 8px 20px rgba(0,0,0,0.06); }
+        #main-sysinfo .ff-card-title { font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+        #main-sysinfo .ff-card-title i { color:var(--primary-color); font-size:14px; }
+        #main-sysinfo .ff-row { display:flex; justify-content:space-between; align-items:baseline; padding:4px 0; font-size:12px; border-bottom:1px solid var(--border-color); }
+        #main-sysinfo .ff-row:last-child { border-bottom:none; }
+        #main-sysinfo .ff-row-label { color:var(--text-secondary); font-weight:500; }
+        #main-sysinfo .ff-row-value { color:var(--text-primary); font-weight:600; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:60%; }
+        #main-sysinfo .ff-progress-bar { height:6px; background:var(--sidebar-bg); border-radius:3px; margin-top:4px; overflow:hidden; }
+        #main-sysinfo .ff-progress-fill { height:100%; border-radius:3px; transition:width 0.3s; }
+        #main-sysinfo .ff-progress-fill.green { background:#10b981; }
+        #main-sysinfo .ff-progress-fill.blue { background:#4f46e5; }
+        #main-sysinfo .ff-progress-fill.yellow { background:#f59e0b; }
+        #main-sysinfo .ff-disk-item { padding:8px 0; border-bottom:1px solid var(--border-color); }
+        #main-sysinfo .ff-disk-item:last-child { border-bottom:none; }
+        #main-sysinfo .ff-disk-name { font-size:12px; font-weight:600; color:var(--text-primary); display:flex; justify-content:space-between; }
+        #main-sysinfo .ff-disk-mount { font-size:11px; color:var(--text-secondary); margin-top:2px; }
+        #main-sysinfo .ff-gpu-card { border:1px solid var(--border-color); border-radius:8px; padding:12px; margin-bottom:8px; background:var(--bg-color); }
+        #main-sysinfo .ff-gpu-card:last-child { margin-bottom:0; }
+        #main-sysinfo .ff-gpu-name { font-size:13px; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:6px; }
+        #main-sysinfo .ff-gpu-vendor { font-size:11px; font-weight:500; color:var(--text-secondary); background:var(--sidebar-bg); padding:1px 6px; border-radius:4px; }
+        #main-sysinfo .ff-gpu-stats { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; margin-top:8px; }
+        #main-sysinfo .ff-gpu-stat { font-size:11px; }
+        #main-sysinfo .ff-gpu-stat-label { color:var(--text-secondary); }
+        #main-sysinfo .ff-gpu-stat-value { color:var(--text-primary); font-weight:600; }
+        #main-sysinfo .ff-empty { text-align:center; color:var(--text-secondary); padding:40px 20px; font-size:13px; }
+        #main-sysinfo .ff-error { text-align:center; color:#ef4444; padding:40px 20px; font-size:13px; }
+        #main-sysinfo .ff-old-format { text-align:center; color:var(--text-secondary); padding:40px 20px; font-size:13px; }
         @media (max-width:960px) {
-            #main-fastfetch .ff-split { grid-template-columns:1fr; }
+            #main-sysinfo .ff-stats { grid-template-columns:repeat(2, 1fr); }
+            #main-sysinfo .ff-grid { grid-template-columns:1fr; }
+        }
+        @media (max-width:600px) {
+            #main-sysinfo .ff-stats { grid-template-columns:1fr; }
         }
         .param-desc-modal-body {
             font-size: 15px;
@@ -428,9 +448,9 @@
                 <i class="fas fa-terminal"></i>
                 <span data-i18n="nav.console">nav.console</span>
             </a>
-            <a href="#" class="nav-item" id="nav-fastfetch" onclick="showFastFetchPage(); return false;">
+            <a href="#" class="nav-item" id="nav-sysinfo" onclick="showSysInfoPage(); return false;">
                 <i class="fas fa-microchip"></i>
-                <span data-i18n="nav.fastfetch">nav.fastfetch</span>
+                <span data-i18n="nav.sysinfo">nav.sysinfo</span>
             </a>
             <a href="#" class="nav-item" id="nav-model-path" onclick="showModelPathSetting(); return false;" style="display: none">
                 <i class="fas fa-folder-open"></i>
@@ -1230,41 +1250,28 @@
         </div>
     </main>
 
-    <main class="main-area" id="main-fastfetch" style="display: none">
+    <main class="main-area" id="main-sysinfo" style="display: none; flex-direction:column; overflow:hidden;">
         <div class="top-bar">
-            <h1 class="page-title"><i class="fas fa-microchip"></i> <span data-i18n="page.fastfetch.title">page.fastfetch.title</span></h1>
+            <h1 class="page-title"><i class="fas fa-microchip"></i> <span data-i18n="page.sysinfo.title">page.sysinfo.title</span></h1>
             <div class="top-actions" style="display:flex; align-items:center; gap:12px;">
-                <button class="btn btn-secondary" id="refreshFastfetchBtn" onclick="refreshFastFetchAll()" title="common.refresh" data-i18n="common.refresh" data-i18n-attr="title">
+                <button class="btn btn-secondary" id="refreshSysInfoBtn" onclick="refreshSysInfoAll()" title="common.refresh" data-i18n="common.refresh" data-i18n-attr="title">
                     <i class="fas fa-sync-alt"></i>
                 </button>
-                <div id="fastfetchStatusText" style="font-size:12px; color:var(--text-secondary); margin-left:auto;"></div>
+                <div id="sysinfoStatusText" style="font-size:12px; color:var(--text-secondary); margin-left:auto;"></div>
             </div>
         </div>
 
-        <div class="console-tab-bar" id="fastfetchTabs">
+        <div class="console-tab-bar" id="sysinfoTabs">
             <button class="console-tab-btn active" data-tab="local" data-i18n="page.console.tab_local">page.console.tab_local</button>
         </div>
-        <div class="console-tab-container" id="fastfetchTabContainer" style="margin:0;">
-            <div class="console-tab-panel active" data-panel="local">
-                <div class="ff-split">
-                    <div class="ff-panel">
-                        <div class="ff-panel-header">
-                            <i class="fas fa-desktop"></i>
-                            <span data-i18n="page.fastfetch.device_overview">page.fastfetch.device_overview</span>
-                        </div>
-                        <div class="ff-panel-body">
-                            <pre id="fastfetchContent" style="margin:0; white-space:pre-wrap; word-break:break-word; overflow-wrap:break-word;"></pre>
-                        </div>
+        <div class="console-tab-container" id="sysinfoTabContainer" style="margin:0;">
+            <div class="console-tab-panel active" data-panel="local" style="flex-direction:column;">
+                <div class="ff-content">
+                    <div class="ff-stats" id="ffStats">
+                        <div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-spinner fa-spin"></i></div><div class="ff-stat-value">--</div><div class="ff-stat-label">Loading...</div></div>
                     </div>
-                    <div class="ff-panel">
-                        <div class="ff-panel-header">
-                            <i class="fas fa-microchip"></i>
-                            <span data-i18n="page.fastfetch.gpu_status">page.fastfetch.gpu_status</span>
-                            <div id="gpuStatusText" style="font-size:11px; color:#6b7280; margin-left:auto;"></div>
-                        </div>
-                        <div class="ff-panel-body" id="gpuContent">
-                            <div class="gpu-empty" data-i18n="page.fastfetch.gpu_loading">page.fastfetch.gpu_loading</div>
-                        </div>
+                    <div class="ff-grid" id="ffGrid">
+                        <div></div>
                     </div>
                 </div>
             </div>
@@ -3503,7 +3510,7 @@
             document.getElementById('main-console').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            document.getElementById('main-fastfetch').style.display = 'none';
+            document.getElementById('main-sysinfo').style.display = 'none';
             //stopConsoleAuto();
             //refreshModels();
             // 更新导航项高亮
@@ -3553,7 +3560,7 @@
             document.getElementById('main-console').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            document.getElementById('main-fastfetch').style.display = 'none';
+            document.getElementById('main-sysinfo').style.display = 'none';
 
             if (window.DownloadManager && typeof window.DownloadManager.start === 'function') {
                 window.DownloadManager.start();
@@ -3574,7 +3581,7 @@
             document.getElementById('main-console').style.display = '';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            document.getElementById('main-fastfetch').style.display = 'none';
+            document.getElementById('main-sysinfo').style.display = 'none';
             openConsoleModal();
             const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
             navItems.forEach(item => item.classList.remove('active'));
@@ -3591,7 +3598,7 @@
             document.getElementById('main-console').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            document.getElementById('main-fastfetch').style.display = 'none';
+            document.getElementById('main-sysinfo').style.display = 'none';
             //stopConsoleAuto();
             const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
             navItems.forEach(item => item.classList.remove('active'));
@@ -3609,7 +3616,7 @@
             document.getElementById('main-console').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            document.getElementById('main-fastfetch').style.display = 'none';
+            document.getElementById('main-sysinfo').style.display = 'none';
             //stopConsoleAuto();
             const main = document.getElementById('main-settings');
             if (main) main.style.display = '';
@@ -3632,7 +3639,7 @@
             document.getElementById('main-download').style.display = 'none';
             document.getElementById('main-console').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            document.getElementById('main-fastfetch').style.display = 'none';
+            document.getElementById('main-sysinfo').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = '';
             //stopConsoleAuto();
             const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
@@ -3642,8 +3649,8 @@
             if (typeof initServerTab === 'function') initServerTab();
         }
 
-        function getActiveFastFetchNodeId() {
-            var tabBar = document.getElementById('fastfetchTabs');
+        function getActiveSysInfoNodeId() {
+            var tabBar = document.getElementById('sysinfoTabs');
             if (!tabBar) return null;
             var activeBtn = tabBar.querySelector('.console-tab-btn.active');
             if (!activeBtn) return null;
@@ -3651,112 +3658,194 @@
             return tab === 'local' ? null : tab;
         }
 
-        function fetchFastFetch(nodeId) {
+        function formatBytes(bytes) {
+            if (!bytes || bytes <= 0) return '--';
+            if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
+            return (bytes / 1048576).toFixed(0) + ' MB';
+        }
+
+        function formatUptime(seconds) {
+            if (!seconds || seconds <= 0) return '--';
+            var d = Math.floor(seconds / 86400);
+            var h = Math.floor((seconds % 86400) / 3600);
+            var m = Math.floor((seconds % 3600) / 60);
+            var parts = [];
+            if (d > 0) parts.push(d + 'd');
+            if (h > 0) parts.push(h + 'h');
+            if (m > 0) parts.push(m + 'm');
+            return parts.join(' ') || '0m';
+        }
+
+        function fetchSysInfo(nodeId) {
             var id = nodeId || '';
             var suffix = id ? '-' + id : '';
-            var statusEl = document.getElementById('fastfetchStatusText' + suffix);
-            var contentEl = document.getElementById('fastfetchContent' + suffix);
-            if (statusEl) statusEl.textContent = t('page.fastfetch.status.loading', '加载中...');
-            var url = '/api/sys/fastfetch';
+            var statusEl = document.getElementById('sysinfoStatusText' + suffix);
+            var statsEl = document.getElementById('ffStats' + suffix);
+            var gridEl = document.getElementById('ffGrid' + suffix);
+            if (statusEl) statusEl.textContent = t('page.sysinfo.status.loading', '加载中...');
+            var url = '/api/sys/sysinfo';
             if (nodeId) url += '?nodeId=' + encodeURIComponent(nodeId);
             fetch(url)
                 .then(r => r.json())
                 .then(data => {
                     var timestamp = new Date().toLocaleTimeString();
-                    var raw = data && data.data && data.data.rawOutput;
-                    var error = data && data.data && data.data.error;
-                    var available = data && data.data && data.data.available;
-                    if (contentEl) {
-                        if (!available || error) {
-                            contentEl.textContent = t('page.fastfetch.status.unavailable', 'Fastfetch 不可用: ') + (error || 'unknown error');
-                        } else if (raw) {
-                            contentEl.textContent = raw;
-                        } else {
-                            contentEl.textContent = t('page.fastfetch.status.no_output', '(无输出)');
-                        }
+  if (!data || !data.success) {
+                        var err = (data && data.error) || '请求失败';
+                        if (statsEl) statsEl.innerHTML = '<div class="ff-stat-card" style="grid-column:1/-1; display:flex; align-items:center; justify-content:center; text-align:center;"><div><div class="ff-stat-icon"><i class="fas fa-exclamation-triangle" style="color:#f59e0b;"></i></div><div class="ff-stat-value" style="color:#f59e0b;">版本不兼容</div><div class="ff-stat-label">' + escapeHtml(err) + '</div></div></div>';
+                        if (gridEl) gridEl.innerHTML = '';
+                        if (statusEl) statusEl.textContent = t('page.sysinfo.status.load_failed', '加载失败');
+                        return;
                     }
-                    if (statusEl) statusEl.textContent = t('page.fastfetch.status.updated', '已更新 \u00b7 ') + timestamp;
+                    var topData = data.data;
+                    if (!topData) {
+                        if (statsEl) statsEl.innerHTML = '<div class="ff-error" style="grid-column:1/-1;">响应数据为空</div>';
+                        if (gridEl) gridEl.innerHTML = '';
+                        if (statusEl) statusEl.textContent = t('page.sysinfo.status.load_failed', '加载失败');
+                        return;
+                    }
+                    var error = topData.error;
+                    var available = topData.available;
+                    var rawOutput = topData.rawOutput;
+                    var innerData = topData.data;
+
+                    if (rawOutput) {
+                        if (statsEl) statsEl.innerHTML = '<div class="ff-stat-card" style="grid-column:1/-1;"><div class="ff-stat-icon"><i class="fas fa-exclamation-triangle" style="color:#f59e0b;"></i></div><div class="ff-stat-value" style="color:#f59e0b;">旧版后端</div><div class="ff-stat-label">数据格式已过时，升级后端以查看详情</div></div>';
+                        if (gridEl) gridEl.innerHTML = '';
+                        if (statusEl) statusEl.textContent = t('page.sysinfo.status.updated', '已更新 \u00b7 ') + timestamp;
+                        return;
+                    }
+
+                    if (!available || error) {
+                        if (statsEl) statsEl.innerHTML = '<div class="ff-error" style="grid-column:1/-1;">' + escapeHtml(error || '工具不可用') + '</div>';
+                        if (gridEl) gridEl.innerHTML = '';
+                        if (statusEl) statusEl.textContent = t('page.sysinfo.status.load_failed', '加载失败');
+                        return;
+                    }
+
+                    if (innerData && innerData.system) {
+                        renderSystemInfo(statsEl, gridEl, innerData, suffix);
+                    } else {
+                        if (statsEl) statsEl.innerHTML = '<div class="ff-error" style="grid-column:1/-1;">数据格式错误</div>';
+                        if (gridEl) gridEl.innerHTML = '';
+                    }
+
+                    if (statusEl) statusEl.textContent = t('page.sysinfo.status.updated', '已更新 \u00b7 ') + timestamp;
                 })
                 .catch(e => {
-                    if (statusEl) statusEl.textContent = t('page.fastfetch.status.load_failed', '加载失败');
-                    if (contentEl) {
-                        contentEl.textContent = t('page.fastfetch.status.error_prefix', '错误: 无法获取系统信息 - ') + e.message;
-                    }
+                    if (statusEl) statusEl.textContent = t('page.sysinfo.status.load_failed', '加载失败');
+                    if (gridEl) gridEl.innerHTML = '<div class="ff-error">错误: ' + escapeHtml(e.message) + '</div>';
                 });
         }
 
-        function fetchGpuStatus(nodeId) {
-            var id = nodeId || '';
-            var suffix = id ? '-' + id : '';
-            var statusEl = document.getElementById('gpuStatusText' + suffix);
-            var container = document.getElementById('gpuContent' + suffix);
-            if (statusEl) statusEl.textContent = t('page.fastfetch.status.loading', '加载中...');
-            var url = '/api/sys/gpu/status';
-            if (nodeId) url += '?nodeId=' + encodeURIComponent(nodeId);
-            fetch(url)
-                .then(r => r.json())
-                .then(data => {
-                    var timestamp = new Date().toLocaleTimeString();
-                    var gpuData = data && data.data;
-                    if (container) {
-                        if (!gpuData) {
-                            container.innerHTML = '<div class="gpu-empty">' + t('page.fastfetch.status.gpu_fetch_failed', '获取GPU状态失败') + '</div>';
-                        } else {
-                            container.innerHTML = renderGpuStatus(gpuData);
-                        }
-                    }
-                    if (statusEl) statusEl.textContent = t('page.fastfetch.status.updated', '已更新 \u00b7 ') + timestamp;
-                })
-                .catch(e => {
-                    if (statusEl) statusEl.textContent = t('page.fastfetch.status.load_failed', '加载失败');
-                    if (container) {
-                        container.innerHTML = '<div class="gpu-empty">' + t('page.fastfetch.status.gpu_error_prefix', '错误: 无法获取GPU状态 - ') + e.message + '</div>';
-                    }
+        function renderSystemInfo(statsEl, gridEl, data, suffix) {
+            var sys = data.system || {};
+            var os = sys.os || {};
+            var cpu = sys.cpu || {};
+            var mem = sys.memory || {};
+            var disks = sys.disks || [];
+            var devices = data.devices || [];
+            var deviceCount = data.device_count || devices.length;
+
+            var memPct = (mem.total_bytes > 0) ? Math.round(mem.used_bytes / mem.total_bytes * 100) : 0;
+            var memColor = memPct > 90 ? 'yellow' : memPct > 60 ? 'blue' : 'green';
+
+            var statsHtml = '';
+            statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-desktop"></i></div><div class="ff-stat-value">' + escapeHtml(os.name || '--') + '</div><div class="ff-stat-label">' + escapeHtml(os.hostname || '') + '</div></div>';
+            statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-microchip"></i></div><div class="ff-stat-value">' + escapeHtml(cpu.name || '--') + '</div><div class="ff-stat-label">' + (cpu.cores || '?') + 'C / ' + (cpu.threads || '?') + 'T</div></div>';
+            statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-memory"></i></div><div class="ff-stat-value">' + formatBytes(mem.total_bytes) + ' (' + memPct + '%)</div><div class="ff-stat-label">已用 ' + formatBytes(mem.used_bytes) + '</div></div>';
+            statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-plug"></i></div><div class="ff-stat-value">' + deviceCount + ' 个设备</div><div class="ff-stat-label">' + devices.filter(function(d){return d.type && d.type !== 'CPU';}).length + ' 个 GPU</div></div>';
+            statsEl.innerHTML = statsHtml;
+
+            var gridHtml = '';
+
+            // Left column: OS + Disks
+            var leftHtml = '';
+            leftHtml += '<div class="ff-card"><div class="ff-card-title"><i class="fas fa-info-circle"></i> 操作系统</div>';
+            leftHtml += renderRow('名称', os.name || '--');
+            leftHtml += renderRow('版本', os.version || '--');
+            leftHtml += renderRow('内核', os.kernel || '--');
+            leftHtml += renderRow('架构', os.arch || '--');
+            leftHtml += renderRow('运行时间', formatUptime(os.uptime_seconds));
+            leftHtml += '</div>';
+
+            leftHtml += '<div class="ff-card"><div class="ff-card-title"><i class="fas fa-hdd"></i> 磁盘 ' + (disks.length ? '(' + disks.length + ')' : '') + '</div>';
+            if (!disks.length) {
+                leftHtml += '<div class="ff-empty">无磁盘信息</div>';
+            } else {
+                disks.forEach(function(disk) {
+                    var diskPct = (disk.total_bytes > 0) ? Math.round(disk.used_bytes / disk.total_bytes * 100) : 0;
+                    var diskColor = diskPct > 90 ? 'yellow' : diskPct > 60 ? 'blue' : 'green';
+                    leftHtml += '<div class="ff-disk-item">';
+                    leftHtml += '<div class="ff-disk-name"><span>' + escapeHtml(disk.name) + ' (' + escapeHtml(disk.filesystem || '') + ')</span><span>' + formatBytes(disk.used_bytes) + ' / ' + formatBytes(disk.total_bytes) + '</span></div>';
+                    leftHtml += '<div class="ff-disk-mount">' + escapeHtml(disk.mount || '') + (disk.is_external ? ' [外置]' : '') + ' · ' + diskPct + '%</div>';
+                    leftHtml += '<div class="ff-progress-bar"><div class="ff-progress-fill ' + diskColor + '" style="width:' + diskPct + '%"></div></div>';
+                    leftHtml += '</div>';
                 });
+            }
+            leftHtml += '</div>';
+            gridHtml += '<div>' + leftHtml + '</div>';
+
+            // Right column: CPU + Memory + GPUs
+            var rightHtml = '';
+            rightHtml += '<div class="ff-card"><div class="ff-card-title"><i class="fas fa-microchip"></i> CPU</div>';
+            rightHtml += renderRow('型号', cpu.name || '--');
+            rightHtml += renderRow('物理核心', cpu.cores);
+            rightHtml += renderRow('逻辑线程', cpu.threads);
+            rightHtml += renderRow('最大频率', cpu.freq_max_mhz > 0 ? (cpu.freq_max_mhz / 1000).toFixed(2) + ' GHz' : '--');
+            rightHtml += '</div>';
+
+            rightHtml += '<div class="ff-card"><div class="ff-card-title"><i class="fas fa-memory"></i> 内存</div>';
+            rightHtml += renderRow('总内存', formatBytes(mem.total_bytes));
+            rightHtml += '<div style="margin:6px 0;"><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);"><span>已用 ' + formatBytes(mem.used_bytes) + '</span><span>' + memPct + '%</span></div><div class="ff-progress-bar"><div class="ff-progress-fill ' + memColor + '" style="width:' + memPct + '%"></div></div></div>';
+            if (mem.swap_total_bytes > 0) {
+                var swapPct = (mem.swap_used_bytes > 0) ? Math.round(mem.swap_used_bytes / mem.swap_total_bytes * 100) : 0;
+                rightHtml += renderRow('交换空间', formatBytes(mem.swap_used_bytes) + ' / ' + formatBytes(mem.swap_total_bytes) + ' (' + swapPct + '%)');
+            }
+            rightHtml += '</div>';
+
+            rightHtml += '<div class="ff-card"><div class="ff-card-title"><i class="fas fa-plug"></i> GPU / 设备 ' + (devices.length ? '(' + devices.length + ')' : '') + '</div>';
+            if (!devices.length) {
+                rightHtml += '<div class="ff-empty">未检测到 GPU 设备</div>';
+            } else {
+                devices.forEach(function(gpu) {
+                    var sensors = gpu.sensors || {};
+                    var gmem = gpu.memory || {};
+                    rightHtml += '<div class="ff-gpu-card">';
+                    rightHtml += '<div class="ff-gpu-name">' + escapeHtml(gpu.name) + ' <span class="ff-gpu-vendor">' + escapeHtml(gpu.vendor || '') + '</span></div>';
+                    rightHtml += '<div class="ff-gpu-stats">';
+                    rightHtml += gpuStatItem('类型', gpu.type || '--');
+                    rightHtml += gpuStatItem('显存', formatBytes(gmem.dedicated_vram_bytes));
+                    rightHtml += gpuStatItem('温度', sensors.temperature_celsius != null ? sensors.temperature_celsius + '°C' : '--');
+                    rightHtml += gpuStatItem('GPU 利用率', sensors.utilization_gpu_pct != null ? sensors.utilization_gpu_pct + '%' : '--');
+                    rightHtml += gpuStatItem('功耗', sensors.power_watts != null ? sensors.power_watts + 'W' : '--');
+                    if (sensors.power_limit_watts != null) rightHtml += gpuStatItem('功耗上限', sensors.power_limit_watts + 'W');
+                    rightHtml += gpuStatItem('风扇', sensors.fan_speed_pct != null ? sensors.fan_speed_pct + '%' : (sensors.fan_speed_rpm != null ? sensors.fan_speed_rpm + ' RPM' : '--'));
+                    rightHtml += gpuStatItem('驱动', sensors.driver_version_str || '--');
+                    rightHtml += '</div></div>';
+                });
+            }
+            rightHtml += '</div>';
+            gridHtml += '<div>' + rightHtml + '</div>';
+
+            gridEl.innerHTML = gridHtml;
         }
 
-        function renderGpuStatus(d) {
-            var nvidia = d['nvidia-smi'] || {};
-            var amd = d['amd-smi'] || {};
-            var hasAny = nvidia.available || amd.available;
-            if (!hasAny) {
-                return '<div class="gpu-empty">' + t('page.fastfetch.status.no_gpu_detected', '未检测到支持的 GPU（nvidia-smi / amd-smi 均不可用）') + '</div>';
-            }
-            var html = '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">OS: ' + escapeHtml(d.os || 'unknown') + '</div>';
-            if (nvidia) {
-                html += renderGpuToolBlock('nvidia-smi', nvidia);
-            }
-            if (amd) {
-                html += renderGpuToolBlock('amd-smi', amd);
-            }
-            return html;
+        function renderRow(label, value) {
+            return '<div class="ff-row"><span class="ff-row-label">' + escapeHtml(label) + '</span><span class="ff-row-value">' + escapeHtml(String(value)) + '</span></div>';
         }
 
-        function renderGpuToolBlock(name, info) {
-            var avail = !!info.available;
-            var badgeCls = avail ? 'available' : 'unavailable';
-            var badgeText = avail ? t('common.available', '可用') : t('common.unavailable', '不可用');
-            var html = '<div class="gpu-tool-block">';
-            html += '<div class="gpu-tool-header">';
-            html += '<span class="gpu-tool-badge ' + badgeCls + '">' + badgeText + '</span>';
-            html += '<span class="gpu-tool-name">' + escapeHtml(name) + '</span>';
-            html += '</div>';
-            if (avail && info.output) {
-                html += '<div class="gpu-tool-output">' + escapeHtml(info.output) + '</div>';
-            }
-            html += '</div>';
-            return html;
+        function gpuStatItem(label, value) {
+            return '<div class="ff-gpu-stat"><span class="ff-gpu-stat-label">' + escapeHtml(label) + ': </span><span class="ff-gpu-stat-value">' + escapeHtml(String(value)) + '</span></div>';
         }
 
-        function refreshFastFetchAll() {
-            var nodeId = getActiveFastFetchNodeId();
-            fetchFastFetch(nodeId);
-            fetchGpuStatus(nodeId);
+        function refreshSysInfoAll() {
+            var nodeId = getActiveSysInfoNodeId();
+            fetchSysInfo(nodeId);
         }
 
-        function initFastFetchTabs() {
-            var tabBar = document.getElementById('fastfetchTabs');
-            var container = document.getElementById('fastfetchTabContainer');
+        function initSysInfoTabs() {
+            var tabBar = document.getElementById('sysinfoTabs');
+            var container = document.getElementById('sysinfoTabContainer');
             if (!tabBar || !container) return;
             if (tabBar._initialized) return;
             tabBar._initialized = true;
@@ -3776,8 +3865,8 @@
                 var panel = document.createElement('div');
                 panel.className = 'console-tab-panel';
                 panel.dataset.panel = nid;
-                var t = window.I18N && window.I18N.t || function (k, f) { return f || k; };
-                panel.innerHTML = '<div class="ff-split"><div class="ff-panel"><div class="ff-panel-header"><i class="fas fa-desktop"></i><span>' + t('page.fastfetch.device_overview', 'page.fastfetch.device_overview') + '</span></div><div class="ff-panel-body"><pre id="fastfetchContent-' + nid + '" style="margin:0;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;"></pre></div></div><div class="ff-panel"><div class="ff-panel-header"><i class="fas fa-microchip"></i><span>' + t('page.fastfetch.gpu_status', 'page.fastfetch.gpu_status') + '</span><div id="gpuStatusText-' + nid + '" style="font-size:11px;color:#6b7280;margin-left:auto;"></div></div><div class="ff-panel-body" id="gpuContent-' + nid + '"><div class="gpu-empty">' + t('page.fastfetch.gpu_loading', 'page.fastfetch.gpu_loading') + '</div></div></div></div>';
+                panel.style.cssText = 'flex-direction:column;';
+                panel.innerHTML = '<div class="ff-content"><div class="ff-stats" id="ffStats-' + nid + '"><div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-spinner fa-spin"></i></div><div class="ff-stat-value">--</div><div class="ff-stat-label">Loading...</div></div></div><div class="ff-grid" id="ffGrid-' + nid + '"><div></div></div></div>';
                 container.appendChild(panel);
             });
 
@@ -3790,11 +3879,11 @@
                 container.querySelectorAll('.console-tab-panel').forEach(function (p) {
                     p.classList.toggle('active', p.dataset.panel === id);
                 });
-                refreshFastFetchAll();
+                refreshSysInfoAll();
             });
         }
 
-        function showFastFetchPage() {
+        function showSysInfoPage() {
             document.getElementById('main-model-list').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
             if (typeof cancelDetailGguf === 'function') cancelDetailGguf();
@@ -3803,23 +3892,18 @@
             document.getElementById('main-console').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            document.getElementById('main-fastfetch').style.display = '';
-            initFastFetchTabs();
-            var contentEl = document.getElementById('fastfetchContent');
-            if (contentEl) contentEl.textContent = '';
-            var gpuEl = document.getElementById('gpuContent');
-            if (gpuEl) gpuEl.innerHTML = '<div class="gpu-empty">' + (window.I18N ? window.I18N.t('page.fastfetch.gpu_loading', 'page.fastfetch.gpu_loading') : 'page.fastfetch.gpu_loading') + '</div>';
-            refreshFastFetchAll();
+            document.getElementById('main-sysinfo').style.display = 'flex';
+            initSysInfoTabs();
+            refreshSysInfoAll();
             var nodes = window.remoteNodes || [];
             nodes.forEach(function (n) {
                 if (n.enabled !== false && n.nodeId) {
-                    fetchFastFetch(n.nodeId);
-                    fetchGpuStatus(n.nodeId);
+                    fetchSysInfo(n.nodeId);
                 }
             });
             var navItems = document.querySelectorAll('.sidebar-nav .nav-item');
             navItems.forEach(item => item.classList.remove('active'));
-            var nav = document.getElementById('nav-fastfetch');
+            var nav = document.getElementById('nav-sysinfo');
             if (nav) nav.classList.add('active');
         }
 
@@ -3832,7 +3916,7 @@
             document.getElementById('main-console').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = '';
-            document.getElementById('main-fastfetch').style.display = 'none';
+            document.getElementById('main-sysinfo').style.display = 'none';
             //stopConsoleAuto();
             const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
             navItems.forEach(item => item.classList.remove('active'));

@@ -92,34 +92,51 @@ final class EasyChatRequestWriter {
 		ParamTool.handleOpenAIChatThinking(requestOptions);
 		String resolvedModelId = SamplingInjectionBuilder.resolveModelName(spec.modelId);
 		requestOptions.addProperty("model", resolvedModelId == null || resolvedModelId.isBlank() ? spec.modelId : resolvedModelId);
-		applyStrongChatTemplateKwargsOverride(requestOptions, resolvedModelId, clientEnableThinking);
+		applyMergedChatTemplateKwargs(requestOptions, resolvedModelId, clientEnableThinking);
 		ModelSamplingService.getInstance().handleOpenAI(requestOptions);
 		writeObjectFields(output, requestOptions, "model", "messages", "stream");
 	}
 
-	private void applyStrongChatTemplateKwargsOverride(JsonObject requestOptions, String modelId, Boolean clientEnableThinking) {
+	private void applyMergedChatTemplateKwargs(JsonObject requestOptions, String modelId, Boolean clientEnableThinking) {
 		if (requestOptions == null || modelId == null || modelId.isBlank()) {
 			return;
 		}
-		JsonObject sampling = ModelSamplingService.getInstance().getOpenAISampling(modelId);
-		boolean forceThinking = SamplingInjectionBuilder.readBoolean(sampling, "force_enable_thinking");
-		Boolean effectiveEnableThinking = forceThinking
-			? SamplingInjectionBuilder.readBooleanValue(sampling, "enable_thinking")
-			: clientEnableThinking;
+		JsonObject finalKwargs = readJsonObjectCopy(requestOptions.get("chat_template_kwargs"));
+		if (finalKwargs == null) {
+			finalKwargs = new JsonObject();
+		}
+		if (clientEnableThinking != null && !finalKwargs.has("enable_thinking")) {
+			finalKwargs.addProperty("enable_thinking", clientEnableThinking);
+		}
 		JsonObject serverKwargs = ChatTemplateKwargsService.getInstance().getOpenAIChatTemplateKwargs(modelId);
-		if ((serverKwargs == null || serverKwargs.entrySet().isEmpty()) && effectiveEnableThinking == null) {
+		if (serverKwargs != null) {
+			for (Map.Entry<String, JsonElement> entry : serverKwargs.entrySet()) {
+				String key = entry.getKey();
+				JsonElement value = entry.getValue();
+				if (key == null || value == null || value.isJsonNull()) {
+					continue;
+				}
+				finalKwargs.add(key, value.deepCopy());
+			}
+		}
+		if (finalKwargs.entrySet().isEmpty()) {
 			return;
 		}
-		JsonObject finalKwargs;
-		if (serverKwargs != null && !serverKwargs.entrySet().isEmpty()) {
-			finalKwargs = effectiveEnableThinking == null
-				? serverKwargs
-				: SamplingInjectionBuilder.buildMergedKwargs(modelId, effectiveEnableThinking.booleanValue());
-		} else {
-			finalKwargs = new JsonObject();
-			finalKwargs.addProperty("enable_thinking", effectiveEnableThinking);
-		}
 		requestOptions.add("chat_template_kwargs", finalKwargs);
+	}
+
+	private JsonObject readJsonObjectCopy(JsonElement element) {
+		if (element == null || element.isJsonNull()) {
+			return null;
+		}
+		if (element.isJsonObject()) {
+			return element.getAsJsonObject().deepCopy();
+		}
+		if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+			JsonObject parsed = JsonUtil.tryParseObject(element.getAsString());
+			return parsed == null ? null : parsed.deepCopy();
+		}
+		return null;
 	}
 
 	private Boolean readClientEnableThinking(JsonObject requestOptions) {
@@ -141,6 +158,13 @@ final class EasyChatRequestWriter {
 					}
 				} catch (Exception ignore) {
 				}
+			}
+		}
+		JsonElement thinkingBudget = requestOptions.get("thinking_budget_tokens");
+		if (thinkingBudget != null && !thinkingBudget.isJsonNull() && thinkingBudget.isJsonPrimitive()) {
+			try {
+				return thinkingBudget.getAsInt() > 0;
+			} catch (Exception ignore) {
 			}
 		}
 		return null;

@@ -5595,6 +5595,15 @@
           params.stop = stops;
         }
       }
+      const thinkingLevel = normalizeThinkingLevel(assistant?.enableThinking) || 'off';
+      if (thinkingLevel === 'unlimited') {
+        params.chat_template_kwargs = { enable_thinking: true };
+      } else if (thinkingLevel !== 'off') {
+        const thinkingBudget = Number(thinkingLevel);
+        if (Number.isFinite(thinkingBudget) && thinkingBudget > 0) {
+          params.thinking_budget_tokens = thinkingBudget;
+        }
+      }
       return JSON.stringify(params);
     }
 
@@ -6000,13 +6009,15 @@
       const payload = {
         model: bareModelId,
         messages,
-        stream: !!assistant?.stream,
-        chat_template_kwargs: {
-          enable_thinking: thinkingLevel !== 'off'
-        }
+        stream: !!assistant?.stream
       };
-      if (thinkingLevel !== 'off' && thinkingLevel !== 'unlimited') {
-        payload.thinking_budget_tokens = Number(thinkingLevel);
+      if (thinkingLevel === 'unlimited') {
+        payload.chat_template_kwargs = { enable_thinking: true };
+      } else if (thinkingLevel !== 'off') {
+        const thinkingBudget = Number(thinkingLevel);
+        if (Number.isFinite(thinkingBudget) && thinkingBudget > 0) {
+          payload.thinking_budget_tokens = thinkingBudget;
+        }
       }
       if (payload.stream) {
         payload.return_progress = true;

@@ -472,11 +472,11 @@ public class EasyChatService {
 		long totalSize = 0;
 		long variantCount = 0;
 		try {
-			long seq = 0;
-			while (true) {
+			long endExclusive = storage.readNextSeq(convDir);
+			for (long seq = 0; seq < endExclusive; seq++) {
 				EasyChatStorage.FragmentHeader header = storage.readFragmentHeader(convDir, seq);
 				if (header == null) {
-					break;
+					continue;
 				}
 				if (!storage.isDeleted(header)) {
 					for (int v = 0; v < header.variantCount; v++) {
@@ -487,7 +487,6 @@ public class EasyChatService {
 					}
 					recordCount++;
 				}
-				seq++;
 			}
 		} catch (Exception e) {
 			logger.info("[EasyChat] 预扫描碎片失败 conversation={}", conversationId, e);
@@ -515,15 +514,14 @@ public class EasyChatService {
 		byte[] msgSuffix = "]}" .getBytes(StandardCharsets.UTF_8);
 		byte[] dataSuffix = "]}".getBytes(StandardCharsets.UTF_8);
 		try {
-			long seq = 0;
+			long endExclusive = storage.readNextSeq(convDir);
 			boolean first = true;
-			while (true) {
+			for (long seq = 0; seq < endExclusive; seq++) {
 				EasyChatStorage.FragmentHeader header = storage.readFragmentHeader(convDir, seq);
 				if (header == null) {
-					break;
+					continue;
 				}
 				if (storage.isDeleted(header)) {
-					seq++;
 					continue;
 				}
 
@@ -572,7 +570,6 @@ public class EasyChatService {
 				}
 
 				ctx.writeAndFlush(Unpooled.wrappedBuffer(msgSuffix));
-				seq++;
 			}
 			ctx.writeAndFlush(Unpooled.wrappedBuffer(dataSuffix));
 			logger.info("[EasyChat] 流式传输历史完成 conversation={} records={} variants={} bytes={}",

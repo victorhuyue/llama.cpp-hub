@@ -42,23 +42,21 @@ final class EasyChatRequestWriter {
 		}
 
 		if (!spec.skipHistory && spec.conversationDir != null) {
-			long seq = 0;
-			while (true) {
+			long historyEndExclusive = storage.readNextSeq(spec.conversationDir);
+			if (spec.regenerateSeq != null) {
+				historyEndExclusive = Math.min(historyEndExclusive, spec.regenerateSeq.longValue());
+			}
+			for (long seq = 0; seq < historyEndExclusive; seq++) {
 				EasyChatStorage.FragmentHeader header = storage.readFragmentHeader(spec.conversationDir, seq);
 				if (header == null) {
-					break;
-				}
-				if (spec.regenerateSeq != null && seq == spec.regenerateSeq.longValue()) {
-					break;
+					continue;
 				}
 				if (storage.isDeleted(header)) {
-					seq++;
 					continue;
 				}
 				Integer preferredVariant = spec.variants == null ? null : spec.variants.get(seq);
 				int resolvedVariant = storage.resolveVariantIndex(header, preferredVariant);
 				if (resolvedVariant < 0) {
-					seq++;
 					continue;
 				}
 				if (wroteAnyMessage) {
@@ -66,7 +64,6 @@ final class EasyChatRequestWriter {
 				}
 				storage.streamVariant(spec.conversationDir, seq, resolvedVariant, output);
 				wroteAnyMessage = true;
-				seq++;
 			}
 		}
 		if (spec.transientUserMessage != null && spec.transientUserMessage.length > 0) {

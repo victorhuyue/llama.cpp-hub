@@ -115,6 +115,14 @@ final class EasyChatStorage {
 		}
 	}
 
+	long readNextSeq(Path convDir) throws IOException {
+		Path indexPath = indexFile(convDir);
+		if (!Files.isRegularFile(indexPath)) {
+			return 0L;
+		}
+		return Math.max(0L, readIndexSeq(indexPath));
+	}
+
 	void writeIndexSeq(Path indexPath, long seq) throws IOException {
 		try (RandomAccessFile raf = new RandomAccessFile(indexPath.toFile(), "rw")) {
 			raf.seek(INDEX_FILE_SIZE - IDX_SEQ);

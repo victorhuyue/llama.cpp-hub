@@ -124,6 +124,7 @@
             max-height: 0;
             transition: max-height 0.3s ease, opacity 0.2s ease;
             opacity: 0;
+            padding-top: 2px;
         }
 
         .sidebar-quick-links.open .sidebar-quick-links-list {
@@ -2258,6 +2259,23 @@
                     </a>
                 </div>
             </div>
+            <div class="sidebar-quick-links" style="margin-bottom: 0.75rem;">
+                <button class="sidebar-quick-links-toggle" onclick="toggleMagicTools()" type="button">
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                    <span data-i18n="sidebar.tools_title">sidebar.tools_title</span>
+                    <i class="fas fa-chevron-down sidebar-quick-links-chevron"></i>
+                </button>
+                <div class="sidebar-quick-links-list" id="sidebarMagicToolsList">
+                    <a class="sidebar-quick-link" href="tools/mtp-bench.html" target="_blank" rel="noopener noreferrer">
+                        <i class="fas fa-gauge-high sidebar-quick-link-icon"></i>
+                        <span class="sidebar-quick-link-text">
+                            <span class="sidebar-quick-link-domain">MTP Bench</span>
+                            <span class="sidebar-quick-link-desc" data-i18n="sidebar.tools.mtp_bench_desc">sidebar.tools.mtp_bench_desc</span>
+                        </span>
+                        <i class="fas fa-external-link-alt sidebar-quick-link-ext"></i>
+                    </a>
+                </div>
+            </div>
             <div
                 style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; padding: 0.5rem 0;">
                 <button id="themeToggle" onclick="toggleTheme()" title="common.theme.toggle_title"
@@ -4154,6 +4172,9 @@
         function toggleQuickLinks() {
             document.querySelector('.sidebar-quick-links').classList.toggle('open');
         }
+        function toggleMagicTools() {
+            document.getElementById('sidebarMagicToolsList').parentElement.classList.toggle('open');
+        }
         function initTheme() {
             const saved = localStorage.getItem('llama-hub-theme');
             if (saved === 'dark' || saved === 'light') {
@@ -4287,10 +4308,7 @@
                         <div class="dir-browser-toolbar">
                             <button class="btn btn-secondary btn-sm" type="button" onclick="directoryBrowserGoRoots()" data-i18n="modal.dir_browser.roots">modal.dir_browser.roots</button>
                             <button class="btn btn-secondary btn-sm" type="button" onclick="directoryBrowserGoUp()" data-i18n="modal.dir_browser.up">modal.dir_browser.up</button>
-                            <button class="btn btn-secondary btn-sm search-toggle" type="button" onclick="directoryBrowserToggleSearch()"><i class="fas fa-search"></i></button>
-                            <div class="dir-browser-search-box" id="directoryBrowserSearchBox">
-                                <input id="directoryBrowserSearchInput" class="dir-browser-search-input" type="text" placeholder="${escapeAttr(t('modal.dir_browser.search', 'Search...'))}" oninput="directoryBrowserSearch(this.value)">
-                            </div>
+                            <input id="directoryBrowserSearchInput" class="dir-browser-search-input" type="text" placeholder="${escapeAttr(t('modal.dir_browser.search', 'Search...'))}" oninput="directoryBrowserSearch(this.value)">
                             <select id="directoryBrowserSortSelect" class="dir-browser-sort-select" onchange="directoryBrowserApplySort(this.value)">
                                 <option value="name:asc">${escapeHtml(t('modal.dir_browser.name', 'Name'))} · ${escapeHtml(t('modal.dir_browser.ascending', 'Ascending'))}</option>
                                 <option value="name:desc">${escapeHtml(t('modal.dir_browser.name', 'Name'))} · ${escapeHtml(t('modal.dir_browser.descending', 'Descending'))}</option>
@@ -4308,7 +4326,6 @@
                             <div id="directoryBrowserList" class="dir-browser-list"></div>
                             <div id="directoryBrowserHint" class="dir-browser-panel-hint"></div>
                         </div>
-                        <div id="directoryBrowserStatusBar" class="dir-browser-status-bar"></div>
                     </div>
                     <div class="modal-footer">
                         <button class="btn btn-secondary" type="button" onclick="closeModal('directoryBrowserModal')" data-i18n="common.cancel">common.cancel</button>
@@ -4491,12 +4508,9 @@
             const state = window.__directoryBrowserState || {};
             const listEl = document.getElementById('directoryBrowserList');
             const hintEl = document.getElementById('directoryBrowserHint');
-            const statusEl = document.getElementById('directoryBrowserStatusBar');
             const sortEl = document.getElementById('directoryBrowserSortSelect');
-            const searchBoxEl = document.getElementById('directoryBrowserSearchBox');
             const searchInputEl = document.getElementById('directoryBrowserSearchInput');
             if (sortEl) sortEl.value = (state.sortBy || 'name') + ':' + (state.sortOrder || 'asc');
-            if (searchBoxEl) searchBoxEl.classList.toggle('show', !!state.searchOpen);
             if (searchInputEl) searchInputEl.value = state.searchQuery || '';
             directoryBrowserSetPathText(state.currentPath);
             directoryBrowserSetConfirmState();
@@ -4505,8 +4519,24 @@
 
             const query = (state.searchQuery || '').trim().toLowerCase();
             const items = (state.items || []).filter(item => {
+                if (item.isParent) return true;
                 if (!query) return true;
-                return String(item.name || '').toLowerCase().includes(query) || String(item.path || '').toLowerCase().includes(query);
+                return String(item.name || '').toLowerCase().includes(query);
+            }).sort((a, b) => {
+                if (a.isParent && !b.isParent) return -1;
+                if (!a.isParent && b.isParent) return 1;
+                if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+                let cmp = 0;
+                const sortBy = state.sortBy || 'name';
+                const desc = state.sortOrder === 'desc';
+                if (sortBy === 'name') {
+                    cmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+                } else if (sortBy === 'size') {
+                    cmp = (a.size || 0) - (b.size || 0);
+                } else if (sortBy === 'date') {
+                    cmp = (a.lastModified || 0) - (b.lastModified || 0);
+                }
+                return desc ? -cmp : cmp;
             });
 
             if (!items.length) {
@@ -4554,18 +4584,6 @@
                     hintEl.style.display = 'none';
                 }
             }
-
-            if (statusEl) {
-                const selectedPath = state.selectedFilePath || '';
-                if (selectedPath) {
-                    const selectedItem = (state.items || []).find(item => item.path === selectedPath);
-                    const text = t('modal.dir_browser.selected', 'Selected: {path}').replace('{path}', selectedPath);
-                    const suffix = selectedItem ? '  ·  ' + formatFileSize(selectedItem.size) : '';
-                    statusEl.textContent = text + suffix;
-                } else {
-                    statusEl.textContent = state.currentPath || t('modal.dir_browser.roots', 'Roots');
-                }
-            }
         }
 
         function directoryBrowserTogglePathEdit(force) {
@@ -4595,18 +4613,6 @@
             } else if (event.key === 'Escape') {
                 event.preventDefault();
                 directoryBrowserTogglePathEdit(false);
-            }
-        }
-
-        function directoryBrowserToggleSearch() {
-            const state = window.__directoryBrowserState || {};
-            state.searchOpen = !state.searchOpen;
-            if (!state.searchOpen) state.searchQuery = '';
-            window.__directoryBrowserState = state;
-            directoryBrowserRender();
-            const input = document.getElementById('directoryBrowserSearchInput');
-            if (input && state.searchOpen) {
-                input.focus();
             }
         }
 
@@ -4641,10 +4647,8 @@
             directoryBrowserSetConfirmState();
             const listEl = document.getElementById('directoryBrowserList');
             const hintEl = document.getElementById('directoryBrowserHint');
-            const statusEl = document.getElementById('directoryBrowserStatusBar');
             if (hintEl) hintEl.style.display = 'none';
             if (listEl) listEl.innerHTML = `<div class="loading-spinner"><div class="spinner"></div></div>`;
-            if (statusEl) statusEl.textContent = state.currentPath || t('modal.dir_browser.roots', 'Roots');
 
             try {
                 const params = [];

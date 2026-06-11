@@ -1203,6 +1203,9 @@
   "sidebar.quick_links.modelscope_desc": "ModelScope 模型库",
   "sidebar.quick_links.github_desc": "GitHub 发布页",
 
+  "sidebar.tools_title": "神奇妙妙工具",
+  "sidebar.tools.mtp_bench_desc": "MTP 多令牌预测基准测试",
+
   "page.console.tab_local": "本地",
 
   "modal.node.form.id": "节点 ID",

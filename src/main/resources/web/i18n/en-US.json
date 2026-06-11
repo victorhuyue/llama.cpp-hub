@@ -1203,6 +1203,9 @@
   "sidebar.quick_links.modelscope_desc": "ModelScope Model Library",
   "sidebar.quick_links.github_desc": "GitHub Releases",
 
+  "sidebar.tools_title": "Magic Tools",
+  "sidebar.tools.mtp_bench_desc": "MTP Benchmark",
+
   "page.console.tab_local": "Local",
 
   "modal.node.form.id": "Node ID",

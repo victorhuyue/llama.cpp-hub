@@ -2885,13 +2885,9 @@
         .dir-browser-sort-select {
             flex-shrink: 0;
         }
-        .dir-browser-search-box {
-            display: none;
+        .dir-browser-search-input {
             min-width: 180px;
             flex: 1;
-        }
-        .dir-browser-search-box.show {
-            display: block;
         }
         .dir-browser-search-input,
         .dir-editor-input,
@@ -2959,14 +2955,6 @@
             color: var(--text-secondary);
             display: none;
         }
-        .dir-browser-status-bar {
-            margin-top: 0.75rem;
-            min-height: 20px;
-            font-size: 0.8125rem;
-            color: var(--text-secondary);
-            word-break: break-all;
-        }
-        
         .dir-browser-item {
             display: flex;
             align-items: center;
@@ -3010,6 +2998,11 @@
             background: var(--card-bg);
             border-color: var(--border-color);
             transform: none;
+        }
+        .dir-browser-item.file.selected:hover {
+            background: rgba(99, 102, 241, 0.08);
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
         }
         .dir-browser-item.readonly,
         .dir-browser-item.readonly:hover {

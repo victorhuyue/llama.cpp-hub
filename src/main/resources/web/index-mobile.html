@@ -1052,10 +1052,7 @@
                         <div class="dir-browser-toolbar">
                             <button class="btn btn-secondary btn-sm" type="button" onclick="directoryBrowserGoRoots()" data-i18n="modal.dir_browser.roots">modal.dir_browser.roots</button>
                             <button class="btn btn-secondary btn-sm" type="button" onclick="directoryBrowserGoUp()" data-i18n="modal.dir_browser.up">modal.dir_browser.up</button>
-                            <button class="btn btn-secondary btn-sm search-toggle" type="button" onclick="directoryBrowserToggleSearch()"><i class="fas fa-search"></i></button>
-                            <div class="dir-browser-search-box" id="directoryBrowserSearchBox">
-                                <input id="directoryBrowserSearchInput" class="dir-browser-search-input" type="text" placeholder="${escapeAttr(t('modal.dir_browser.search', 'Search...'))}" oninput="directoryBrowserSearch(this.value)">
-                            </div>
+                            <input id="directoryBrowserSearchInput" class="dir-browser-search-input" type="text" placeholder="${escapeAttr(t('modal.dir_browser.search', 'Search...'))}" oninput="directoryBrowserSearch(this.value)">
                             <select id="directoryBrowserSortSelect" class="dir-browser-sort-select" onchange="directoryBrowserApplySort(this.value)">
                                 <option value="name:asc">${escapeHtml(t('modal.dir_browser.name', 'Name'))} · ${escapeHtml(t('modal.dir_browser.ascending', 'Ascending'))}</option>
                                 <option value="name:desc">${escapeHtml(t('modal.dir_browser.name', 'Name'))} · ${escapeHtml(t('modal.dir_browser.descending', 'Descending'))}</option>
@@ -1073,7 +1070,6 @@
                             <div id="directoryBrowserList" class="dir-browser-list"></div>
                             <div id="directoryBrowserHint" class="dir-browser-panel-hint"></div>
                         </div>
-                        <div id="directoryBrowserStatusBar" class="dir-browser-status-bar"></div>
                     </div>
                     <div class="modal-footer">
                         <button class="btn btn-secondary" type="button" onclick="closeModal('directoryBrowserModal')" data-i18n="common.cancel">common.cancel</button>
@@ -1256,12 +1252,9 @@
             const state = window.__directoryBrowserState || {};
             const listEl = document.getElementById('directoryBrowserList');
             const hintEl = document.getElementById('directoryBrowserHint');
-            const statusEl = document.getElementById('directoryBrowserStatusBar');
             const sortEl = document.getElementById('directoryBrowserSortSelect');
-            const searchBoxEl = document.getElementById('directoryBrowserSearchBox');
             const searchInputEl = document.getElementById('directoryBrowserSearchInput');
             if (sortEl) sortEl.value = (state.sortBy || 'name') + ':' + (state.sortOrder || 'asc');
-            if (searchBoxEl) searchBoxEl.classList.toggle('show', !!state.searchOpen);
             if (searchInputEl) searchInputEl.value = state.searchQuery || '';
             directoryBrowserSetPathText(state.currentPath);
             directoryBrowserSetConfirmState();
@@ -1270,8 +1263,24 @@
 
             const query = (state.searchQuery || '').trim().toLowerCase();
             const items = (state.items || []).filter(item => {
+                if (item.isParent) return true;
                 if (!query) return true;
-                return String(item.name || '').toLowerCase().includes(query) || String(item.path || '').toLowerCase().includes(query);
+                return String(item.name || '').toLowerCase().includes(query);
+            }).sort((a, b) => {
+                if (a.isParent && !b.isParent) return -1;
+                if (!a.isParent && b.isParent) return 1;
+                if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+                let cmp = 0;
+                const sortBy = state.sortBy || 'name';
+                const desc = state.sortOrder === 'desc';
+                if (sortBy === 'name') {
+                    cmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+                } else if (sortBy === 'size') {
+                    cmp = (a.size || 0) - (b.size || 0);
+                } else if (sortBy === 'date') {
+                    cmp = (a.lastModified || 0) - (b.lastModified || 0);
+                }
+                return desc ? -cmp : cmp;
             });
 
             if (!items.length) {
@@ -1319,18 +1328,6 @@
                     hintEl.style.display = 'none';
                 }
             }
-
-            if (statusEl) {
-                const selectedPath = state.selectedFilePath || '';
-                if (selectedPath) {
-                    const selectedItem = (state.items || []).find(item => item.path === selectedPath);
-                    const text = t('modal.dir_browser.selected', 'Selected: {path}').replace('{path}', selectedPath);
-                    const suffix = selectedItem ? '  ·  ' + formatFileSize(selectedItem.size) : '';
-                    statusEl.textContent = text + suffix;
-                } else {
-                    statusEl.textContent = state.currentPath || t('modal.dir_browser.roots', 'Roots');
-                }
-            }
         }
 
         function directoryBrowserTogglePathEdit(force) {
@@ -1360,18 +1357,6 @@
             } else if (event.key === 'Escape') {
                 event.preventDefault();
                 directoryBrowserTogglePathEdit(false);
-            }
-        }
-
-        function directoryBrowserToggleSearch() {
-            const state = window.__directoryBrowserState || {};
-            state.searchOpen = !state.searchOpen;
-            if (!state.searchOpen) state.searchQuery = '';
-            window.__directoryBrowserState = state;
-            directoryBrowserRender();
-            const input = document.getElementById('directoryBrowserSearchInput');
-            if (input && state.searchOpen) {
-                input.focus();
             }
         }
 
@@ -1406,10 +1391,8 @@
             directoryBrowserSetConfirmState();
             const listEl = document.getElementById('directoryBrowserList');
             const hintEl = document.getElementById('directoryBrowserHint');
-            const statusEl = document.getElementById('directoryBrowserStatusBar');
             if (hintEl) hintEl.style.display = 'none';
             if (listEl) listEl.innerHTML = `<div class="loading-spinner"><div class="spinner"></div></div>`;
-            if (statusEl) statusEl.textContent = state.currentPath || t('modal.dir_browser.roots', 'Roots');
 
             try {
                 const params = [];

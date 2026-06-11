@@ -772,18 +772,18 @@ public class EasyChatService {
 		}
 	}
 
-	private static final class RemoteStreamTrace {
-		final long startedAt = System.currentTimeMillis();
-		long firstLineAt = -1L;
-		long lastLineAt = -1L;
-		long lastDataEventAt = -1L;
-		long lastUsefulDeltaAt = -1L;
-		long doneReceivedAt = -1L;
-		long eofAt = -1L;
-		int dataEventCount = 0;
-		int nonDataLineCount = 0;
-		String terminalFinishReason = "";
-		String endReason = "unknown";
+	public static final class RemoteStreamTrace {
+		public final long startedAt = System.currentTimeMillis();
+		public long firstLineAt = -1L;
+		public long lastLineAt = -1L;
+		public long lastDataEventAt = -1L;
+		public long lastUsefulDeltaAt = -1L;
+		public long doneReceivedAt = -1L;
+		public long eofAt = -1L;
+		public int dataEventCount = 0;
+		public int nonDataLineCount = 0;
+		public String terminalFinishReason = "";
+		public String endReason;
 	}
 
 	private boolean proxySseStream(ChannelHandlerContext ctx, HttpURLConnection connection,

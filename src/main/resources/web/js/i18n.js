@@ -51,21 +51,35 @@
         return await response.json();
     }
 
-    function translate(bundle, key, fallback) {
+    function translate(bundle, key, fallback, params) {
+        let result;
         if (bundle && Object.prototype.hasOwnProperty.call(bundle, key)) {
             const v = bundle[key];
-            return v == null ? '' : String(v);
+            result = v == null ? '' : String(v);
+        } else {
+            result = fallback == null ? key : fallback;
         }
-        return fallback == null ? key : fallback;
+
+        if (params && typeof params === 'object') {
+            result = result.replace(/{(\w+)}/g, (match, k) => (params[k] !== undefined ? params[k] : match));
+        }
+        return result;
     }
 
     function applyTranslations(bundle, lang) {
         window.I18N = {
             lang,
             bundle,
-            t: function (key, fallback) {
-                return translate(bundle, key, fallback);
-            }
+                t: function (key, arg2) {
+                    let fallback = null;
+                    let params = null;
+                    if (typeof arg2 === 'string') {
+                        fallback = arg2;
+                    } else if (arg2 && typeof arg2 === 'object') {
+                        params = arg2;
+                    }
+                    return translate(bundle, key, fallback, params);
+                }
         };
 
         const nodes = document.querySelectorAll('[data-i18n]');

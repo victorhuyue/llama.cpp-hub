@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
  * GPU服务
  * 启动时探测系统，检查 nvidia-smi / amd-smi 是否可用，查询时返回原始命令输出
  */
+@Deprecated
 public class GpuService {
 
     private static final Logger logger = LoggerFactory.getLogger(GpuService.class);

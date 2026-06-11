@@ -23,10 +23,8 @@ import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.exception.RequestMethodException;
-import org.mark.llamacpp.server.service.GpuService;
 import org.mark.llamacpp.server.service.ModelSamplingService;
 import org.mark.llamacpp.server.tools.GPUInfoHelper;
-import org.mark.llamacpp.server.tools.GGufMetaDataExtractor;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
@@ -96,11 +94,12 @@ public class SystemController implements BaseController {
 			this.handleFitParamsRequest(ctx, request);
 			return true;
 		}
-		// gguf-mem显存估算API
-		if (uri.startsWith("/api/models/gguf-mem/estimate")) {
-			this.handleGgufMemEstimateRequest(ctx, request);
-			return true;
-		}
+		// 暂时用不上，注释掉，转移到独立项目去
+//		// gguf-mem显存估算API
+//		if (uri.startsWith("/api/models/gguf-mem/estimate")) {
+//			this.handleGgufMemEstimateRequest(ctx, request);
+//			return true;
+//		}
 		// 启用、禁用ollama兼容api
 		if (uri.startsWith("/api/sys/ollama")) {
 			this.handleOllamaEnableRequest(ctx, request);
@@ -131,16 +130,16 @@ public class SystemController implements BaseController {
 			this.handlePidRequest(ctx, request);
 			return true;
 		}
-		// 获取GPU服务信息（初始化快照）
-		if (uri.startsWith("/api/sys/gpu/info")) {
-			this.handleGpuInfoRequest(ctx, request);
-			return true;
-		}
-		// 查询GPU实时状态（弃用）
-		if (uri.startsWith("/api/sys/gpu/status")) {
-			this.handleGpuStatusRequest(ctx, request);
-			return true;
-		}
+//		// 获取GPU服务信息（初始化快照）
+//		if (uri.startsWith("/api/sys/gpu/info")) {
+//			this.handleGpuInfoRequest(ctx, request);
+//			return true;
+//		}
+//		// 查询GPU实时状态（弃用）
+//		if (uri.startsWith("/api/sys/gpu/status")) {
+//			this.handleGpuStatusRequest(ctx, request);
+//			return true;
+//		}
 		// 获取系统设置
 		if (uri.startsWith("/api/sys/setting") && request.method() == HttpMethod.GET) {
 			this.handleSysSettingGetRequest(ctx, request);
@@ -553,64 +552,64 @@ public class SystemController implements BaseController {
 		}
 	}
 	
-	/**
-	 * 	获取GPU服务信息（初始化时的快照）
-	 * @param ctx
-	 * @param request
-	 * @throws RequestMethodException
-	 */
-	private void handleGpuInfoRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
-		if (request.method() == HttpMethod.OPTIONS) {
-			LlamaServer.sendCorsResponse(ctx);
-			return;
-		}
-		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
-		try {
-			JsonObject info = GpuService.getInstance().getServiceInfo();
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(info));
-		} catch (Exception e) {
-			logger.info("获取GPU信息时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取GPU信息失败: " + e.getMessage()));
-		}
-	}
-
-	/**
-	 * 	查询GPU实时状态
-	 * @param ctx
-	 * @param request
-	 * @throws RequestMethodException
-	 */
-	private void handleGpuStatusRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
-		if (request.method() == HttpMethod.OPTIONS) {
-			LlamaServer.sendCorsResponse(ctx);
-			return;
-		}
-		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
-		try {
-			Map<String, String> params = ParamTool.getQueryParam(request.uri());
-			String nodeId = params.get("nodeId");
-			if (nodeId != null && !nodeId.isBlank() && !"local".equals(nodeId)) {
-				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
-						nodeId, "GET", "api/sys/gpu/status", null);
-				if (result.isSuccess()) {
-					JsonObject remoteResp = JsonUtil.fromJson(result.getBody(), JsonObject.class);
-					if (remoteResp != null && remoteResp.has("data")) {
-						LlamaServer.sendJsonResponse(ctx, ApiResponse.success(remoteResp.get("data")));
-					} else {
-						LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点响应格式错误"));
-					}
-				} else {
-					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败: code=" + result.getStatusCode()));
-				}
-				return;
-			}
-			JsonObject status = GpuService.getInstance().queryGpuStatus();
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(status));
-		} catch (Exception e) {
-			logger.info("查询GPU状态时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("查询GPU状态失败: " + e.getMessage()));
-		}
-	}
+//	/**
+//	 * 	获取GPU服务信息（初始化时的快照）
+//	 * @param ctx
+//	 * @param request
+//	 * @throws RequestMethodException
+//	 */
+//	private void handleGpuInfoRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+//		if (request.method() == HttpMethod.OPTIONS) {
+//			LlamaServer.sendCorsResponse(ctx);
+//			return;
+//		}
+//		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+//		try {
+//			JsonObject info = GpuService.getInstance().getServiceInfo();
+//			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(info));
+//		} catch (Exception e) {
+//			logger.info("获取GPU信息时发生错误", e);
+//			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取GPU信息失败: " + e.getMessage()));
+//		}
+//	}
+//
+//	/**
+//	 * 	查询GPU实时状态
+//	 * @param ctx
+//	 * @param request
+//	 * @throws RequestMethodException
+//	 */
+//	private void handleGpuStatusRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+//		if (request.method() == HttpMethod.OPTIONS) {
+//			LlamaServer.sendCorsResponse(ctx);
+//			return;
+//		}
+//		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+//		try {
+//			Map<String, String> params = ParamTool.getQueryParam(request.uri());
+//			String nodeId = params.get("nodeId");
+//			if (nodeId != null && !nodeId.isBlank() && !"local".equals(nodeId)) {
+//				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
+//						nodeId, "GET", "api/sys/gpu/status", null);
+//				if (result.isSuccess()) {
+//					JsonObject remoteResp = JsonUtil.fromJson(result.getBody(), JsonObject.class);
+//					if (remoteResp != null && remoteResp.has("data")) {
+//						LlamaServer.sendJsonResponse(ctx, ApiResponse.success(remoteResp.get("data")));
+//					} else {
+//						LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点响应格式错误"));
+//					}
+//				} else {
+//					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败: code=" + result.getStatusCode()));
+//				}
+//				return;
+//			}
+//			JsonObject status = GpuService.getInstance().queryGpuStatus();
+//			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(status));
+//		} catch (Exception e) {
+//			logger.info("查询GPU状态时发生错误", e);
+//			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("查询GPU状态失败: " + e.getMessage()));
+//		}
+//	}
 
 	/**
 	 * 	获取兼容服务 ollama和lmstudio 状态
@@ -1928,133 +1927,134 @@ public class SystemController implements BaseController {
 		}
 	}
 
-	/**
-	 * 	
-	 * @param ctx
-	 * @param request
-	 * @throws RequestMethodException
-	 */
-	private void handleGgufMemEstimateRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
-		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
-
-		try {
-			String content = request.content().toString(CharsetUtil.UTF_8);
-			if (content == null || content.trim().isEmpty()) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
-				return;
-			}
-
-			JsonElement root = JsonUtil.fromJson(content, JsonElement.class);
-			if (root == null || !root.isJsonObject()) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体必须为JSON对象"));
-				return;
-			}
-			JsonObject obj = root.getAsJsonObject();
-			String nodeId = JsonUtil.getJsonString(obj, "nodeId", "");
-			if (nodeId != null && !nodeId.isBlank() && !"local".equals(nodeId)) {
-				logger.info("[gguf-mem估算] 远程节点代理: nodeId={}, model={}", nodeId, JsonUtil.getJsonString(obj, "model", ""));
-				this.handleGgufMemEstimateRemote(ctx, nodeId, obj);
-				return;
-			}
-
-			String model = JsonUtil.getJsonString(obj, "model", "");
-			String cmd = JsonUtil.getJsonString(obj, "cmd", "");
-			String extraParams = JsonUtil.getJsonString(obj, "extraParams", "");
-			List<String> device = JsonUtil.getJsonStringList(obj.get("device"));
-			Integer mg = JsonUtil.getJsonInt(obj, "mg", null);
-
-			if (model != null) model = model.trim();
-			if (cmd != null) cmd = cmd.trim();
-			if (extraParams != null) extraParams = extraParams.trim();
-
-			if (model == null || model.isEmpty()) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少必需的model参数"));
-				return;
-			}
-			if ((cmd == null || cmd.isEmpty()) && (extraParams == null || extraParams.isEmpty())) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少必需的启动参数"));
-				return;
-			}
-
-			String combinedCmd = "";
-			if (cmd != null && !cmd.isEmpty()) combinedCmd = cmd;
-			if (extraParams != null && !extraParams.isEmpty()) {
-				combinedCmd = combinedCmd.isEmpty() ? extraParams : (combinedCmd + " " + extraParams);
-			}
-
-			if (device != null && !device.isEmpty()) {
-				if (device.size() == 1) {
-					combinedCmd += " --device " + device.get(0);
-				} else {
-					combinedCmd += " --device ";
-					combinedCmd += ParamTool.quoteIfNeeded(String.join(",", device));
-				}
-			}
-			if (mg != null) {
-				combinedCmd += " --main-gpu " + mg;
-			}
-
-			logger.info("[gguf-mem估算] 本地执行: model={}, cmd={}", model, combinedCmd);
-			// 下载
-			String path = GGufMetaDataExtractor.downloadHeader(model);
-			// 执行计算
-			Map<String, String> result = LlamaServerManager.getInstance().handleFitParam(path, combinedCmd);
-			String output = result.get("output");
-			if (output == null || output.trim().isEmpty()) {
-				String error = result.get("error");
-				logger.warn("[gguf-mem显存估算] 执行失败: model={}, error={}", model, error);
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error != null ? error.trim() : "估算显存失败"));
-				return;
-			}
-			Map<String, Object> data = new HashMap<>();
-			Pattern devicePattern = Pattern.compile("(\\S+)\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)");
-			Matcher deviceMatcher = devicePattern.matcher(output);
-			long totalVram = 0;
-			boolean found = false;
-			while (deviceMatcher.find()) {
-				String deviceName = deviceMatcher.group(1);
-				if ("estimated".equalsIgnoreCase(deviceName) || "MiB".equalsIgnoreCase(deviceName)) {
-					continue;
-				}
-				long modelMem = Long.parseLong(deviceMatcher.group(2));
-				long contextMem = Long.parseLong(deviceMatcher.group(3));
-				long computeMem = Long.parseLong(deviceMatcher.group(4));
-				totalVram += modelMem + contextMem + computeMem;
-				found = true;
-			}
-			if (found) {
-				data.put("vram", String.valueOf(totalVram));
-				logger.info("[gguf-mem显存估算] 成功: model={}, vram={} MiB", model, totalVram);
-			} else {
-				Pattern pattern = Pattern.compile("^.*llama_init_from_model.*$", Pattern.MULTILINE);
-		        Matcher matcher = pattern.matcher(output);
-		        if (matcher.find()) {
-		            data.put("message", matcher.group(0));
-		        }
-			}
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
-		} catch (Exception e) {
-			logger.info("gguf-mem估算时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("估算显存失败: " + e.getMessage()));
-		}
-	}
-
-	private void handleGgufMemEstimateRemote(ChannelHandlerContext ctx, String nodeId, JsonObject body) {
-		try {
-			if (body != null) {
-				body.remove("nodeId");
-			}
-			NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
-					nodeId, "POST", "api/models/gguf-mem/estimate", body);
-			logger.info("[gguf-mem估算] 远程节点响应: nodeId={}, code={}", nodeId, result.getStatusCode());
-			if (result.isSuccess()) {
-				NodeManager.writeHttpResultToChannel(ctx, result, "[gguf-mem估算远程]");
-			} else {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败: code=" + result.getStatusCode()));
-			}
-		} catch (Exception e) {
-			logger.warn("[gguf-mem估算] 远程节点调用异常: nodeId={}, error={}", nodeId, e.getMessage());
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("调用远程节点失败: " + e.getMessage()));
-		}
-	}
+//	/**
+//	 * 	
+//	 * @param ctx
+//	 * @param request
+//	 * @throws RequestMethodException
+//	 */
+//	@Deprecated
+//	private void handleGgufMemEstimateRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+//		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+//
+//		try {
+//			String content = request.content().toString(CharsetUtil.UTF_8);
+//			if (content == null || content.trim().isEmpty()) {
+//				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
+//				return;
+//			}
+//
+//			JsonElement root = JsonUtil.fromJson(content, JsonElement.class);
+//			if (root == null || !root.isJsonObject()) {
+//				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体必须为JSON对象"));
+//				return;
+//			}
+//			JsonObject obj = root.getAsJsonObject();
+//			String nodeId = JsonUtil.getJsonString(obj, "nodeId", "");
+//			if (nodeId != null && !nodeId.isBlank() && !"local".equals(nodeId)) {
+//				logger.info("[gguf-mem估算] 远程节点代理: nodeId={}, model={}", nodeId, JsonUtil.getJsonString(obj, "model", ""));
+//				this.handleGgufMemEstimateRemote(ctx, nodeId, obj);
+//				return;
+//			}
+//
+//			String model = JsonUtil.getJsonString(obj, "model", "");
+//			String cmd = JsonUtil.getJsonString(obj, "cmd", "");
+//			String extraParams = JsonUtil.getJsonString(obj, "extraParams", "");
+//			List<String> device = JsonUtil.getJsonStringList(obj.get("device"));
+//			Integer mg = JsonUtil.getJsonInt(obj, "mg", null);
+//
+//			if (model != null) model = model.trim();
+//			if (cmd != null) cmd = cmd.trim();
+//			if (extraParams != null) extraParams = extraParams.trim();
+//
+//			if (model == null || model.isEmpty()) {
+//				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少必需的model参数"));
+//				return;
+//			}
+//			if ((cmd == null || cmd.isEmpty()) && (extraParams == null || extraParams.isEmpty())) {
+//				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少必需的启动参数"));
+//				return;
+//			}
+//
+//			String combinedCmd = "";
+//			if (cmd != null && !cmd.isEmpty()) combinedCmd = cmd;
+//			if (extraParams != null && !extraParams.isEmpty()) {
+//				combinedCmd = combinedCmd.isEmpty() ? extraParams : (combinedCmd + " " + extraParams);
+//			}
+//
+//			if (device != null && !device.isEmpty()) {
+//				if (device.size() == 1) {
+//					combinedCmd += " --device " + device.get(0);
+//				} else {
+//					combinedCmd += " --device ";
+//					combinedCmd += ParamTool.quoteIfNeeded(String.join(",", device));
+//				}
+//			}
+//			if (mg != null) {
+//				combinedCmd += " --main-gpu " + mg;
+//			}
+//
+//			logger.info("[gguf-mem估算] 本地执行: model={}, cmd={}", model, combinedCmd);
+//			// 下载
+//			String path = GGufMetaDataExtractor.downloadHeader(model);
+//			// 执行计算
+//			Map<String, String> result = LlamaServerManager.getInstance().handleFitParam(path, combinedCmd);
+//			String output = result.get("output");
+//			if (output == null || output.trim().isEmpty()) {
+//				String error = result.get("error");
+//				logger.warn("[gguf-mem显存估算] 执行失败: model={}, error={}", model, error);
+//				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error != null ? error.trim() : "估算显存失败"));
+//				return;
+//			}
+//			Map<String, Object> data = new HashMap<>();
+//			Pattern devicePattern = Pattern.compile("(\\S+)\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)");
+//			Matcher deviceMatcher = devicePattern.matcher(output);
+//			long totalVram = 0;
+//			boolean found = false;
+//			while (deviceMatcher.find()) {
+//				String deviceName = deviceMatcher.group(1);
+//				if ("estimated".equalsIgnoreCase(deviceName) || "MiB".equalsIgnoreCase(deviceName)) {
+//					continue;
+//				}
+//				long modelMem = Long.parseLong(deviceMatcher.group(2));
+//				long contextMem = Long.parseLong(deviceMatcher.group(3));
+//				long computeMem = Long.parseLong(deviceMatcher.group(4));
+//				totalVram += modelMem + contextMem + computeMem;
+//				found = true;
+//			}
+//			if (found) {
+//				data.put("vram", String.valueOf(totalVram));
+//				logger.info("[gguf-mem显存估算] 成功: model={}, vram={} MiB", model, totalVram);
+//			} else {
+//				Pattern pattern = Pattern.compile("^.*llama_init_from_model.*$", Pattern.MULTILINE);
+//		        Matcher matcher = pattern.matcher(output);
+//		        if (matcher.find()) {
+//		            data.put("message", matcher.group(0));
+//		        }
+//			}
+//			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+//		} catch (Exception e) {
+//			logger.info("gguf-mem估算时发生错误", e);
+//			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("估算显存失败: " + e.getMessage()));
+//		}
+//	}
+//
+//	private void handleGgufMemEstimateRemote(ChannelHandlerContext ctx, String nodeId, JsonObject body) {
+//		try {
+//			if (body != null) {
+//				body.remove("nodeId");
+//			}
+//			NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
+//					nodeId, "POST", "api/models/gguf-mem/estimate", body);
+//			logger.info("[gguf-mem估算] 远程节点响应: nodeId={}, code={}", nodeId, result.getStatusCode());
+//			if (result.isSuccess()) {
+//				NodeManager.writeHttpResultToChannel(ctx, result, "[gguf-mem估算远程]");
+//			} else {
+//				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败: code=" + result.getStatusCode()));
+//			}
+//		} catch (Exception e) {
+//			logger.warn("[gguf-mem估算] 远程节点调用异常: nodeId={}, error={}", nodeId, e.getMessage());
+//			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("调用远程节点失败: " + e.getMessage()));
+//		}
+//	}
 }

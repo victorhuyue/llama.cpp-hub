@@ -102,12 +102,15 @@ public class ChatStateController implements BaseController {
 		String message = "Easy Chat 正在执行其它操作，请稍后再试";
 		Map<String, Object> data = new HashMap<>();
 		data.put("requestedOperation", requestedOperation);
+		long heldMs = -1L;
 		if (current != null) {
 			if (current.operationName() != null && !current.operationName().isBlank()) {
 				message += "（当前操作: " + current.operationName() + "）";
 				data.put("activeOperation", current.operationName());
 			}
 			data.put("startedAt", current.startedAt());
+			heldMs = Math.max(0L, System.currentTimeMillis() - current.startedAt());
+			data.put("heldMs", heldMs);
 		}
 		ApiResponse response = ApiResponse.error(message);
 		response.setData(data);

@@ -5279,17 +5279,21 @@
         removeTypingIndicator();
         const doneConversation = getCurrentConversation();
         updateConversationTitle(doneConversation);
+        let shouldGenerateTitle = false;
         if (doneConversation && Array.isArray(doneConversation.messages)) {
           const firstUserIdx = doneConversation.messages.findIndex(m => m.role === 'user' && hasMessageBody(m));
           const nextUserIdx = doneConversation.messages.findIndex((m, i) => i > firstUserIdx && m.role === 'user' && hasMessageBody(m));
           if (firstUserIdx >= 0 && nextUserIdx < 0) {
-            generateConversationTitle(doneConversation);
+            shouldGenerateTitle = true;
           }
         }
         renderConversationList();
         syncConversationMeta();
         updateMessageActionStates();
         await persistState({ immediate: true, showErrorToast: false });
+        if (shouldGenerateTitle && doneConversation && state.currentConversationId === doneConversation.id) {
+          void generateConversationTitle(doneConversation);
+        }
       }
     }
 
@@ -5644,6 +5648,9 @@
       }
       if (options.ephemeralMode) {
         headers['X-Ephemeral-Mode'] = encodeURIComponent(String(options.ephemeralMode));
+      }
+      if (typeof options.stream === 'boolean') {
+        headers['X-Stream'] = encodeURIComponent(String(options.stream));
       }
       const samplingParams = buildSamplingParamsJson(assistant, options.samplingOverrides);
       if (samplingParams && samplingParams !== '{}') {
@@ -6139,6 +6146,29 @@
       });
     }
 
+    async function waitForServerReadyForEphemeral(operationName, options = {}) {
+      const maxAttempts = Math.max(1, Number(options.maxAttempts) || 8);
+      const retryDelay = Math.max(0, Number(options.retryDelay) || 300);
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const precheck = await ensureServerStateReady({
+          operationName,
+          showNetworkToast: false,
+          showConflictToast: false,
+          skipWhileSending: false
+        });
+        if (precheck.ok) {
+          return true;
+        }
+        if (precheck.reason !== 'busy') {
+          return false;
+        }
+        if (attempt + 1 < maxAttempts) {
+          await waitMs(retryDelay);
+        }
+      }
+      return false;
+    }
+
     async function requestEphemeralStreamChat(options = {}) {
       const conversationId = typeof options.conversationId === 'string' ? options.conversationId.trim() : '';
       const compositeModel = typeof options.compositeModel === 'string' ? options.compositeModel.trim() : '';
@@ -6161,6 +6191,7 @@
           modelOverride: compositeModel,
           disableTools: true,
           ephemeralMode: options.mode || 'ephemeral',
+          stream: options.stream,
           samplingOverrides: options.samplingOverrides || null
         });
         const response = await fetch(STREAM_CHAT_ENDPOINT, {
@@ -6631,11 +6662,19 @@
         assistantContent
       ].join('\n');
       try {
+        const ready = await waitForServerReadyForEphemeral(window.I18N.t('page.chat.main.settings.templates.title_gen_label', '标题生成'), {
+          maxAttempts: 10,
+          retryDelay: 300
+        });
+        if (!ready) {
+          return;
+        }
         const result = await requestEphemeralStreamChat({
           conversationId: conversation.id,
           assistant: convAssistant,
           compositeModel: compositeKey,
           mode: 'title',
+          stream: false,
           prompt,
           samplingOverrides: {
             max_tokens: 30,

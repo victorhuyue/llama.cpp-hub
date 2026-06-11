@@ -15,7 +15,6 @@ import com.google.gson.JsonObject;
 final class EasyChatRequestWriter {
 
 	private static final byte[] REQUEST_PREFIX = "{\"model\":\"".getBytes(StandardCharsets.UTF_8);
-	private static final byte[] REQUEST_MIDDLE = "\",\"stream\":true,\"timings_per_token\":true,\"return_progress\":true,\"messages\":[".getBytes(StandardCharsets.UTF_8);
 	private static final byte[] ARRAY_END = "]".getBytes(StandardCharsets.UTF_8);
 	private static final byte[] OBJECT_END = "}".getBytes(StandardCharsets.UTF_8);
 	private static final byte[] COMMA = ",".getBytes(StandardCharsets.UTF_8);
@@ -30,7 +29,12 @@ final class EasyChatRequestWriter {
 	void writeRequestBody(OutputStream output, RequestSpec spec) throws IOException {
 		writeAscii(output, REQUEST_PREFIX);
 		writeString(output, spec.modelId);
-		writeAscii(output, REQUEST_MIDDLE);
+		writeAscii(output, "\",\"stream\":".getBytes(StandardCharsets.UTF_8));
+		writeString(output, Boolean.toString(spec.stream));
+		if (spec.stream) {
+			writeAscii(output, ",\"timings_per_token\":true,\"return_progress\":true".getBytes(StandardCharsets.UTF_8));
+		}
+		writeAscii(output, ",\"messages\":[".getBytes(StandardCharsets.UTF_8));
 
 		boolean wroteAnyMessage = false;
 		if (spec.systemPrompt != null && !spec.systemPrompt.isBlank()) {
@@ -242,10 +246,11 @@ final class EasyChatRequestWriter {
 		final Long regenerateSeq;
 		final byte[] transientUserMessage;
 		final boolean skipHistory;
+		final boolean stream;
 
 		RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
 			JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
-			byte[] transientUserMessage, boolean skipHistory) {
+			byte[] transientUserMessage, boolean skipHistory, boolean stream) {
 			this.modelId = modelId;
 			this.systemPrompt = systemPrompt;
 			this.conversationDir = conversationDir;
@@ -256,6 +261,7 @@ final class EasyChatRequestWriter {
 			this.regenerateSeq = regenerateSeq;
 			this.transientUserMessage = transientUserMessage;
 			this.skipHistory = skipHistory;
+			this.stream = stream;
 		}
 	}
 }

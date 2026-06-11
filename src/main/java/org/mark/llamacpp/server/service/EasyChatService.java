@@ -88,6 +88,26 @@ public class EasyChatService {
         }
     }
 
+	private static String readTerminalFinishReason(JsonObject json) {
+		if (json == null || !json.has("choices") || !json.get("choices").isJsonArray()) {
+			return null;
+		}
+		JsonArray choices = json.getAsJsonArray("choices");
+		if (choices.size() == 0 || !choices.get(0).isJsonObject()) {
+			return null;
+		}
+		JsonObject choice = choices.get(0).getAsJsonObject();
+		if (!choice.has("finish_reason") || choice.get("finish_reason").isJsonNull()) {
+			return null;
+		}
+		try {
+			String finishReason = choice.get("finish_reason").getAsString();
+			return finishReason == null || finishReason.isBlank() ? null : finishReason.trim();
+		} catch (Exception ignore) {
+			return null;
+		}
+	}
+
     /* ---- Public API ---- */
 
 	/**
@@ -107,7 +127,6 @@ public class EasyChatService {
 			if (globalLease == null) {
 				return;
 			}
-
         // Read metadata from headers
             String hdrConvId = decodeHeader(request.headers().get("X-Conversation-Id"));
             String conversationId = (hdrConvId != null) ? hdrConvId : "";
@@ -151,6 +170,9 @@ public class EasyChatService {
 
 			String ephemeralMode = decodeHeader(request.headers().get("X-Ephemeral-Mode"));
 			boolean isEphemeral = ephemeralMode != null && !ephemeralMode.isBlank();
+			String streamHeader = decodeHeader(request.headers().get("X-Stream"));
+			boolean requestStream = streamHeader == null || streamHeader.isBlank()
+				|| Boolean.parseBoolean(streamHeader.trim());
 
        JsonObject samplingParams = null;
             String spHeader = decodeHeader(request.headers().get("X-Sampling-Params"));
@@ -264,10 +286,6 @@ public class EasyChatService {
 
 						// Write user fragment (raw body bytes, no JSON parsing)
 						storage.writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
-						Path fragFile = storage.fragmentFile(convDir, userSeq);
-						logger.info("[EasyChat] 写入用户碎片 seq={} path={} exists={} size={}",
-							userSeq, fragFile.toAbsolutePath(), Files.exists(fragFile),
-							Files.exists(fragFile) ? Files.size(fragFile) : -1);
 					}
 				}
 
@@ -291,7 +309,6 @@ public class EasyChatService {
 					}
 				}
 			}
-
 			// Create effectively final copies for lambda capture
 			final String finalModelId = modelId;
 			final int finalModelPort = modelPort == null ? 0 : modelPort;
@@ -310,6 +327,7 @@ public class EasyChatService {
 			// and will be replayed from history. Only ephemeral requests should append the
 			// transient body directly to the model request.
 			final byte[] finalTransientBodyBytes = finalIsEphemeral ? finalBodyBytes : null;
+			final boolean finalRequestStream = requestStream;
 
 			// Dispatch to worker thread
 			final EasyChatGlobalLock.Lease finalGlobalLease = globalLease;
@@ -321,17 +339,16 @@ public class EasyChatService {
 					if (finalIsRemoteNode) {
 						handleRemoteNodeRequest(ctx, conversationId, finalNodeId, finalModelId,
 							finalSystemPrompt, finalConvDir, finalToolsBytes, finalSamplingParams,
-							finalVariants, finalRegenerateSeq, finalTransientBodyBytes, finalIsEphemeral, accumulator);
+							finalVariants, finalRegenerateSeq, finalTransientBodyBytes, finalIsEphemeral, finalRequestStream, accumulator);
 					} else {
 						connection = openTrackedConnection(ctx, finalModelId, finalModelPort);
 
 						// Stream request body to llama.cpp
 						writeRequestBody(connection, finalModelId, finalSystemPrompt, finalConvDir,
 							finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
-							finalTransientBodyBytes, finalIsEphemeral);
+							finalTransientBodyBytes, finalIsEphemeral, finalRequestStream);
 
 						int responseCode = connection.getResponseCode();
-						logger.info("[EasyChat] llama.cpp响应码: {} conversation={}", responseCode, conversationId);
 
 						if (!(responseCode >= 200 && responseCode < 300)) {
 							String errBody = readErrorBody(connection);
@@ -340,19 +357,24 @@ public class EasyChatService {
 							return;
 						}
 
-						// Set up SSE response to client
-						HttpResponse sseResp = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
-						sseResp.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/event-stream; charset=UTF-8");
-						sseResp.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-cache");
-						sseResp.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
-						sseResp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-						sseResp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
-						if (!NettyWriteHelper.writeAndFlushBlocking(ctx, sseResp, logger, "[EasyChat]")) {
-							return;
-						}
+						if (finalRequestStream) {
+							HttpResponse sseResp = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+							sseResp.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/event-stream; charset=UTF-8");
+							sseResp.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-cache");
+							sseResp.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
+							sseResp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+							sseResp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
+							if (!NettyWriteHelper.writeAndFlushBlocking(ctx, sseResp, logger, "[EasyChat]")) {
+								return;
+							}
 
-						// Read and proxy SSE stream
-						proxySseStream(ctx, connection, accumulator);
+							proxySseStream(ctx, connection, accumulator);
+						} else {
+							byte[] responseBytes = connection.getInputStream().readAllBytes();
+							String responseBody = new String(responseBytes, StandardCharsets.UTF_8);
+							accumulateNonStreamResponse(JsonUtil.tryParseObject(responseBody), accumulator);
+							sendJsonPayloadResponse(ctx, responseCode, connection.getContentType(), responseBytes);
+						}
 					}
 
 					// Write AI fragment and update state (always, if buffer has content)
@@ -385,10 +407,11 @@ public class EasyChatService {
 						}
 					}
 
-					// Send SSE close
-					if (ctx.channel().isActive()) {
-						ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-							.addListener(ChannelFutureListener.CLOSE);
+					if (finalRequestStream) {
+						if (ctx.channel().isActive()) {
+							ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
+								.addListener(ChannelFutureListener.CLOSE);
+						}
 					}
 
 				} catch (Exception e) {
@@ -678,12 +701,12 @@ public class EasyChatService {
 	 */
 	private void writeRequestBody(HttpURLConnection conn, String modelId, String systemPrompt, Path convDir,
 			byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
-			byte[] transientUserMessage, boolean skipHistory)
+			byte[] transientUserMessage, boolean skipHistory, boolean stream)
 			throws IOException {
 		try (OutputStream os = conn.getOutputStream()) {
 			requestWriter.writeRequestBody(os,
 				new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-					samplingParams, false, variants, regenerateSeq, transientUserMessage, skipHistory));
+					samplingParams, false, variants, regenerateSeq, transientUserMessage, skipHistory, stream));
 		}
 	}
 
@@ -749,6 +772,20 @@ public class EasyChatService {
 		}
 	}
 
+	private static final class RemoteStreamTrace {
+		final long startedAt = System.currentTimeMillis();
+		long firstLineAt = -1L;
+		long lastLineAt = -1L;
+		long lastDataEventAt = -1L;
+		long lastUsefulDeltaAt = -1L;
+		long doneReceivedAt = -1L;
+		long eofAt = -1L;
+		int dataEventCount = 0;
+		int nonDataLineCount = 0;
+		String terminalFinishReason = "";
+		String endReason = "unknown";
+	}
+
 	private boolean proxySseStream(ChannelHandlerContext ctx, HttpURLConnection connection,
 		StreamAccumulator accumulator) throws IOException {
 
@@ -787,6 +824,13 @@ public class EasyChatService {
 					boolean changed = JsonUtil.ensureToolCallIds(json, toolCallIds);
 					if (changed) {
 						line = "data: " + JsonUtil.toJson(json);
+					}
+					String terminalFinishReason = readTerminalFinishReason(json);
+					if (terminalFinishReason != null) {
+						if (!writeSseLine(ctx, line)) {
+							return false;
+						}
+						return writeSseLine(ctx, "data: [DONE]");
 					}
 				}
 
@@ -1085,6 +1129,62 @@ public class EasyChatService {
 		}
 	}
 
+	private void sendJsonPayloadResponse(ChannelHandlerContext ctx, int code, String contentType, byte[] bytes) {
+		byte[] safeBytes = bytes == null ? new byte[0] : bytes;
+		FullHttpResponse resp = new DefaultFullHttpResponse(
+			HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(code), Unpooled.wrappedBuffer(safeBytes));
+		resp.headers().set(HttpHeaderNames.CONTENT_TYPE,
+			contentType == null || contentType.isBlank() ? "application/json; charset=UTF-8" : contentType);
+		resp.headers().set(HttpHeaderNames.CONTENT_LENGTH, safeBytes.length);
+		resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+		resp.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
+		ctx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE);
+	}
+
+	private void accumulateNonStreamResponse(JsonObject json, StreamAccumulator accumulator) {
+		if (json == null || accumulator == null) {
+			return;
+		}
+		if (json.has("timings") && json.get("timings").isJsonObject()) {
+			accumulator.timings = json.getAsJsonObject("timings").deepCopy();
+		}
+		JsonObject choice = null;
+		if (json.has("choices") && json.get("choices").isJsonArray()) {
+			JsonArray choices = json.getAsJsonArray("choices");
+			if (choices.size() > 0 && choices.get(0).isJsonObject()) {
+				choice = choices.get(0).getAsJsonObject();
+			}
+		}
+		JsonObject message = choice != null && choice.has("message") && choice.get("message").isJsonObject()
+			? choice.getAsJsonObject("message")
+			: null;
+		if (message != null) {
+			appendJsonString(accumulator.content, message.get("content"));
+			appendJsonString(accumulator.reasoningContent, message.get("reasoning_content"));
+			if (message.has("tool_calls") && message.get("tool_calls").isJsonArray()) {
+				JsonArray toolCalls = message.getAsJsonArray("tool_calls");
+				for (int i = 0; i < toolCalls.size(); i++) {
+					JsonElement toolCall = toolCalls.get(i);
+					if (toolCall != null && toolCall.isJsonObject()) {
+						accumulator.toolCalls.put(i, toolCall.getAsJsonObject().deepCopy());
+					}
+				}
+			}
+		}
+	}
+
+	private void appendJsonString(StringBuilder sb, JsonElement element) {
+		if (sb == null || element == null || element.isJsonNull()) {
+			return;
+		}
+		try {
+			if (element.isJsonPrimitive()) {
+				sb.append(element.getAsString());
+			}
+		} catch (Exception ignore) {
+		}
+	}
+
 	private void sendErrorResponse(ChannelHandlerContext ctx, int code, String body) {
 		FullHttpResponse resp = new DefaultFullHttpResponse(
 			HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(code));
@@ -1137,7 +1237,7 @@ public class EasyChatService {
 	private void handleRemoteNodeRequest(ChannelHandlerContext ctx, String conversationId, String nodeId,
 		String modelId, String systemPrompt, Path convDir, byte[] toolsBytes,
 		JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
-		byte[] transientUserMessage, boolean skipHistory,
+		byte[] transientUserMessage, boolean skipHistory, boolean stream,
 		StreamAccumulator accumulator) throws Exception {
 
 		logger.info("[EasyChat][Remote] 转发到远程节点: nodeId={}, model={}, conversation={}", nodeId, modelId, conversationId);
@@ -1148,7 +1248,7 @@ public class EasyChatService {
 			nodeId, "POST", "v1/chat/completions",
 			output -> requestWriter.writeRequestBody(output,
 				new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-					samplingParams, true, variants, regenerateSeq, transientUserMessage, skipHistory)),
+					samplingParams, true, variants, regenerateSeq, transientUserMessage, skipHistory, stream)),
 			null, STREAM_TIMEOUT_MS);
 		trackConnection(ctx, streamResult::abort);
 
@@ -1167,7 +1267,14 @@ public class EasyChatService {
 			return;
 		}
 
-		// Set up SSE response to client
+		if (!stream) {
+			byte[] responseBytes = streamResult.getBody().readAllBytes();
+			String responseBody = new String(responseBytes, StandardCharsets.UTF_8);
+			accumulateNonStreamResponse(JsonUtil.tryParseObject(responseBody), accumulator);
+			sendJsonPayloadResponse(ctx, responseCode, "application/json; charset=UTF-8", responseBytes);
+			return;
+		}
+
 		HttpResponse sseResp = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
 		sseResp.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/event-stream; charset=UTF-8");
 		sseResp.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-cache");
@@ -1178,58 +1285,98 @@ public class EasyChatService {
 			return;
 		}
 
-		// Proxy SSE stream from remote node to client
 		proxySseStreamFromRemote(ctx, streamResult.getBody(), accumulator);
-
-		logger.info("[EasyChat][Remote] 远程节点流式响应完成: nodeId={}, conversation={}", nodeId, conversationId);
 	}
 
 	/**
 	 * Proxy SSE stream from a remote node's InputStream to the client.
 	 */
-	private void proxySseStreamFromRemote(ChannelHandlerContext ctx, java.io.InputStream inputStream,
+	private RemoteStreamTrace proxySseStreamFromRemote(ChannelHandlerContext ctx, java.io.InputStream inputStream,
 		StreamAccumulator accumulator) throws IOException {
 
+		RemoteStreamTrace trace = new RemoteStreamTrace();
 		Map<Integer, String> toolCallIds = new HashMap<>();
 		try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
 			String line;
 			while ((line = reader.readLine()) != null) {
+				long now = System.currentTimeMillis();
+				if (trace.firstLineAt < 0L) {
+					trace.firstLineAt = now;
+				}
+				trace.lastLineAt = now;
 				if (!ctx.channel().isActive()) {
 					logger.info("[EasyChat][Remote] 客户端断开，中止流式代理");
-					return;
+					trace.endReason = "client_inactive";
+					return trace;
 				}
 
 				if (!line.startsWith("data: ")) {
+					trace.nonDataLineCount += 1;
 					if (!writeSseLine(ctx, line)) {
-						return;
+						trace.endReason = "write_failed_non_data";
+						return trace;
 					}
 					continue;
 				}
 
+				trace.dataEventCount += 1;
+				trace.lastDataEventAt = now;
 				String data = line.substring(6);
 				if ("[DONE]".equals(data)) {
-					logger.info("[EasyChat][Remote] 流式响应结束");
-					writeSseLine(ctx, line);
-					return;
+					trace.doneReceivedAt = now;
+					trace.endReason = "done";
+					if (!writeSseLine(ctx, line)) {
+						trace.endReason = "write_failed_done";
+					}
+					return trace;
 				}
 
 				JsonObject json = JsonUtil.tryParseObject(data);
 				if (json != null) {
+					int contentLength = accumulator.content.length();
+					int reasoningLength = accumulator.reasoningContent.length();
+					int toolCallCount = accumulator.toolCalls.size();
+					boolean hadTimings = accumulator.timings != null;
 					accumulateDelta(json, accumulator, toolCallIds);
 					if (json.has("timings")) {
 						accumulator.timings = json.getAsJsonObject("timings");
+					}
+					if (accumulator.content.length() != contentLength
+						|| accumulator.reasoningContent.length() != reasoningLength
+						|| accumulator.toolCalls.size() != toolCallCount
+						|| (!hadTimings && accumulator.timings != null)
+						|| json.has("timings")) {
+						trace.lastUsefulDeltaAt = now;
 					}
 					boolean changed = JsonUtil.ensureToolCallIds(json, toolCallIds);
 					if (changed) {
 						line = "data: " + JsonUtil.toJson(json);
 					}
+					String terminalFinishReason = readTerminalFinishReason(json);
+					if (terminalFinishReason != null) {
+						trace.terminalFinishReason = terminalFinishReason;
+						if (!writeSseLine(ctx, line)) {
+							trace.endReason = "write_failed_terminal_chunk";
+							return trace;
+						}
+						trace.doneReceivedAt = System.currentTimeMillis();
+						trace.endReason = "finish_reason";
+						if (!writeSseLine(ctx, "data: [DONE]")) {
+							trace.endReason = "write_failed_synthetic_done";
+						}
+						return trace;
+					}
 				}
 
 				if (!writeSseLine(ctx, line)) {
-					return;
+					trace.endReason = "write_failed_data";
+					return trace;
 				}
 			}
 		}
+		trace.eofAt = System.currentTimeMillis();
+		trace.endReason = "eof";
+		return trace;
 	}
 
 	/**

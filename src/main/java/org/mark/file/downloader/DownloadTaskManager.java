@@ -55,6 +55,7 @@ public class DownloadTaskManager implements Closeable {
 			1, Thread.ofVirtual().name("download-cleanup-", 0).factory());
 
 	private static final long COMPLETED_TASK_TTL_MS = 7L * 24 * 60 * 60 * 1000;
+	private static final long RETRY_INTERVAL_MS = 5_000;
 
 	private DownloadTaskManager(Path cacheFile, int maxConcurrentTasks) throws IOException {
 		Objects.requireNonNull(cacheFile, "cacheFile");
@@ -66,6 +67,7 @@ public class DownloadTaskManager implements Closeable {
 		loadFromCache();
 		addProgressListener(new DownloadWebSocketListener());
 		this.cleanupScheduler.scheduleWithFixedDelay(this::cleanupStaleTasks, 5, 5, TimeUnit.MINUTES);
+		this.cleanupScheduler.scheduleWithFixedDelay(this::retryFailedTasks, RETRY_INTERVAL_MS, RETRY_INTERVAL_MS, TimeUnit.MILLISECONDS);
 	}
 
 	public DownloadTaskInfo createTask(String sourceUrl, Path targetFile, int threadCount) throws IOException {
@@ -290,6 +292,22 @@ public class DownloadTaskManager implements Closeable {
 			}
 		} catch (Exception e) {
 			logger.warn("Failed to cleanup stale download tasks", e);
+		}
+	}
+
+	private void retryFailedTasks() {
+		try {
+			for (DownloadTaskInfo task : this.taskStore.values()) {
+				if (task.getStatus() == DownloadTaskStatus.FAILED) {
+					try {
+						startTask(task.getTaskId());
+					} catch (IOException e) {
+						// ignore - task may have been deleted or is already running
+					}
+				}
+			}
+		} catch (Exception e) {
+			logger.warn("Failed to retry failed tasks", e);
 		}
 	}
 

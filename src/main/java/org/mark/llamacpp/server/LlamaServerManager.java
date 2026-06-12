@@ -45,6 +45,7 @@ import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.struct.ModelPathConfig;
 import org.mark.llamacpp.server.struct.ModelPathDataStruct;
 import org.mark.llamacpp.server.tools.CommandLineRunner;
+import org.mark.llamacpp.server.tools.ChatTemplateFileTool;
 import org.mark.llamacpp.server.tools.GPUInfoHelper;
 import org.mark.llamacpp.server.tools.ParamTool;
 import org.mark.llamacpp.server.tools.PortChecker;
@@ -2233,6 +2234,107 @@ public class LlamaServerManager {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * 从保存的启动配置中自动加载模型，阻塞等待直到加载完成或超时。
+	 *
+	 * @param modelId   模型 ID
+	 * @param timeoutMs 最大等待毫秒数
+	 * @return null 表示成功，非 null 为错误信息
+	 */
+	@SuppressWarnings("unchecked")
+	public String autoLoadModelFromConfig(String modelId, long timeoutMs) {
+		// 1. 检查是否已加载
+		if (this.getLoadedProcesses().containsKey(modelId)) {
+			logger.info("[自动加载] 模型已加载，跳过: modelId={}", modelId);
+			return null;
+		}
+
+		// 2. 检查模型是否存在
+		GGUFModel model = this.findModelById(modelId);
+		if (model == null) {
+			return "Model not found in model list";
+		}
+
+		// 3. 读取启动配置
+		Map<String, Object> bundle = this.configManager.getModelLaunchConfigBundle(modelId);
+		if (bundle == null) {
+			return "No launch configuration found for: " + modelId;
+		}
+
+		// 4. 提取 selectedConfig 对应的配置项
+		String selectedConfigName = (String) bundle.get("selectedConfig");
+		if (selectedConfigName == null || selectedConfigName.trim().isEmpty()) {
+			return "No selectedConfig found for: " + modelId;
+		}
+		Map<String, Object> configs = (Map<String, Object>) bundle.get("configs");
+		if (configs == null) {
+			return "No configs found for: " + modelId;
+		}
+		Map<String, Object> selectedConfig = (Map<String, Object>) configs.get(selectedConfigName);
+		if (selectedConfig == null) {
+			return "Selected config '" + selectedConfigName + "' not found for: " + modelId;
+		}
+
+		// 5. 提取参数
+		String llamaBinPath = (String) selectedConfig.get("llamaBinPathSelect");
+		if (llamaBinPath == null || llamaBinPath.trim().isEmpty()) {
+			llamaBinPath = (String) selectedConfig.get("llamaBinPath");
+		}
+		if (llamaBinPath == null || llamaBinPath.trim().isEmpty()) {
+			return "llamaBinPath not configured for: " + modelId;
+		}
+
+		String cmd = (String) selectedConfig.getOrDefault("cmd", "");
+		String extraParams = (String) selectedConfig.getOrDefault("extraParams", "");
+		List<String> device = (List<String>) selectedConfig.get("device");
+		Object mgObj = selectedConfig.get("mg");
+		Integer mg = (mgObj instanceof Number) ? ((Number) mgObj).intValue() : null;
+		Object evObj = selectedConfig.get("enableVision");
+		boolean enableVision = evObj instanceof Boolean ? (Boolean) evObj : true;
+
+		// 6. 硬件资源检查
+		if (!this.canFitModelInMemory(modelId, bundle)) {
+			return "Insufficient memory to load model: " + modelId;
+		}
+
+		// 7. 获取 chat template 路径
+		String chatTemplateFilePath = ChatTemplateFileTool.getChatTemplateCacheFilePathIfExists(modelId);
+
+		// 8. 提交加载任务（如果尚未在加载中）
+		if (!this.isLoading(modelId)) {
+			boolean submitted = this.loadModelAsyncFromCmd(modelId, llamaBinPath, device, mg, enableVision, cmd, extraParams, chatTemplateFilePath);
+			if (!submitted) {
+				// 可能已经被其他请求提交了，检查是否已加载
+				if (this.getLoadedProcesses().containsKey(modelId)) {
+					return null;
+				}
+				return "Failed to submit load task for: " + modelId;
+			}
+		}
+
+		// 9. 轮询等待加载完成
+		long deadline = System.currentTimeMillis() + timeoutMs;
+		while (System.currentTimeMillis() < deadline) {
+			if (this.getLoadedProcesses().containsKey(modelId)) {
+				logger.info("[自动加载] 加载成功: modelId={}", modelId);
+				return null;
+			}
+			try {
+				Thread.sleep(500);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				return "Model load interrupted for: " + modelId;
+			}
+		}
+
+		// 10. 超时判断
+		if (this.isLoading(modelId)) {
+			return "Model load timed out for: " + modelId;
+		} else {
+			return "Model load failed for: " + modelId;
+		}
 	}
 
 	/**

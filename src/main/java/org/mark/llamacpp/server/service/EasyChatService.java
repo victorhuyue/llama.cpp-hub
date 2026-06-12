@@ -1,6 +1,7 @@
 package org.mark.llamacpp.server.service;
 
 import java.io.BufferedReader;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -54,6 +55,7 @@ public class EasyChatService {
 
 	private static final Logger logger = LoggerFactory.getLogger(EasyChatService.class);
 	private static final int STREAM_TIMEOUT_MS = 36000 * 1000;
+	private static final boolean ENABLE_REQUEST_LOG = false;
 
 	private static EasyChatService instance;
 
@@ -343,8 +345,8 @@ public class EasyChatService {
 					} else {
 						connection = openTrackedConnection(ctx, finalModelId, finalModelPort);
 
-						// Stream request body to llama.cpp
-						writeRequestBody(connection, finalModelId, finalSystemPrompt, finalConvDir,
+                       // Stream request body to llama.cpp
+                        writeRequestBody(connection, conversationId, finalModelId, finalSystemPrompt, finalConvDir,
 							finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
 							finalTransientBodyBytes, finalIsEphemeral, finalRequestStream);
 
@@ -687,28 +689,61 @@ public class EasyChatService {
 		}
 	}
 
-	/**
-	 * 	在这构建请求体。
-	 * @param conn
-	 * @param modelId
-	 * @param systemPrompt
-	 * @param convDir
-	 * @param toolsBytes
-	 * @param samplingParams
-	 * @param variants
-	 * @param regenerateSeq
-	 * @throws IOException
-	 */
-	private void writeRequestBody(HttpURLConnection conn, String modelId, String systemPrompt, Path convDir,
-			byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
-			byte[] transientUserMessage, boolean skipHistory, boolean stream)
-			throws IOException {
-		try (OutputStream os = conn.getOutputStream()) {
-			requestWriter.writeRequestBody(os,
-				new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-					samplingParams, false, variants, regenerateSeq, transientUserMessage, skipHistory, stream));
-		}
-	}
+   /**
+     * Create a FileOutputStream for request logging.
+     * Returns null if ENABLE_REQUEST_LOG is false or file creation fails (non-fatal).
+     */
+    private OutputStream createRequestLogStream(String conversationId, String modelId) {
+        if (!ENABLE_REQUEST_LOG) {
+            return null;
+        }
+        try {
+            Path logDir = LlamaServer.getCachePath().resolve("chat");
+            if (!Files.exists(logDir)) {
+                Files.createDirectories(logDir);
+            }
+            String safeModel = modelId.replace("/", "_").replace("\\", "_");
+            String safeConv = conversationId.replace("/", "_").replace("\\", "_");
+            String filename = safeModel + "-" + safeConv + "-request-" + System.currentTimeMillis() + ".log";
+            Path logFile = logDir.resolve(filename);
+            logger.info("[EasyChat][RequestLog] {}", logFile);
+            return new FileOutputStream(logFile.toFile());
+        } catch (Exception e) {
+            logger.warn("[EasyChat][RequestLog] 创建日志文件失败", e);
+            return null;
+        }
+    }
+
+    /**
+     *  在这构建请求体。
+     * @param conn
+     * @param conversationId
+     * @param modelId
+     * @param systemPrompt
+     * @param convDir
+     * @param toolsBytes
+     * @param samplingParams
+     * @param variants
+     * @param regenerateSeq
+     * @throws IOException
+     */
+    private void writeRequestBody(HttpURLConnection conn, String conversationId, String modelId, String systemPrompt, Path convDir,
+            byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
+            byte[] transientUserMessage, boolean skipHistory, boolean stream)
+            throws IOException {
+        OutputStream logStream = createRequestLogStream(conversationId, modelId);
+        OutputStream primary = conn.getOutputStream();
+        OutputStream os = (logStream != null) ? new TeeOutputStream(primary, logStream) : primary;
+        try {
+            requestWriter.writeRequestBody(os,
+                new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
+                    samplingParams, false, variants, regenerateSeq, transientUserMessage, skipHistory, stream));
+        } finally {
+            if (logStream != null) {
+                logStream.close();
+            }
+        }
+    }
 
 	private boolean persistAssistantFragment(Path convDir, long aiSeq, byte[] aiBytes, boolean isRegenerate, Path indexPath)
 			throws IOException {
@@ -1245,14 +1280,26 @@ public class EasyChatService {
 
 		logger.info("[EasyChat][Remote] 转发到远程节点: nodeId={}, model={}, conversation={}", nodeId, modelId, conversationId);
 
-		// Forward to remote node
-		NodeManager nodeManager = NodeManager.getInstance();
-		NodeManager.StreamResult streamResult = nodeManager.callRemoteApiStreaming(
-			nodeId, "POST", "v1/chat/completions",
-			output -> requestWriter.writeRequestBody(output,
-				new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-					samplingParams, false, variants, regenerateSeq, transientUserMessage, skipHistory, stream)),
-			null, STREAM_TIMEOUT_MS);
+      // Forward to remote node
+        NodeManager nodeManager = NodeManager.getInstance();
+        OutputStream remoteLogStream = createRequestLogStream(conversationId, modelId);
+        NodeManager.StreamResult streamResult = nodeManager.callRemoteApiStreaming(
+            nodeId, "POST", "v1/chat/completions",
+            output -> {
+                OutputStream os = (remoteLogStream != null) ? new TeeOutputStream(output, remoteLogStream) : output;
+                try {
+                    requestWriter.writeRequestBody(os,
+                        new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
+                            samplingParams, false, variants, regenerateSeq, transientUserMessage, skipHistory, stream));
+                } finally {
+                    if (remoteLogStream != null) {
+                        try {
+                            remoteLogStream.close();
+                        } catch (Exception ignore) {}
+                    }
+                }
+            },
+            null, STREAM_TIMEOUT_MS);
 		trackConnection(ctx, streamResult::abort);
 
 		int responseCode = streamResult.getStatusCode();

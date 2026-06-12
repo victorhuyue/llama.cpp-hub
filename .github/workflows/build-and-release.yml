@@ -433,9 +433,11 @@ jobs:
           cat > release_notes.md << 'EOF'
           ## 🚀 Release Notes
 
-          > ⚠️ **重要提示**：从该版本开始，旧的 Easy Chat 聊天记录将不再被支持，请做好备份。
+           > ⚠️ **重要提示**：重要数据请不要留在 Easy Chat 中；更新前请备份 `cache/` 目录，重点关注 `easy-chat` 目录。如果是老版本的 JSON 格式聊天记录，还可以在里面找到；bin 文件则无法直接查看，请务必不要将重要数据放在 Easy Chat 中。万一真的丢失了重要数据，可以联系我帮忙找回，或者自行使用 AI 工具，了解 bin 文件结构，找回内容。所以记得备份！
+           >
+           > ⚠️ **IMPORTANT**: Do not store important data in Easy Chat. Please back up the entire `cache/` directory before upgrading, especially the `easy-chat/` subdirectory. Old JSON-format chat records can still be viewed, but `.bin` files are not human-readable. If you lose important data, contact me for help, or use AI tools to understand the `.bin` file structure and recover the content. Backup now!
 
-          ### 📦 基础版本
+           ### 📦 基础版本
           - 仅包含编译后的 class 文件和依赖库，不包含 JRE 和 llama.cpp
           - 需要系统已安装 Java 21+ 运行环境
           - 平台无关，Linux/Windows 通用
@@ -525,6 +527,8 @@ jobs:
           ```
 
           **注意：**
+          - **升级前请先备份 `cache/` 目录**。
+          - **Back up the `cache/` directory before upgrading.**
           - 本版本已内置精简版 JRE，无需额外安装 Java 环境。
           - Windows CUDA 版本文件较大，是因为使用了 `cudart` 包，包含了 CUDA 运行环境。
           - 请根据你的 GPU 选择对应的版本：

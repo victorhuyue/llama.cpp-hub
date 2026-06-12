@@ -180,6 +180,12 @@ final class EasyChatStorage {
 		writeFlags(file, header.flags | FRAG_FLAGS_DELETED);
 	}
 
+	void clearDeletedFlag(Path dir, long seq) throws IOException {
+		Path file = fragmentFile(dir, seq);
+		FragmentHeader header = requireHeader(file, seq);
+		writeFlags(file, header.flags & ~FRAG_FLAGS_DELETED);
+	}
+
 	void deleteVariant(Path dir, long seq, int variantIndex) throws IOException {
 		Path file = fragmentFile(dir, seq);
 		FragmentHeader header = requireHeader(file, seq);

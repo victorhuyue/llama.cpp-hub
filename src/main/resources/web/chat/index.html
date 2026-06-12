@@ -5165,6 +5165,15 @@
               pushMessage('assistant', '', { model: requestModel }, { incremental: true, persist: false });
               const conv = getCurrentConversation();
               currentAssistantIndex = conv ? conv.messages.length - 1 : null;
+              // Assign fragmentSeq so the AI message can be deleted
+              if (Number.isInteger(currentAssistantIndex)) {
+                const aiMsg = conv?.messages?.[currentAssistantIndex];
+                if (aiMsg && aiMsg.fragmentSeq == null) {
+                  const lastUser = conv?.messages?.findLast(m => m.role === 'user');
+                  const lastUserSeq = lastUser?.fragmentSeq != null ? lastUser.fragmentSeq : (lastUser?.order != null ? lastUser.order : null);
+                  aiMsg.fragmentSeq = lastUserSeq != null ? lastUserSeq + 1 : (conv?.nextFragmentSeq != null ? conv.nextFragmentSeq - 1 : null);
+                }
+              }
             }
             if (Number.isInteger(currentAssistantIndex)) {
               setAssistantResponseStreaming(currentAssistantIndex, true);
@@ -5203,6 +5212,15 @@
               pushMessage('assistant', '', { model: requestModel }, { incremental: true, persist: false });
               const conv = getCurrentConversation();
               currentAssistantIndex = conv ? conv.messages.length - 1 : null;
+              // Assign fragmentSeq so the AI message can be deleted
+              if (Number.isInteger(currentAssistantIndex)) {
+                const aiMsg = conv?.messages?.[currentAssistantIndex];
+                if (aiMsg && aiMsg.fragmentSeq == null) {
+                  const lastUser = conv?.messages?.findLast(m => m.role === 'user');
+                  const lastUserSeq = lastUser?.fragmentSeq != null ? lastUser.fragmentSeq : (lastUser?.order != null ? lastUser.order : null);
+                  aiMsg.fragmentSeq = lastUserSeq != null ? lastUserSeq + 1 : (conv?.nextFragmentSeq != null ? conv.nextFragmentSeq - 1 : null);
+                }
+              }
             }
             if (Number.isInteger(currentAssistantIndex)) {
               setAssistantResponseStreaming(currentAssistantIndex, true);
@@ -5290,6 +5308,21 @@
         renderConversationList();
         syncConversationMeta();
         updateMessageActionStates();
+        // Streaming has already communicated with the server; sync the
+        // revision so the subsequent persistState does not treat the
+        // local state as stale and reload from server (which would lose
+        // locally-created response variants).
+        try {
+          const revJson = await fetchJson(EASY_CHAT_STATE_REVISION_ENDPOINT, {
+            headers: getHeaders(),
+            timeoutMs: STATE_REVISION_TIMEOUT_MS
+          });
+          if (revJson?.success && revJson?.data?.revision) {
+            stateRevision = normalizeRevision(revJson.data.revision);
+          }
+        } catch (e) {
+          console.warn('[EasyChat] 同步 revision 失败', e);
+        }
         await persistState({ immediate: true, showErrorToast: false });
         if (shouldGenerateTitle && doneConversation && state.currentConversationId === doneConversation.id) {
           void generateConversationTitle(doneConversation);
@@ -5384,6 +5417,13 @@
             time: nowTime()
           }, { incremental: true, persist: false });
           assistantMessageIndex = conversation.messages.length - 1;
+          // Assign fragmentSeq so the AI message can be deleted
+          const aiMsg = conversation.messages[assistantMessageIndex];
+          if (aiMsg && aiMsg.fragmentSeq == null) {
+            const userMsg = conversation.messages[userMessageIndex];
+            const userSeq = userMsg?.fragmentSeq != null ? userMsg.fragmentSeq : (userMsg?.order != null ? userMsg.order : null);
+            aiMsg.fragmentSeq = userSeq != null ? userSeq + 1 : null;
+          }
           truncateEndIndex = assistantMessageIndex + 1;
         }
       }

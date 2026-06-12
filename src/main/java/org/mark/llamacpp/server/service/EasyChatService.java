@@ -717,6 +717,9 @@ public class EasyChatService {
 		}
 		EasyChatStorage.FragmentHeader existingHeader = storage.readFragmentHeader(convDir, aiSeq);
 		if (isRegenerate && existingHeader != null) {
+			if (storage.isDeleted(existingHeader)) {
+				storage.clearDeletedFlag(convDir, aiSeq);
+			}
 			storage.appendVariant(convDir, aiSeq, aiBytes);
 			return false;
 		}

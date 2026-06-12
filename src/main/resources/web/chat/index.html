@@ -5308,22 +5308,6 @@
         renderConversationList();
         syncConversationMeta();
         updateMessageActionStates();
-        // Streaming has already communicated with the server; sync the
-        // revision so the subsequent persistState does not treat the
-        // local state as stale and reload from server (which would lose
-        // locally-created response variants).
-        try {
-          const revJson = await fetchJson(EASY_CHAT_STATE_REVISION_ENDPOINT, {
-            headers: getHeaders(),
-            timeoutMs: STATE_REVISION_TIMEOUT_MS
-          });
-          if (revJson?.success && revJson?.data?.revision) {
-            stateRevision = normalizeRevision(revJson.data.revision);
-          }
-        } catch (e) {
-          console.warn('[EasyChat] 同步 revision 失败', e);
-        }
-        await persistState({ immediate: true, showErrorToast: false });
         if (shouldGenerateTitle && doneConversation && state.currentConversationId === doneConversation.id) {
           void generateConversationTitle(doneConversation);
         }

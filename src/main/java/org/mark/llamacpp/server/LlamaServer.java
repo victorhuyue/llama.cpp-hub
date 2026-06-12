@@ -67,6 +67,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpContent;
 import io.netty.handler.codec.http.DefaultHttpResponse;
@@ -1065,8 +1066,7 @@ public class LlamaServer {
 			bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class)
 					.option(ChannelOption.SO_BACKLOG, 1024)
 					.childOption(ChannelOption.SO_KEEPALIVE, true)
-					.childOption(ChannelOption.WRITE_BUFFER_HIGH_WATER_MARK, 48 * 1024)
-					.childOption(ChannelOption.WRITE_BUFFER_LOW_WATER_MARK, 32 * 1024)
+					.childOption(ChannelOption.WRITE_BUFFER_WATER_MARK, new WriteBufferWaterMark(32 * 1024, 48 * 1024))
 					.childHandler(new ChannelInitializer<SocketChannel>() {
 						@Override
 						protected void initChannel(SocketChannel ch) throws Exception {

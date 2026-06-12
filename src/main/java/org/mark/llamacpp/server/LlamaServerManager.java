@@ -1838,7 +1838,7 @@ public class LlamaServerManager {
 				continue;
 			}
 			String v = line.trim();
-			if (!v.isEmpty()) {
+			if (!v.isEmpty() && !v.equalsIgnoreCase("(none)")) {
 				list.add(v);
 			}
 		}

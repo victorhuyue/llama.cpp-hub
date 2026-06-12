@@ -132,7 +132,7 @@
             var panel = document.createElement('div');
             panel.className = 'console-tab-panel';
             panel.dataset.panel = nid;
-            panel.innerHTML = '<div id="remoteLogContainer-' + nid + '" style="height:100%;overflow:auto;padding:16px;font-family:\'Menlo\',\'Monaco\',\'Courier New\',monospace;background:#0f172a;color:#e5e7eb;font-size:0.875rem;"><pre id="remoteConsoleContent-' + nid + '" style="margin:0;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;"></pre></div>';
+            panel.innerHTML = '<div id="remoteLogContainer-' + nid + '" style="width:100%;height:100%;overflow:auto;padding:16px;font-family:\'Menlo\',\'Monaco\',\'Courier New\',monospace;background:#0f172a;color:#e5e7eb;font-size:0.875rem;"><pre id="remoteConsoleContent-' + nid + '" style="margin:0;white-space:pre-wrap;word-break:break-word;overflow-wrap:break-word;"></pre></div>';
             container.appendChild(panel);
         });
 

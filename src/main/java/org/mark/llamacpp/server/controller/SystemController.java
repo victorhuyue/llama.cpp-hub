@@ -1717,6 +1717,11 @@ public class SystemController implements BaseController {
 			List<String> device = JsonUtil.getJsonStringList(obj.get("device"));
 			Integer mg = JsonUtil.getJsonInt(obj, "mg", null);
 
+			// 过滤无效设备值
+			if (device != null) {
+				device.removeIf(d -> d == null || d.trim().isEmpty() || d.trim().equalsIgnoreCase("none"));
+			}
+
 			if (cmd != null) cmd = cmd.trim();
 			if (extraParams != null) extraParams = extraParams.trim();
 			if ((cmd == null || cmd.isEmpty()) && (extraParams == null || extraParams.isEmpty())) {
@@ -1733,11 +1738,13 @@ public class SystemController implements BaseController {
 				llamaBinPathSelect = JsonUtil.getJsonString(obj, "llamaBinPath", null);
 			}
 
-			if(device.size() == 1) {
-				combinedCmd += " --device " + device.get(0);
-			}else {
-				combinedCmd += " --device ";
-				combinedCmd += ParamTool.quoteIfNeeded(String.join(",", device));
+			if (device != null && !device.isEmpty()) {
+				if(device.size() == 1) {
+					combinedCmd += " --device " + device.get(0);
+				}else {
+					combinedCmd += " --device ";
+					combinedCmd += ParamTool.quoteIfNeeded(String.join(",", device));
+				}
 			}
 			combinedCmd += " --main-gpu " + mg;
 
@@ -1832,6 +1839,11 @@ public class SystemController implements BaseController {
 			String extraParams = JsonUtil.getJsonString(obj, "extraParams", "");
 			List<String> device = JsonUtil.getJsonStringList(obj.get("device"));
 			Integer mg = JsonUtil.getJsonInt(obj, "mg", null);
+
+			// 过滤无效设备值
+			if (device != null) {
+				device.removeIf(d -> d == null || d.trim().isEmpty() || d.trim().equalsIgnoreCase("none"));
+			}
 
 			if (cmd != null) cmd = cmd.trim();
 			if (extraParams != null) extraParams = extraParams.trim();

@@ -689,6 +689,11 @@ public class ModelActionController implements BaseController {
 		List<String> device = JsonUtil.getJsonStringList(obj.get("device"));
 		Integer mg = JsonUtil.getJsonInt(obj, "mg", null);
 
+		// 过滤无效设备值
+		if (device != null) {
+			device.removeIf(d -> d == null || d.trim().isEmpty() || d.trim().equalsIgnoreCase("none"));
+		}
+
 		if (manager.getLoadedProcesses().containsKey(modelId)) {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("模型已经加载"));
 			return;

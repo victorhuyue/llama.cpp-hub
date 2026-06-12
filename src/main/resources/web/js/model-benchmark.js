@@ -383,7 +383,7 @@ function appendBenchmarkDeviceArgs(cmdParts, listEl) {
         values = all
             .filter(cb => cb.checked)
             .map(cb => cb.getAttribute('data-device-value'))
-            .filter(v => v && String(v).trim().length > 0);
+            .filter(v => v && String(v).trim().length > 0 && String(v).trim().toLowerCase() !== 'none');
     } else if (hasDeviceKey) {
         const all = Array.from(listEl.querySelectorAll('input[type="checkbox"][data-device-key]'));
         totalCount = all.length;
@@ -394,7 +394,7 @@ function appendBenchmarkDeviceArgs(cmdParts, listEl) {
                 if (v === null || v === undefined) return '';
                 return String(v).trim().split(':')[0];
             })
-            .filter(v => v && String(v).trim().length > 0 && v !== 'All' && v !== '-1');
+            .filter(v => v && String(v).trim().length > 0 && v !== 'All' && v !== '-1' && v.toLowerCase() !== 'none');
     }
     if (values.length > 0 && values.length < totalCount) {
         cmdParts.push('-dev', values.join('/'));

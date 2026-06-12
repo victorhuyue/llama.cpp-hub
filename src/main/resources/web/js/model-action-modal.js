@@ -1777,7 +1777,7 @@ function getSelectedDevicesFromChecklist() {
             const trimmed = String(v).trim();
             return trimmed.split(':')[0];
         })
-        .filter(v => v.length > 0 && v !== 'All' && v !== '-1');
+        .filter(v => v.length > 0 && v !== 'All' && v !== '-1' && v.toLowerCase() !== 'none');
     values.sort((a, b) => {
         const ai = parseInt(a, 10);
         const bi = parseInt(b, 10);

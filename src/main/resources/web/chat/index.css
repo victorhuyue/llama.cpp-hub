@@ -588,6 +588,12 @@ button { cursor: pointer; }
   font-size: 12px;
 }
 
+#exportMenu {
+  top: calc(100% + 10px);
+  bottom: auto;
+  right: 0;
+}
+
 .status-chip,
 .meta-chip {
   height: 32px;

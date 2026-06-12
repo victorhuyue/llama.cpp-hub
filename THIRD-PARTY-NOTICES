@@ -69,13 +69,7 @@ terms listed below.
   Copyright: Copyright (c) 2013 Pieroxy <pieroxy@pieroxy.net>
 
 ------------------------------------------------------------------------------
-10. gpu-info (Easy GPU Tools)
-------------------------------------------------------------------------------
-  URL: https://github.com/Raduius/Easy-GPU-Tools
-  License: MIT License
-
-------------------------------------------------------------------------------
-11. llama.cpp (icon assets)
+10. llama.cpp (icon assets)
 ------------------------------------------------------------------------------
   URL: https://github.com/ggerganov/llama.cpp
   License: MIT License
@@ -103,7 +97,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
---- MIT License (SLF4J, Font Awesome code, Marked, gpu-info, llama.cpp) ---
+--- MIT License (SLF4J, Font Awesome code, Marked, llama.cpp) ---
 
 MIT License
 

@@ -529,7 +529,7 @@ public class ChatStateController implements BaseController {
 	}
 
 	private Path getStateDirPath() throws Exception {
-		Path dir = LlamaServer.getCachePath().resolve("chat").toAbsolutePath().normalize();
+		Path dir = LlamaServer.getCachePath().resolve("easy-chat").toAbsolutePath().normalize();
 		if (!Files.exists(dir)) {
 			Files.createDirectories(dir);
 		}

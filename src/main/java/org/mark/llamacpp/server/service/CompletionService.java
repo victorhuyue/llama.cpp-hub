@@ -61,7 +61,7 @@ public class CompletionService {
 
 	private Path getChatDir() {
 		try {
-			Path dir = LlamaServer.getCachePath().resolve("chat");
+			Path dir = LlamaServer.getCachePath().resolve("easy-chat");
 			if (!Files.exists(dir)) {
 				Files.createDirectories(dir);
 			}

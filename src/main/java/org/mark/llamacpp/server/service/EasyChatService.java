@@ -698,7 +698,7 @@ public class EasyChatService {
             return null;
         }
         try {
-            Path logDir = LlamaServer.getCachePath().resolve("chat");
+            Path logDir = LlamaServer.getCachePath().resolve("easy-chat");
             if (!Files.exists(logDir)) {
                 Files.createDirectories(logDir);
             }
@@ -1073,7 +1073,6 @@ public class EasyChatService {
 	private List<Path> getAssistantStateFiles() {
 		Path cachePath = LlamaServer.getCachePath().toAbsolutePath().normalize();
 		return List.of(
-			cachePath.resolve("chat").resolve("state.json"),
 			cachePath.resolve("easy-chat").resolve("state.json")
 		);
 	}

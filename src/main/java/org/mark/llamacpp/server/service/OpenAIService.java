@@ -14,10 +14,12 @@ import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,7 +69,7 @@ import io.netty.util.CharsetUtil;
 public class OpenAIService {
 	
 	private static final Logger logger = LoggerFactory.getLogger(OpenAIService.class);
-	
+
 	/**
 	 * 	存储当前通道正在处理的模型链接，用于在连接关闭时停止对应的模型进程
 	 */
@@ -170,6 +172,35 @@ public class OpenAIService {
 				this.mergeRemoteModels(node.getNodeId(), node.getName(), modelsByKey, dataById);
 			}
 
+			// 从缓存文件读取未加载但允许自动加载的模型
+			Set<String> loadedIds = new HashSet<>(loaded.keySet());
+			JsonObject cache = manager.readAutoLoadModelCache();
+			if (cache != null && cache.has("data") && cache.get("data").isJsonArray()) {
+				for (JsonElement el : cache.getAsJsonArray("data")) {
+					if (!el.isJsonObject()) continue;
+					JsonObject cached = el.getAsJsonObject();
+					String modelId = JsonUtil.getJsonString(cached, "id");
+					if (modelId == null || modelId.isBlank() || loadedIds.contains(modelId)) {
+						continue;
+					}
+					if (!modelsByKey.containsKey(modelId)) {
+						JsonObject m = new JsonObject();
+						m.addProperty("model", modelId);
+						m.addProperty("name", modelId);
+						if (cached.has("runtimeCtx")) {
+							m.addProperty("runtimeCtx", cached.get("runtimeCtx").getAsInt());
+						}
+						if (cached.has("my_capabilities")) {
+							m.add("my_capabilities", cached.getAsJsonObject("my_capabilities"));
+						}
+						modelsByKey.put(modelId, m);
+					}
+					if (!dataById.containsKey(modelId)) {
+						dataById.put(modelId, cached);
+					}
+				}
+			}
+
 			JsonArray models = new JsonArray();
 			for (JsonObject m : modelsByKey.values()) {
 				models.add(m);
@@ -245,95 +276,20 @@ public class OpenAIService {
 		}
 	}
 
-	/**
-	 * 	处理 OpenAI 聊天补全请求，/v1/chat/completions。考虑到现在有了LlamaServer.isChatStreamingEnabled()，应该不会在进入这里了。
-	 * @param ctx
-	 * @param request
-	 */
-	public void handleOpenAIChatCompletionsRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
-		try {
-			// 只支持POST请求
-			if (request.method() != HttpMethod.POST) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 405, null, "Only POST method is supported", "method");
-				return;
-			}
-
-			// 读取请求体
-			String content = request.content().toString(CharsetUtil.UTF_8);
-			if (content == null || content.trim().isEmpty()) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 400, null, "Request body is empty", "messages");
-				return;
-			}
-
-			// 解析JSON请求体
-			JsonObject requestJson = JsonUtil.fromJson(content, JsonObject.class);
-			if (requestJson == null) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 400, null, "Request body is not a valid JSON object", null);
-				return;
-			}
-			
-			// 获取模型名称
-			if (!requestJson.has("model") || requestJson.get("model") == null || requestJson.get("model").isJsonNull()) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 400, null, "Missing required parameter: model", "model");
-				return;
-			}
-			String modelName = null;
-			try {
-				modelName = requestJson.get("model").getAsString();
-			} catch (Exception ignore) {
-			}
-			if (modelName == null || modelName.isBlank()) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 400, null, "Invalid parameter: model", "model");
-				return;
-			}
-			
-			// 检查是否为流式请求
-			boolean isStream = false;
-			if (requestJson.has("stream")) {
-				try {
-					isStream = requestJson.get("stream").getAsBoolean();
-				} catch (Exception ignore) {
-				}
-			}
-//			// 这个东西暂时用于控制enable_thinking，实际上是不完善的，临时解决吧。
-//			if (requestJson.has("enable_thinking") && !requestJson.has("chat_template_kwargs")) {
-//				// 拼接一个chat_template_kwargs进去： "chat_template_kwargs" : {"enable_thinking": false},
-//				JsonObject chatTemplateKwargs = new JsonObject();
-//				chatTemplateKwargs.addProperty("enable_thinking", requestJson.get("enable_thinking").getAsBoolean());
-//				// 添加到主 JsonObject
-//				requestJson.add("chat_template_kwargs", chatTemplateKwargs);
-//			}
-			
-			// 统一处理 enable_thinking / thinking.type 等兼容字段，保持与流式链路一致。
-			this.applyThinkingInjection(requestJson);
-			this.applyChatTemplateKwargsInjection(requestJson);
-			// 这里做采样代理，针对llamacpp中的请求，注入采样参数。
-			ModelSamplingService service = ModelSamplingService.getInstance();
-			service.handleOpenAI(requestJson);
-			
-			// 获取LlamaServerManager实例
-			LlamaServerManager manager = LlamaServerManager.getInstance();
-
-			if (!manager.getLoadedProcesses().containsKey(modelName)) {
-				String resolved = manager.findModelIdByAlias(modelName);
-				if (resolved != null) {
-					modelName = resolved;
-				}
-			}
-			if (manager.getLoadedProcesses().containsKey(modelName)) {
-				Integer modelPort = manager.getModelPort(modelName);
-				if (modelPort == null) {
-					this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, "Model port not found: " + modelName, null);
-					return;
-				}
-				this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, "/v1/chat/completions", isStream, JsonUtil.toJson(requestJson));
-			} else {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
-			}
-		} catch (Exception e) {
-			logger.info("处理OpenAI聊天补全请求时发生错误", e);
-			this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, e.getMessage(), null);
+	private String tryAutoLoadModel(LlamaServerManager manager, String modelName) {
+		if (!AutoLoadPolicyManager.getInstance().canAutoLoad(modelName)) {
+			logger.info("[自动加载] 策略拒绝: model={}", modelName);
+			return "Auto-load denied by policy for: " + modelName;
 		}
+		logger.info("[自动加载] 尝试加载模型: model={}", modelName);
+		long timeout = AutoLoadPolicyManager.getInstance().getAutoLoadTimeoutMs();
+		String loadError = manager.autoLoadModelFromConfig(modelName, timeout);
+		if (loadError == null) {
+			logger.info("[自动加载] 加载成功: model={}", modelName);
+		} else {
+			logger.warn("[自动加载] 加载失败: model={}, error={}", modelName, loadError);
+		}
+		return loadError;
 	}
 	
 	/**
@@ -407,7 +363,18 @@ public class OpenAIService {
 				}
 			}
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
+				String loadError = this.tryAutoLoadModel(manager, modelName);
+				if (loadError == null) {
+					Integer modelPort = manager.getModelPort(modelName);
+					if (modelPort != null) {
+						ModelSamplingService service = ModelSamplingService.getInstance();
+						service.handleOpenAI(requestJson);
+						this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, "/v1/completions", isStream, JsonUtil.toJson(requestJson));
+						return;
+					}
+				}
+				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null,
+					loadError != null ? loadError : "Model not found: " + modelName, "model");
 				return;
 			}
 			ModelSamplingService service = ModelSamplingService.getInstance();
@@ -485,6 +452,16 @@ public class OpenAIService {
 						String resolved = manager.findModelIdByAlias(modelName);
 						if (resolved != null) {
 							modelName = resolved;
+						}
+					}
+					if (!manager.getLoadedProcesses().containsKey(modelName)) {
+						String loadError = this.tryAutoLoadModel(manager, modelName);
+						if (loadError == null) {
+							Integer port = manager.getModelPort(modelName);
+							if (port != null) {
+								localPort = port;
+								targetUrl = String.format("http://localhost:%d/v1/embeddings", localPort.intValue());
+							}
 						}
 					}
 					if (manager.getLoadedProcesses().containsKey(modelName)) {
@@ -1038,6 +1015,16 @@ public class OpenAIService {
 							modelName = resolved;
 						}
 					}
+					if (!manager.getLoadedProcesses().containsKey(modelName)) {
+						String loadError = this.tryAutoLoadModel(manager, modelName);
+						if (loadError == null) {
+							Integer port = manager.getModelPort(modelName);
+							if (port != null) {
+								localPort = port;
+								targetUrl = String.format("http://localhost:%d%s", localPort.intValue(), endpoint);
+							}
+						}
+					}
 					if (manager.getLoadedProcesses().containsKey(modelName)) {
 						localPort = manager.getModelPort(modelName);
 						if (localPort != null) {
@@ -1141,6 +1128,16 @@ public class OpenAIService {
 							modelName = resolved;
 						}
 					}
+					if (!manager.getLoadedProcesses().containsKey(modelName)) {
+						String loadError = this.tryAutoLoadModel(manager, modelName);
+						if (loadError == null) {
+							Integer port = manager.getModelPort(modelName);
+							if (port != null) {
+								localPort = port;
+								targetUrl = String.format("http://localhost:%d%s", localPort.intValue(), endpoint);
+							}
+						}
+					}
 					if (manager.getLoadedProcesses().containsKey(modelName)) {
 						localPort = manager.getModelPort(modelName);
 						if (localPort != null) {
@@ -1237,8 +1234,8 @@ public class OpenAIService {
 			}
 		});
 	}
-	
-	
+
+
 	/**
 	 * 	
 	 * @param ctx
@@ -1273,7 +1270,25 @@ public class OpenAIService {
 				}
 			}
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
+				String loadError = this.tryAutoLoadModel(manager, modelName);
+				if (loadError == null) {
+					Integer modelPort = manager.getModelPort(modelName);
+					if (modelPort != null) {
+						byte[] bodyBytes = new byte[requestContent.readableBytes()];
+						requestContent.getBytes(requestContent.readerIndex(), bodyBytes);
+						String endpoint = request.uri();
+						if (endpoint != null && endpoint.startsWith("/audio/transcriptions")) {
+							endpoint = "/v1" + endpoint;
+						}
+						if (endpoint == null || endpoint.isBlank()) {
+							endpoint = "/v1/audio/transcriptions";
+						}
+						this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, endpoint, false, bodyBytes);
+						return;
+					}
+				}
+				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null,
+					loadError != null ? loadError : "Model not found: " + modelName, "model");
 				return;
 			}
 			

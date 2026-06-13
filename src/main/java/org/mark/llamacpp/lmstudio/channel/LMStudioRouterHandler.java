@@ -157,11 +157,6 @@ public class LMStudioRouterHandler extends SimpleChannelInboundHandler<FullHttpR
 			this.openAIService.handleOpenAIModelsRequest(ctx, request);
 			return true;
 		}
-		// 聊天补全
-		if (uri.startsWith("/v1/chat/completions") || uri.startsWith("/v1/chat/completion") || uri.startsWith("/chat/completion")) {
-			this.openAIService.handleOpenAIChatCompletionsRequest(ctx, request);
-			return true;
-		}
 		// 文本补全
 		if (uri.startsWith("/v1/completions") || uri.startsWith("/completions")) {
 			this.openAIService.handleOpenAICompletionsRequest(ctx, request);

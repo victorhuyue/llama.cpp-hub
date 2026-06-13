@@ -34,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -137,6 +138,26 @@ public class AnthropicService {
             data.add(model);
         }
 
+        // 从缓存文件读取未加载但允许自动加载的模型
+        Set<String> loadedIds = new HashSet<>(processes.keySet());
+        JsonObject cache = manager.readAutoLoadModelCache();
+        if (cache != null && cache.has("data") && cache.get("data").isJsonArray()) {
+            for (JsonElement el : cache.getAsJsonArray("data")) {
+                if (!el.isJsonObject()) continue;
+                JsonObject cached = el.getAsJsonObject();
+                String modelId = JsonUtil.getJsonString(cached, "id");
+                if (modelId == null || modelId.isBlank() || loadedIds.contains(modelId)) {
+                    continue;
+                }
+                JsonObject m = new JsonObject();
+                m.addProperty("type", "model");
+                m.addProperty("id", modelId);
+                m.addProperty("display_name", modelId);
+                m.addProperty("created_at", now);
+                data.add(m);
+            }
+        }
+
         for (LlamaHubNode node : NodeManager.getInstance().listEnabledNodes()) {
             try {
                 NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
@@ -200,73 +221,6 @@ public class AnthropicService {
         sendJsonResponse(ctx, response, HttpResponseStatus.OK);
     }
 
-    /**
-     * 	Handles POST /v1/complete (Legacy Text Completions)
-     * @param ctx
-     * @param request
-     */
-    public void handleCompleteRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
-        if (request.method() != HttpMethod.POST) {
-            this.sendError(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, "Only POST method is supported");
-            return;
-        }
-        
-        if (!this.checkApiKey(request)) {
-            this.sendError(ctx, HttpResponseStatus.UNAUTHORIZED, "invalid api key");
-            return;
-        }
-
-        String content = request.content().toString(CharsetUtil.UTF_8);
-        if (content == null || content.trim().isEmpty()) {
-            this.sendError(ctx, HttpResponseStatus.BAD_REQUEST, "Request body is empty");
-            return;
-        }
-
-        JsonObject anthropicReq;
-        try {
-            anthropicReq = gson.fromJson(content, JsonObject.class);
-        } catch (Exception e) {
-            this.sendError(ctx, HttpResponseStatus.BAD_REQUEST, "Invalid JSON body");
-            return;
-        }
-
-        String modelName;
-        LlamaServerManager manager = LlamaServerManager.getInstance();
-        if (anthropicReq.has("model")) {
-            modelName = anthropicReq.get("model").getAsString();
-        } else {
-            modelName = manager.getFirstModelName();
-            if (modelName == null) {
-                this.sendError(ctx, HttpResponseStatus.NOT_FOUND, "No models loaded");
-                return;
-            }
-        }
-        
-        if (!manager.getLoadedProcesses().containsKey(modelName)) {
-            String resolved = manager.findModelIdByAlias(modelName);
-            if (resolved != null) {
-                modelName = resolved;
-            }
-        }
-        if (!manager.getLoadedProcesses().containsKey(modelName)) {
-            if (manager.getLoadedProcesses().size() == 1) {
-                modelName = manager.getFirstModelName();
-            } else {
-                this.sendError(ctx, HttpResponseStatus.NOT_FOUND, "Model not found: " + modelName);
-                return;
-            }
-        }
-        
-       Integer port = manager.getModelPort(modelName);
-        if (port == null) {
-            this.sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "Model port not found for " + modelName);
-            return;
-        }
-
-        // 开始转发
-        this.forwardRequestToLlamaCpp(ctx, request, content, port, "/v1/complete", modelName);
-    }
-    
     /**
      * 从 body 中通过正则提取 model 字段
      */
@@ -367,86 +321,6 @@ public class AnthropicService {
     }
 
     /**
-     * 	对应：v1/messages
-     * @param ctx
-     * @param request
-     */
-    public void handleMessagesRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
-        if (request.method() != HttpMethod.POST) {
-        	this.sendError(ctx, HttpResponseStatus.METHOD_NOT_ALLOWED, "Only POST method is supported");
-            return;
-        }
-
-        if (!this.checkApiKey(request)) {
-        	this.sendError(ctx, HttpResponseStatus.UNAUTHORIZED, "invalid api key");
-            return;
-        }
-
-        String content = request.content().toString(CharsetUtil.UTF_8);
-        if (content == null || content.trim().isEmpty()) {
-        	this.sendError(ctx, HttpResponseStatus.BAD_REQUEST, "Request body is empty");
-            return;
-        }
-
-        String modelName = extractModelFromBody(content);
-        if (modelName == null || modelName.isBlank()) {
-            LlamaServerManager manager = LlamaServerManager.getInstance();
-            modelName = manager.getFirstModelName();
-            if (modelName == null) {
-                this.sendError(ctx, HttpResponseStatus.NOT_FOUND, "No models loaded");
-                return;
-            }
-        }
-
-        String nodeId = request.headers().get("X-Node-Id");
-        byte[] bodyBytes = content.getBytes(StandardCharsets.UTF_8);
-        LlamaServerManager manager = LlamaServerManager.getInstance();
-
-         if (nodeId != null && !nodeId.isBlank()) {
-            this.routeMessagesToNode(ctx, bodyBytes, nodeId, modelName, null);
-            return;
-        }
-
-        if (!manager.getLoadedProcesses().containsKey(modelName)) {
-            String resolved = manager.findModelIdByAlias(modelName);
-            if (resolved != null) {
-                modelName = resolved;
-            }
-        }
-      if (manager.getLoadedProcesses().containsKey(modelName)) {
-            Integer port = manager.getModelPort(modelName);
-            if (port == null) {
-                this.sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "Model port not found for " + modelName);
-                return;
-            }
-            String targetUrl = String.format("http://localhost:%d/v1/messages", port.intValue());
-            String injection = SamplingInjectionBuilder.buildInjectionString(modelName);
-            this.forwardRawBody(ctx, bodyBytes, targetUrl, null, modelName, injection);
-            return;
-        }
-
-        if (manager.getLoadedProcesses().size() == 1) {
-            modelName = manager.getFirstModelName();
-            Integer port = manager.getModelPort(modelName);
-            if (port != null) {
-                String targetUrl = String.format("http://localhost:%d/v1/messages", port.intValue());
-                String injection = SamplingInjectionBuilder.buildInjectionString(modelName);
-                this.forwardRawBody(ctx, bodyBytes, targetUrl, null, modelName, injection);
-                return;
-            }
-        }
-
-        String[] remoteResult = resolveModelOnRemoteNodes(modelName);
-        if (remoteResult != null) {
-            this.forwardRawBody(ctx, bodyBytes, remoteResult[0], remoteResult[1], modelName, null);
-            return;
-        }
-
-        this.sendError(ctx, HttpResponseStatus.NOT_FOUND, "Model not found: " + modelName);
-    }
-    
-    
-    /**
      * 	对应 v1/messages/count_tokens
      * @param ctx
      * @param request
@@ -491,11 +365,16 @@ public class AnthropicService {
             }
         }
         if (!manager.getLoadedProcesses().containsKey(modelName)) {
-            if (manager.getLoadedProcesses().size() == 1) {
-                modelName = manager.getFirstModelName();
-            } else {
-            	this.sendError(ctx, HttpResponseStatus.NOT_FOUND, "Model not found: " + modelName);
-                return;
+            if (AutoLoadPolicyManager.getInstance().canAutoLoad(modelName)) {
+                long timeout = AutoLoadPolicyManager.getInstance().getAutoLoadTimeoutMs();
+                String loadError = manager.autoLoadModelFromConfig(modelName, timeout);
+                if (loadError == null) {
+                    logger.info("[Anthropic] 自动加载成功: model={}", modelName);
+                } else {
+                    logger.warn("[Anthropic] 自动加载失败: model={}, error={}", modelName, loadError);
+                    this.sendError(ctx, HttpResponseStatus.NOT_FOUND, loadError);
+                    return;
+                }
             }
         }
 
@@ -507,8 +386,8 @@ public class AnthropicService {
 
         forwardRequestToLlamaCpp(ctx, request, content, port, "/v1/messages/count_tokens", modelName);
     }
-    
-    
+
+
     /**
      *  转发操作。
      * @param ctx

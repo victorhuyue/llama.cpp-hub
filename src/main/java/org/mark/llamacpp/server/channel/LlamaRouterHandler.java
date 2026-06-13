@@ -90,11 +90,6 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				}
 				return;
 			}
-			// 聊天补全
-			if (uri.startsWith("/v1/chat/completions") || uri.startsWith("/v1/chat/completion") || uri.startsWith("/chat/completion")) {
-				this.openAIServerHandler.handleOpenAIChatCompletionsRequest(ctx, request);
-				return;
-			}
 			// 文本补全
 			if (uri.startsWith("/v1/completions") || uri.startsWith("/completions")) {
 				this.openAIServerHandler.handleOpenAICompletionsRequest(ctx, request);
@@ -123,15 +118,7 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				this.anthropicService.handleMessagesCountTokensRequest(ctx, request);
 				return;
 			}
-			if (uri.startsWith("/v1/messages")) {
-				this.anthropicService.handleMessagesRequest(ctx, request);
-				return;
-			}
-			if (uri.startsWith("/v1/complete")) {
-				this.anthropicService.handleCompleteRequest(ctx, request);
-				return;
-			}
-			
+
 			this.sendJsonResponse(ctx, ApiResponse.error("404 Not Found"));
 		} catch (Exception e) {
 			logger.info("处理API请求时发生错误", e);

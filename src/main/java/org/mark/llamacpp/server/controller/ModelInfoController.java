@@ -637,6 +637,7 @@ public class ModelInfoController implements BaseController {
 					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("保存模型启动配置失败"));
 					return;
 				}
+				LlamaServerManager.getInstance().buildAutoLoadModelCache();
 				savedData.put(modelId, configManager.getModelLaunchConfigBundle(modelId));
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(savedData));
 				// 保存参数后，重新加载。
@@ -667,6 +668,7 @@ public class ModelInfoController implements BaseController {
 					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("保存模型启动配置失败"));
 					return;
 				}
+				LlamaServerManager.getInstance().buildAutoLoadModelCache();
 				savedData.put(modelId, configManager.getModelLaunchConfigBundle(modelId));
 			}
 

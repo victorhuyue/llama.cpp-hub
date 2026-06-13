@@ -3,9 +3,15 @@ package org.mark.llamacpp.server;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.StandardCopyOption;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
@@ -73,15 +79,30 @@ public class LlamaServerManager {
 	 */
 	private static final Gson gson = JsonUtil.gson();
 	
-	/**
-	 * 	这是锁。
-	 */
-	private static final ConcurrentHashMap<String, Object> CAPABILITIES_FILE_LOCKS = new ConcurrentHashMap<>();
-	
-	/**
-	 * 	
-	 */
-	private final ConfigManager configManager = ConfigManager.getInstance();
+/**
+ 	 * 	这是锁。
+ 	 */
+ 	private static final ConcurrentHashMap<String, Object> CAPABILITIES_FILE_LOCKS = new ConcurrentHashMap<>();
+
+ 	/**
+ 	 * 	自动加载缓存文件路径
+ 	 */
+ 	private static final String AUTO_LOAD_CACHE_FILE = "config/auto_load_models_cache.json";
+
+ 	/**
+ 	 * 	自动加载缓存锁文件路径（用于跨进程互斥）
+ 	 */
+ 	private static final String AUTO_LOAD_CACHE_LOCK_FILE = "config/auto_load_models_cache.json.lock";
+
+ 	/**
+ 	 * 	缓存文件锁
+ 	 */
+ 	private final Object cacheFileLock = new Object();
+ 	
+ 	/**
+ 	 * 	
+ 	 */
+ 	private final ConfigManager configManager = ConfigManager.getInstance();
 	
 	/**
 	 * 	单例
@@ -393,7 +414,9 @@ public class LlamaServerManager {
                         m.setFavourite(fav);
                     }
                 }
-				this.ensureCapabilitiesFilesExistForCurrentList();
+               this.ensureCapabilitiesFilesExistForCurrentList();
+                // 重建自动加载缓存
+                this.buildAutoLoadModelCache();
             }
             // 如果集合不是空的，就直接返回。
             else {
@@ -698,6 +721,9 @@ public class LlamaServerManager {
 			Files.write(filePath, saved.toString().getBytes(StandardCharsets.UTF_8));
 		}
 
+		// 重建自动加载缓存
+		this.buildAutoLoadModelCache();
+
 		JsonObject out = new JsonObject();
 		out.addProperty("modelId", id);
 		out.addProperty("saved", true);
@@ -709,12 +735,284 @@ public class LlamaServerManager {
 		outCaps.addProperty("vision", vision);
 		outCaps.addProperty("audio", audio);
 		out.add("capabilities", outCaps);
-		out.addProperty("file", filePath.toString());
+	out.addProperty("file", filePath.toString());
 		return out;
 	}
 
+	/**
+	 * 获取模型的自动加载策略
+	 * @param modelId 模型 ID 或别名
+	 * @return "allow", "deny", 或 null（未设置）
+	 */
+	public String getAutoLoadPolicy(String modelId) {
+		String resolved = resolveModelId(modelId);
+		if (resolved == null) return null;
+		return configManager.getAutoLoadPolicy(resolved);
+	}
+
+	/**
+	 * 设置模型的自动加载策略
+	 * @param modelId 模型 ID 或别名
+	 * @param mode "allow" 或 "deny"
+	 * @return null 表示成功，非 null 为错误信息
+	 */
+	public String setAutoLoadPolicy(String modelId, String mode) {
+		String resolved = resolveModelId(modelId);
+		if (resolved == null) {
+			return "Model not found: " + modelId;
+		}
+		configManager.setAutoLoadPolicy(resolved, mode);
+		buildAutoLoadModelCache();
+		return null;
+	}
+
+	/**
+	 * 重置模型的自动加载策略（删除 autoLoad 字段）
+	 * @param modelId 模型 ID 或别名
+	 * @return null 表示成功，非 null 为错误信息
+	 */
+	public String resetAutoLoadPolicy(String modelId) {
+		String resolved = resolveModelId(modelId);
+		if (resolved == null) {
+			return "Model not found: " + modelId;
+		}
+		configManager.resetAutoLoadPolicy(resolved);
+		buildAutoLoadModelCache();
+		return null;
+	}
+
+	/**
+	 * 检查模型是否允许自动加载
+	 * @param modelId 模型 ID 或别名
+	 * @return true 如果允许自动加载
+	 */
+	public boolean canAutoLoad(String modelId) {
+		String mode = getAutoLoadPolicy(modelId);
+		return "allow".equalsIgnoreCase(mode);
+	}
+
+	/**
+	 * 解析模型名称，支持别名
+	 * @param name 模型 ID 或别名
+	 * @return 真实 modelId，不存在返回 null
+	 */
+	public String resolveModelId(String name) {
+		if (name == null || name.trim().isEmpty()) {
+			return null;
+		}
+		if (findModelById(name) != null) {
+			return name;
+		}
+		String resolved = findModelIdByAlias(name);
+		if (resolved != null) {
+			return resolved;
+		}
+		return null;
+	}
+
+	/**
+	 * 构建自动加载模型缓存文件
+	 */
+	public void buildAutoLoadModelCache() {
+		try {
+			logger.info("[自动加载缓存] 开始构建缓存文件");
+
+			List<GGUFModel> allModels = listModel();
+			Set<String> loadedIds = new HashSet<>(getLoadedProcesses().keySet());
+
+			JsonArray dataArray = new JsonArray();
+			long now = System.currentTimeMillis() / 1000;
+
+			for (GGUFModel model : allModels) {
+				String modelId = model.getModelId();
+				if (loadedIds.contains(modelId)) continue;
+				if (!canAutoLoad(modelId)) continue;
+
+				JsonObject entry = new JsonObject();
+				entry.addProperty("id", modelId);
+				entry.addProperty("object", "model");
+				entry.addProperty("created", now);
+				entry.addProperty("owned_by", "llamacpp-server");
+
+				JsonObject caps = getModelCapabilities(modelId);
+				if (caps != null) {
+					entry.add("my_capabilities", caps);
+				}
+
+				int ctxSize = extractCtxSizeFromLaunchConfig(modelId);
+				if (ctxSize > 0) {
+					entry.addProperty("runtimeCtx", ctxSize);
+				}
+
+				dataArray.add(entry);
+			}
+
+			JsonObject root = new JsonObject();
+			root.addProperty("object", "list");
+			root.add("data", dataArray);
+
+			synchronized (cacheFileLock) {
+				// 跨进程锁：使用独立的锁文件，避免影响目标文件的原子替换
+				File lockFile = new File(AUTO_LOAD_CACHE_LOCK_FILE);
+				File parent = lockFile.getParentFile();
+				if (parent != null && !parent.exists()) {
+					parent.mkdirs();
+				}
+				if (!lockFile.exists()) {
+					lockFile.createNewFile();
+				}
+				RandomAccessFile raf = null;
+				FileChannel channel = null;
+				FileLock fileLock = null;
+				try {
+					raf = new RandomAccessFile(lockFile, "rw");
+					channel = raf.getChannel();
+					fileLock = channel.lock();
+
+					Path cacheDir = Paths.get("config");
+					if (!Files.exists(cacheDir)) {
+						Files.createDirectories(cacheDir);
+					}
+					Path target = Paths.get(AUTO_LOAD_CACHE_FILE);
+					Path temp = target.resolveSibling(target.getFileName() + ".tmp");
+					boolean tempCreated = false;
+					try {
+						try (FileWriter writer = new FileWriter(temp.toFile())) {
+							gson.toJson(root, writer);
+						}
+						tempCreated = true;
+						try {
+							Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+						} catch (AtomicMoveNotSupportedException e) {
+							logger.warn("[自动加载缓存] 原子写入不支持，回退到非原子写入: {}", e.getMessage());
+							Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+						}
+					} finally {
+						if (tempCreated) {
+							try {
+								Files.deleteIfExists(temp);
+							} catch (IOException ignore) {}
+						}
+					}
+				} finally {
+					if (fileLock != null) {
+						try { fileLock.release(); } catch (IOException ignore) {}
+					}
+					if (channel != null) {
+						try { channel.close(); } catch (IOException ignore) {}
+					}
+					if (raf != null) {
+						try { raf.close(); } catch (IOException ignore) {}
+					}
+				}
+			}
+
+			logger.info("[自动加载缓存] 缓存文件构建完成，共 {} 个模型", dataArray.size());
+		} catch (Exception e) {
+			logger.warn("[自动加载缓存] 构建失败: {}", e.getMessage());
+		}
+	}
+
+	/**
+	 * 读取自动加载模型缓存
+	 * @return OpenAI 标准的 JsonObject
+	 */
+	public JsonObject readAutoLoadModelCache() {
+		synchronized (cacheFileLock) {
+			File lockFile = new File(AUTO_LOAD_CACHE_LOCK_FILE);
+			File parent = lockFile.getParentFile();
+			if (parent != null && !parent.exists()) {
+				parent.mkdirs();
+			}
+			if (!lockFile.exists()) {
+				try {
+					lockFile.createNewFile();
+				} catch (IOException e) {
+					// 锁文件无法创建，继续尝试读取缓存
+				}
+			}
+			RandomAccessFile raf = null;
+			FileChannel channel = null;
+			FileLock fileLock = null;
+			try {
+				raf = new RandomAccessFile(lockFile, "rw");
+				channel = raf.getChannel();
+				fileLock = channel.lock();
+				return readAutoLoadCacheFileInternal();
+			} catch (Exception e) {
+				logger.warn("[自动加载缓存] 读取失败: {}", e.getMessage());
+				return new JsonObject();
+			} finally {
+				if (fileLock != null) {
+					try { fileLock.release(); } catch (IOException ignore) {}
+				}
+				if (channel != null) {
+					try { channel.close(); } catch (IOException ignore) {}
+				}
+				if (raf != null) {
+					try { raf.close(); } catch (IOException ignore) {}
+				}
+			}
+		}
+	}
+
+	/**
+	 * 实际读取缓存文件内容（必须在已持有锁的情况下调用）
+	 */
+	private JsonObject readAutoLoadCacheFileInternal() {
+		try {
+			Path filePath = Paths.get(AUTO_LOAD_CACHE_FILE);
+			if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+				return new JsonObject();
+			}
+			String json = new String(Files.readAllBytes(filePath), StandardCharsets.UTF_8);
+			return gson.fromJson(json, JsonObject.class);
+		} catch (Exception e) {
+			logger.warn("[自动加载缓存] 读取缓存文件失败: {}", e.getMessage());
+			return new JsonObject();
+		}
+	}
+
+	/**
+	 * 从 launch config 的 cmd 中提取 --ctx-size
+	 * @param modelId 模型 ID
+	 * @return ctx-size 值，未找到返回 0
+	 */
+	private int extractCtxSizeFromLaunchConfig(String modelId) {
+		try {
+			Map<String, Object> bundle = configManager.getModelLaunchConfigBundle(modelId);
+			if (bundle == null) return 0;
+
+			String selectedConfigName = ParamTool.asString(bundle.get("selectedConfig"));
+			if (selectedConfigName.trim().isEmpty()) return 0;
+
+			Map<String, Object> configs = ParamTool.asConfigMap(bundle.get("configs"));
+			if (configs == null) return 0;
+
+			Map<String, Object> config = ParamTool.asConfigMap(configs.get(selectedConfigName));
+			if (config == null) return 0;
+
+			String cmd = ParamTool.asString(config.getOrDefault("cmd", ""));
+			String extraParams = ParamTool.asString(config.getOrDefault("extraParams", ""));
+
+			List<String> args = ParamTool.splitCmdArgs(cmd + " " + extraParams);
+			for (int i = 0; i < args.size() - 1; i++) {
+				if ("--ctx-size".equals(args.get(i))) {
+					try {
+						return Integer.parseInt(args.get(i + 1));
+					} catch (NumberFormatException e) {
+						return 0;
+					}
+				}
+			}
+		} catch (Exception e) {
+			logger.warn("[自动加载缓存] 提取 ctx-size 失败: modelId={}, error={}", modelId, e.getMessage());
+		}
+		return 0;
+	}
+
     /**
-     * 	处理这个路径的文件夹，找到可用的GGUF文件。
+      * 	处理这个路径的文件夹，找到可用的GGUF文件。
      * 	使用GGUFBundle来处理文件分组和识别
      * @param path
      * @return
@@ -1058,6 +1356,7 @@ public class LlamaServerManager {
 			launchConfig.put("chatTemplateFile", chatTemplateFilePath);
 		}
 		this.configManager.saveLaunchConfig(modelId, launchConfig);
+		this.buildAutoLoadModelCache();
 
 		synchronized (this.processLock) {
 			if (this.loadedProcesses.containsKey(modelId)) {

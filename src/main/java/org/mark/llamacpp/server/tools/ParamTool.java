@@ -462,6 +462,37 @@ public class ParamTool {
 	}
 
 	/**
+	 * 安全类型转换，仅当 obj 是 types 中任一类型的实例时才进行转换，否则返回 fallback。
+	 * @param obj 待转换对象
+	 * @param fallback 类型不匹配时的默认返回值
+	 * @param types 期望的类型列表
+	 * @return 转换后的对象或 fallback
+	 */
+	@SafeVarargs
+	public static <T> T asType(Object obj, T fallback, Class<T>... types) {
+		if (obj == null) return fallback;
+		for (Class<T> t : types) {
+			if (t.isInstance(obj)) return t.cast(obj);
+		}
+		return fallback;
+	}
+
+	/**
+	 * 安全提取 String 值，非 String 类型返回 ""。
+	 */
+	public static String asString(Object obj) {
+		return asType(obj, "", String.class);
+	}
+
+	/**
+	 * 安全提取 Map 值，非 Map 类型返回 null。
+	 */
+	@SuppressWarnings("unchecked")
+	public static Map<String, Object> asConfigMap(Object obj) {
+		return asType(obj, null, Map.class);
+	}
+
+	/**
 	 * 从命令字符串中剔除指定 flag 及其值。
 	 * <p>
 	 * 使用纯文本正则替换，不依赖 {@code splitCmdArgs}，避免误伤 JSON 等含引号的参数。

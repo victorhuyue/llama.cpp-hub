@@ -334,6 +334,21 @@ public class ChatStreamSession {
 				}
 			}
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
+				if (AutoLoadPolicyManager.getInstance().canAutoLoad(modelName)) {
+					logger.info("[Node路由] 尝试自动加载模型: model={}", modelName);
+					long timeout = AutoLoadPolicyManager.getInstance().getAutoLoadTimeoutMs();
+					String loadError = manager.autoLoadModelFromConfig(modelName, timeout);
+					if (loadError == null) {
+						Integer modelPort = manager.getModelPort(modelName);
+						if (modelPort != null) {
+							logger.info("[Node路由] 自动加载成功: model={}, port={}", modelName, modelPort);
+							return String.format("http://localhost:%d%s", modelPort.intValue(), this.endpoint);
+						}
+					}
+					logger.warn("[Node路由] 自动加载失败: model={}, error={}", modelName, loadError);
+				} else {
+					logger.info("[Node路由] 自动加载被策略拒绝: model={}", modelName);
+				}
 				logger.info("[Node路由] 本地模型未加载: model={}, loadedModels={}", modelName, manager.getLoadedProcesses().keySet());
 				return null;
 			}

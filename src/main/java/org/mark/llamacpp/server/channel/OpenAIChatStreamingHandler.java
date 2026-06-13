@@ -67,7 +67,7 @@ public class OpenAIChatStreamingHandler extends ChannelInboundHandlerAdapter {
 		// 1、没有启用接管
 		if (!this.intercepting && httpObject instanceof HttpRequest request) {
 			// 只有开启聊天流式能力，且命中 chat completion 路径时，才进入“边收边转发”模式。
-			if (!LlamaServer.isChatStreamingEnabled() || !this.isChatUri(request.uri())) {
+			if (!this.isChatUri(request.uri())) {
 				ctx.fireChannelRead(msg);
 				return;
 			}

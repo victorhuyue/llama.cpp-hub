@@ -173,7 +173,7 @@ public class LlamaServer {
 		serverManager.listModel();
 
 		AutoLoadPolicyManager.getInstance().loadConfig();
-		
+
 		ModelSamplingService.getInstance();
 
 		try {
@@ -437,8 +437,6 @@ public class LlamaServer {
 	private static volatile boolean mcpServerEnabled = false;
 
 	private static volatile DefaultMcpServiceImpl mcpServerService;
-
-	private static volatile boolean chatStreamingEnabled = true;
 
 	private static volatile boolean httpsEnabled = false;
 	private static volatile String httpsCertPath = "ssl/keystore.p12";
@@ -861,10 +859,6 @@ public class LlamaServer {
 
 	public static int getLmstudioCompatPort() {
 		return lmstudioCompatPort;
-	}
-
-	public static boolean isChatStreamingEnabled() {
-		return chatStreamingEnabled;
 	}
 
 	public static boolean isMcpServerEnabled() {

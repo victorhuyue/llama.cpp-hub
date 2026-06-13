@@ -473,7 +473,7 @@ public class ModelPathController implements BaseController {
 				}
 			}
 		}
-		manager.setModelPaths(paths);
+manager.setModelPaths(paths);
 		if (refreshModelList) {
 			try {
 				manager.listModel(true);
@@ -481,6 +481,7 @@ public class ModelPathController implements BaseController {
 				logger.info("刷新模型列表失败: {}", e.getMessage());
 			}
 		}
+		manager.buildAutoLoadModelCache();
 	}
 	
 	/**

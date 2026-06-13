@@ -243,7 +243,7 @@ public class AnthropicService {
                     logger.info("[Anthropic] 自动加载成功: model={}", modelName);
                 } else {
                     logger.warn("[Anthropic] 自动加载失败: model={}, error={}", modelName, loadError);
-                    this.sendError(ctx, HttpResponseStatus.NOT_FOUND, loadError);
+                    this.sendError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, loadError);
                     return;
                 }
             }

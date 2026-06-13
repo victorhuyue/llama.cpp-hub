@@ -2669,6 +2669,10 @@ public class LlamaServerManager {
 				logger.info("[自动加载] 加载成功: modelId={}", modelId);
 				return null;
 			}
+			if (!this.isLoading(modelId)) {
+				logger.warn("[自动加载] 加载失败: modelId={}", modelId);
+				return "Model load failed for: " + modelId;
+			}
 			try {
 				Thread.sleep(500);
 			} catch (InterruptedException e) {
@@ -2677,7 +2681,7 @@ public class LlamaServerManager {
 			}
 		}
 
-		// 10. 超时判断
+		// 10. 超时判断（理论上不会走到这里，因为失败会提前返回）
 		if (this.isLoading(modelId)) {
 			return "Model load timed out for: " + modelId;
 		} else {

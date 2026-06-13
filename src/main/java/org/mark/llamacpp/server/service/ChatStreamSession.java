@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.mark.llamacpp.server.LlamaHubNode;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
+import org.mark.llamacpp.server.service.StreamingForwarder.ForwarderException;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.slf4j.Logger;
@@ -323,8 +324,9 @@ public class ChatStreamSession {
 
 	/**
 	 * 解析本地模型 URL
+	 * @throws ForwarderException 
 	 */
-	private String resolveLocalModelUrl(String modelName) {
+	private String resolveLocalModelUrl(String modelName) throws ForwarderException {
 		try {
 			LlamaServerManager manager = LlamaServerManager.getInstance();
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
@@ -346,9 +348,10 @@ public class ChatStreamSession {
 						}
 					}
 					logger.warn("[Node路由] 自动加载失败: model={}, error={}", modelName, loadError);
-				} else {
-					logger.info("[Node路由] 自动加载被策略拒绝: model={}", modelName);
+					throw new StreamingForwarder.ForwarderException(500,
+						loadError != null ? loadError : "Model load failed: " + modelName, "model");
 				}
+				logger.info("[Node路由] 自动加载被策略拒绝: model={}", modelName);
 				logger.info("[Node路由] 本地模型未加载: model={}, loadedModels={}", modelName, manager.getLoadedProcesses().keySet());
 				return null;
 			}
@@ -358,6 +361,8 @@ public class ChatStreamSession {
 				return null;
 			}
 			return String.format("http://localhost:%d%s", modelPort.intValue(), this.endpoint);
+		} catch (StreamingForwarder.ForwarderException e) {
+			throw e;
 		} catch (Exception e) {
 			logger.warn("[Node路由] 解析本地模型异常: model={}, error={}", modelName, e.getMessage());
 			return null;

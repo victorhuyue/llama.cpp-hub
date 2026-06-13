@@ -245,18 +245,26 @@ public class GPUInfoHelper {
 			long usedRam = mem.has("used_bytes") ? mem.get("used_bytes").getAsLong() : 0;
 			result.put("availableRam", totalRam - usedRam);
 
-			// 解析 devices[].memory.dedicated_vram_bytes
-			long totalVram = 0;
+			// 解析 devices[].sensors 计算可用显存
+			long totalAvailableVram = 0;
 			JsonArray devices = root.getAsJsonArray("devices");
 			if (devices != null) {
 				for (JsonElement dev : devices) {
-					JsonObject devMem = dev.getAsJsonObject().getAsJsonObject("memory");
-					if (devMem != null && devMem.has("dedicated_vram_bytes")) {
-						totalVram += devMem.get("dedicated_vram_bytes").getAsLong();
+					JsonObject sensorsObj = dev.getAsJsonObject().getAsJsonObject("sensors");
+					if (sensorsObj != null && sensorsObj.has("memory_total_bytes") && sensorsObj.has("memory_used_bytes")) {
+						long total = sensorsObj.get("memory_total_bytes").getAsLong();
+						long used = sensorsObj.get("memory_used_bytes").getAsLong();
+						totalAvailableVram += (total - used);
+					} else {
+						// fallback: 使用 dedicated_vram_bytes 总容量
+						JsonObject devMem = dev.getAsJsonObject().getAsJsonObject("memory");
+						if (devMem != null && devMem.has("dedicated_vram_bytes")) {
+							totalAvailableVram += devMem.get("dedicated_vram_bytes").getAsLong();
+						}
 					}
 				}
 			}
-			result.put("availableVram", totalVram);
+			result.put("availableVram", totalAvailableVram);
 
 			logger.info("[自动加载] 系统内存: availableRam={} GiB, availableVram={} GiB",
 				Math.round(result.get("availableRam") / 1024.0 / 1024.0 / 1024.0 * 100.0) / 100.0,

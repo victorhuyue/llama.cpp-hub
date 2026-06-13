@@ -355,7 +355,8 @@ public class OpenAIService {
 						return;
 					}
 				}
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null,
+				int statusCode = loadError != null ? 500 : 404;
+				this.sendOpenAIErrorResponseWithCleanup(ctx, statusCode, null,
 					loadError != null ? loadError : "Model not found: " + modelName, "model");
 				return;
 			}
@@ -417,6 +418,7 @@ public class OpenAIService {
 			String targetUrl = null;
 			String remoteApiKey = null;
 			Integer localPort = null;
+			String loadError = null;
 
 			if (bodyNodeId != null && !bodyNodeId.isBlank()) {
 				logger.info("[OpenAIEmbed路由] 请求体指定 nodeId，直接路由远程节点: nodeId={}, model={}", bodyNodeId, modelName);
@@ -437,7 +439,7 @@ public class OpenAIService {
 						}
 					}
 					if (!manager.getLoadedProcesses().containsKey(modelName)) {
-						String loadError = this.tryAutoLoadModel(manager, modelName);
+						loadError = this.tryAutoLoadModel(manager, modelName);
 						if (loadError == null) {
 							Integer port = manager.getModelPort(modelName);
 							if (port != null) {
@@ -464,7 +466,9 @@ public class OpenAIService {
 			}
 
 			if (targetUrl == null) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + (modelName != null ? modelName : "unknown"), "model");
+				int statusCode = loadError != null ? 500 : 404;
+				this.sendOpenAIErrorResponseWithCleanup(ctx, statusCode, null,
+					loadError != null ? loadError : "Model not found: " + (modelName != null ? modelName : "unknown"), "model");
 				return;
 			}
 
@@ -978,6 +982,7 @@ public class OpenAIService {
 			String targetUrl = null;
 			String remoteApiKey = null;
 			Integer localPort = null;
+			String loadError = null;
 
 			if (bodyNodeId != null && !bodyNodeId.isBlank()) {
 				logger.info("[OpenAIRerank路由] 请求体指定 nodeId，直接路由远程节点: nodeId={}, model={}", bodyNodeId, modelName);
@@ -998,7 +1003,7 @@ public class OpenAIService {
 						}
 					}
 					if (!manager.getLoadedProcesses().containsKey(modelName)) {
-						String loadError = this.tryAutoLoadModel(manager, modelName);
+						loadError = this.tryAutoLoadModel(manager, modelName);
 						if (loadError == null) {
 							Integer port = manager.getModelPort(modelName);
 							if (port != null) {
@@ -1025,7 +1030,9 @@ public class OpenAIService {
 			}
 
 			if (targetUrl == null) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + (modelName != null ? modelName : "unknown"), "model");
+				int statusCode = loadError != null ? 500 : 404;
+				this.sendOpenAIErrorResponseWithCleanup(ctx, statusCode, null,
+					loadError != null ? loadError : "Model not found: " + (modelName != null ? modelName : "unknown"), "model");
 				return;
 			}
 
@@ -1091,6 +1098,7 @@ public class OpenAIService {
 			String targetUrl = null;
 			String remoteApiKey = null;
 			Integer localPort = null;
+			String loadError = null;
 
 			if (bodyNodeId != null && !bodyNodeId.isBlank()) {
 				logger.info("[OpenAIResponses路由] 请求体指定 nodeId，直接路由远程节点: nodeId={}, model={}", bodyNodeId, modelName);
@@ -1111,7 +1119,7 @@ public class OpenAIService {
 						}
 					}
 					if (!manager.getLoadedProcesses().containsKey(modelName)) {
-						String loadError = this.tryAutoLoadModel(manager, modelName);
+						loadError = this.tryAutoLoadModel(manager, modelName);
 						if (loadError == null) {
 							Integer port = manager.getModelPort(modelName);
 							if (port != null) {
@@ -1138,7 +1146,9 @@ public class OpenAIService {
 			}
 
 			if (targetUrl == null) {
-				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + (modelName != null ? modelName : "unknown"), "model");
+				int statusCode = loadError != null ? 500 : 404;
+				this.sendOpenAIErrorResponseWithCleanup(ctx, statusCode, null,
+					loadError != null ? loadError : "Model not found: " + (modelName != null ? modelName : "unknown"), "model");
 				return;
 			}
 

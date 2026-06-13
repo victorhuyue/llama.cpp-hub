@@ -1017,10 +1017,13 @@ function ensureAutoLoadWired(modal) {
         const modelId = getFieldString(modal, ['modelId']);
         if (!modelId) return;
         const mode = toggle.checked ? 'allow' : 'deny';
+        const nodeId = modal.__nodeId || '';
+        const body = { modelId: modelId, mode: mode };
+        if (nodeId && nodeId !== 'local') body.nodeId = nodeId;
         fetch('/api/auto-load/policy', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ modelId: modelId, mode: mode })
+            body: JSON.stringify(body)
         }).then(r => r.json()).then(d => {
             if (!d.success) {
                 toggle.checked = !toggle.checked;
@@ -1033,10 +1036,12 @@ function ensureAutoLoadWired(modal) {
     });
 }
 
-function loadAutoLoadPolicy(modelId, modal) {
+function loadAutoLoadPolicy(modelId, modal, nodeId) {
     const mid = modelId === null || modelId === undefined ? '' : String(modelId).trim();
     if (!mid) return;
-    fetch('/api/auto-load/policy')
+    const nid = (nodeId && nodeId !== 'local') ? nodeId : '';
+    const url = '/api/auto-load/policy' + (mid ? '?modelId=' + encodeURIComponent(mid) : '') + (nid ? '&nodeId=' + encodeURIComponent(nid) : '');
+    fetch(url)
         .then(r => r.json())
         .then(res => {
             const data = res && res.data ? res.data : null;
@@ -1174,7 +1179,7 @@ function loadModel(modelId, modelName, param1, param2) {
     ensureModelCapabilitiesWired(modal);
     loadModelCapabilities(modelId, modal);
     ensureAutoLoadWired(modal);
-    loadAutoLoadPolicy(modelId, modal);
+    loadAutoLoadPolicy(modelId, modal, nodeId);
     window.__loadModelSelectedDevices = ['All'];
     window.__loadModelSelectionFromConfig = true;
     const deviceChecklistEl = findById(modal, 'deviceChecklist');

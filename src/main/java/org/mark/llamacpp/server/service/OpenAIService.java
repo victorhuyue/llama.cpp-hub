@@ -32,7 +32,6 @@ import org.mark.llamacpp.server.io.NettyWriteHelper;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.Timing;
 import org.mark.llamacpp.server.tools.JsonUtil;
-import org.mark.llamacpp.server.tools.ParamTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -291,23 +290,6 @@ public class OpenAIService {
 		}
 		return loadError;
 	}
-	
-	/**
-	 * 统一委托公共工具处理 thinking 兼容字段，避免普通链路与流式链路出现行为漂移。
-	 * @param requestJson
-	 */
-	private void applyThinkingInjection(JsonObject requestJson) {
-		ParamTool.handleOpenAIChatThinking(requestJson);
-	}
-	
-	/**
-	 * 	注入 chat-template-kwargs
-	 * @param requestJson
-	 */
-	private void applyChatTemplateKwargsInjection(JsonObject requestJson) {
-		ChatTemplateKwargsService.getInstance().handleOpenAI(requestJson);
-	}
-	
 	
 	/**
 	 * 	处理 OpenAI 文本补全请求：/v1/completions

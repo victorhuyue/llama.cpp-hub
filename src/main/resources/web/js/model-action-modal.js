@@ -1007,6 +1007,54 @@ function loadModelCapabilities(modelId, modal) {
         });
 }
 
+function ensureAutoLoadWired(modal) {
+    const toggle = findById(modal, 'autoLoadToggle');
+    if (!toggle) return;
+    if (toggle.getAttribute('data-wired') === '1') return;
+    toggle.setAttribute('data-wired', '1');
+
+    toggle.addEventListener('change', () => {
+        const modelId = getFieldString(modal, ['modelId']);
+        if (!modelId) return;
+        const mode = toggle.checked ? 'allow' : 'deny';
+        fetch('/api/auto-load/policy', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modelId: modelId, mode: mode })
+        }).then(r => r.json()).then(d => {
+            if (!d.success) {
+                toggle.checked = !toggle.checked;
+                showToast(t('toast.error', '错误'), d.error || t('modal.model_action.auto_load.failed', '设置自动加载策略失败'), 'error');
+            }
+        }).catch(() => {
+            toggle.checked = !toggle.checked;
+            showToast(t('toast.error', '错误'), t('modal.model_action.auto_load.failed', '设置自动加载策略失败'), 'error');
+        });
+    });
+}
+
+function loadAutoLoadPolicy(modelId, modal) {
+    const mid = modelId === null || modelId === undefined ? '' : String(modelId).trim();
+    if (!mid) return;
+    fetch('/api/auto-load/policy')
+        .then(r => r.json())
+        .then(res => {
+            const data = res && res.data ? res.data : null;
+            const policies = data && data.policies ? data.policies : {};
+            const policy = policies[mid] || 'deny';
+            const toggle = findById(modal, 'autoLoadToggle');
+            if (toggle) {
+                toggle.checked = policy === 'allow';
+            }
+        })
+        .catch(() => {
+            const toggle = findById(modal, 'autoLoadToggle');
+            if (toggle) {
+                toggle.checked = false;
+            }
+        });
+}
+
 function getCurrentModelById(modelId, nodeId) {
     const mid = modelId === null || modelId === undefined ? '' : String(modelId).trim();
     if (!mid) return null;
@@ -1125,6 +1173,8 @@ function loadModel(modelId, modelName, param1, param2) {
     setVramHint(hint, '');
     ensureModelCapabilitiesWired(modal);
     loadModelCapabilities(modelId, modal);
+    ensureAutoLoadWired(modal);
+    loadAutoLoadPolicy(modelId, modal);
     window.__loadModelSelectedDevices = ['All'];
     window.__loadModelSelectionFromConfig = true;
     const deviceChecklistEl = findById(modal, 'deviceChecklist');

@@ -708,6 +708,21 @@
                                 </div>
                             </div>
 
+                            <div class="form-group" id="autoLoadGroup">
+                                <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                    <input class="form-check-input" type="checkbox" id="autoLoadToggle">
+                                    <span>允许自动加载</span>
+                                    <i class="fas fa-circle-question param-desc-trigger"
+                                        style="font-size:11px;color:#8fa7c0;cursor:pointer;"
+                                        data-i18n="modal.model_action.auto_load.help_title" data-i18n-attr="title"
+                                        title="..."
+                                        data-param-name="modal.model_action.auto_load.help_title"
+                                        data-param-flag=""
+                                        data-param-desc="modal.model_action.auto_load.help_desc"></i>
+                                </label>
+                                <small class="form-text" data-i18n="modal.model_action.auto_load.desc">开启后，当 API 请求此模型但未加载时，将自动加载该模型（需硬件资源充足）</small>
+                            </div>
+
                             <div class="form-group" id="enableVisionGroup" style="display:none;">
                                 <label class="form-label">启用视觉</label>
                                 <div class="form-check" style="margin-bottom: 0;">

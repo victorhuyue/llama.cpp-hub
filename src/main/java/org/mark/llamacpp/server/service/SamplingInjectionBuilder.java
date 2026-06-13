@@ -149,7 +149,9 @@ public class SamplingInjectionBuilder {
             }
             kwargs = copy;
         }
-        kwargs.addProperty("enable_thinking", enableThinking);
+        if (!kwargs.has("enable_thinking")) {
+            kwargs.addProperty("enable_thinking", enableThinking);
+        }
         return kwargs;
     }
 

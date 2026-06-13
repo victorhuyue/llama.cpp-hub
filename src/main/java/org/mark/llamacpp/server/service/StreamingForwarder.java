@@ -165,7 +165,7 @@ public class StreamingForwarder {
             throw new ForwarderException(400, "Missing required parameter: model", "model");
         }
 
-        return new TransformResult(modelName, nodeId, enableThinking);
+        return new TransformResult(modelName, nodeId, enableThinking != null ? enableThinking : false);
     }
 
     /**
@@ -359,6 +359,9 @@ public class StreamingForwarder {
             return;
         }
         if (b == '"') {
+            if (!afterColon) {
+                return;
+            }
             /* 布尔值不应出现在引号中，重置 */
             resetToNormal();
             return;

@@ -252,9 +252,13 @@ public class GPUInfoHelper {
 				for (JsonElement dev : devices) {
 					JsonObject sensorsObj = dev.getAsJsonObject().getAsJsonObject("sensors");
 					if (sensorsObj != null && sensorsObj.has("memory_total_bytes") && sensorsObj.has("memory_used_bytes")) {
-						long total = sensorsObj.get("memory_total_bytes").getAsLong();
-						long used = sensorsObj.get("memory_used_bytes").getAsLong();
-						totalAvailableVram += (total - used);
+						JsonElement totalEl = sensorsObj.get("memory_total_bytes");
+						JsonElement usedEl = sensorsObj.get("memory_used_bytes");
+						if (!totalEl.isJsonNull() && !usedEl.isJsonNull()) {
+							long total = totalEl.getAsLong();
+							long used = usedEl.getAsLong();
+							totalAvailableVram += (total - used);
+						}
 					} else {
 						// fallback: 使用 dedicated_vram_bytes 总容量
 						JsonObject devMem = dev.getAsJsonObject().getAsJsonObject("memory");

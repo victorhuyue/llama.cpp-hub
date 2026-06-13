@@ -805,7 +805,7 @@
   "param.server.ubatch_size.name": "微批大小（uBatch Size）",
   "param.server.ubatch_size.desc": "--ubatch-size：物理微批大小：用于把大的逻辑 batch 拆分为多个更小的 micro-batch 逐次执行，以在吞吐与显存峰值之间做权衡。增大可减少拆分次数、提升预填充速度，但会抬高显存峰值；减小则更省显存、更稳，但可能降低吞吐。通常在显存紧张或并发较高时，通过调小该值来避免 OOM。",
   "param.server.parallel.name": "并行槽位数（并发）",
-  "param.server.parallel.desc": "--parallel：服务器可同时处理的并行槽位（slot）数量，本质上决定并发会话数上限。值越大，并发能力越强，但每个 slot 都会占用一定 KV 缓存与运行时资源，导致内存/显存占用上升，并可能降低单请求吞吐或增加整体延迟。设置为 -1 表示自动决定（通常会结合上下文大小与可用资源）。对于上下文较短、模型较小、且需要高并发的场景可适当调高；长上下文或显存紧张时建议保守设置。",
+  "param.server.parallel.desc": "--parallel：服务器可同时处理的并行槽位（slot）数量，本质上决定并发会话数上限。值越大，并发能力越强，但每个 slot 都会占用一定 KV 缓存与运行时资源，导致内存/显存占用上升，并可能降低单请求吞吐或增加整体延迟。设置为 -1 表示自动决定（通常会结合上下文大小与可用资源）。对于上下文较短、模型较小、且需要高并发的场景可适当调高；长上下文或显存紧张时建议保守设置。\n⚠ 注意：-1 虽受 llama-server 支持，但显存估算工具（llama-fit-params）无法处理该值，会导致估算失败。如需自动加载功能正常进行显存检查，请设置大于 0 的具体数值。",
   "param.server.port.name": "端口",
   "param.server.port.desc": "--port：llama-server 监听的 TCP 端口。保持 0 表示由应用自动分配可用端口。设置为具体值（如 8080）可绑定到固定端口。",
   "param.server.cache_ram.name": "KV 缓存内存上限",

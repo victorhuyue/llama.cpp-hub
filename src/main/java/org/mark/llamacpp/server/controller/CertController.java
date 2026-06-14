@@ -2,6 +2,7 @@ package org.mark.llamacpp.server.controller;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
@@ -223,6 +224,17 @@ public class CertController implements BaseController {
                     return "\"" + s + "\"";
                 return s;
             }).collect(Collectors.joining(" "));
+            // 在执行之前，应该删除旧的证书
+            try {
+            	Path p = outputPath.resolve("keystore.p12");
+            	if (Files.exists(p)) {
+            		logger.info("删除旧证书：{}", keystoreFile);
+                	Files.delete(p);	
+            	}
+            }catch (IOException e) {
+            	e.printStackTrace();
+			}
+            
             logger.info("执行命令: {}", cmdString);
 
             ProcessBuilder pb = new ProcessBuilder(cmd);

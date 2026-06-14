@@ -19,10 +19,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 设置 JDK 21
+      - name: 设置 JDK 26
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '26'
           distribution: 'temurin'
 
       - name: 验证 Java 版本
@@ -126,7 +126,7 @@ jobs:
       - name: 下载精简版 JRE (Linux)
         run: |
           mkdir -p jre-linux
-          curl -L -o jre-linux.zip https://github.com/IIIIIllllIIIIIlllll/Mini-JRE/releases/download/v1.0.0/mini-jre-21.08-linux-x64.zip
+          curl -L -o jre-linux.zip https://github.com/IIIIIllllIIIIIlllll/Mini-JRE/releases/download/v1.0.0/mini-jre-26.0.1-linux-x64.zip
           unzip -qo jre-linux.zip -d jre-linux
           JRE_NAME=$(ls jre-linux | head -1)
           mv jre-linux/$JRE_NAME jre-linux/jre
@@ -138,7 +138,7 @@ jobs:
       - name: 下载精简版 JRE (Windows)
         run: |
           mkdir -p jre-win
-          curl -L -o jre-win.zip https://github.com/IIIIIllllIIIIIlllll/Mini-JRE/releases/download/v1.0.0/mini-jre-21.08-win-x64.zip
+          curl -L -o jre-win.zip https://github.com/IIIIIllllIIIIIlllll/Mini-JRE/releases/download/v1.0.0/mini-jre-26.0.1-win-x64.zip
           unzip -qo jre-win.zip -d jre-win
           JRE_NAME=$(ls jre-win | head -1)
           mv jre-win/$JRE_NAME jre-win/jre
@@ -445,7 +445,7 @@ jobs:
           ### 📦 完整版本（内置 JRE）
           - 编译后的 class 文件
           - 所有依赖库（lib/*.jar）
-          - 精简版 JRE 21.08（内置，无需额外安装 Java 运行环境）
+          - 精简版 JRE 26.0.1（内置，无需额外安装 Java 运行环境）
           - 启动脚本（run.sh / run.bat）
 
           ### 🧩 llama.cpp 版本

@@ -11,6 +11,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +38,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.DefaultFileRegion;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpContent;
 import io.netty.handler.codec.http.DefaultHttpResponse;
@@ -489,8 +489,9 @@ public class EasyChatService {
 	}
 
 	/**
-	 * Stream conversation history as chunked JSON with zero-copy file regions.
-	 * Payload bytes leave disk via sendfile/splice and never enter JVM heap.
+	 * Stream conversation history as chunked JSON.
+	 * Reads all variant payloads into memory under the per-conversation lock,
+	 * then streams the buffered data to avoid races with concurrent writes.
 	 * Returns all variants for AI messages that have been regenerated.
 	 */
 	public void handleStreamChatHistory(ChannelHandlerContext ctx, String conversationId) {
@@ -514,18 +515,25 @@ public class EasyChatService {
 			return;
 		}
 
-		// Phase 1: pre-scan metadata (read header for count/lengths)
+		// Phase 1: pre-scan metadata + read all payloads under per-conversation lock
 		long recordCount = 0;
 		long totalSize = 0;
 		long variantCount = 0;
-		try {
-			long endExclusive = storage.readNextSeq(convDir);
-			for (long seq = 0; seq < endExclusive; seq++) {
-				EasyChatStorage.FragmentHeader header = storage.readFragmentHeader(convDir, seq);
-				if (header == null) {
-					continue;
-				}
-				if (!storage.isDeleted(header)) {
+		List<MessageRecord> messages = new ArrayList<>();
+
+		Object convLock = conversationLocks.computeIfAbsent(conversationId, k -> new Object());
+		synchronized (convLock) {
+			try {
+				long endExclusive = storage.readNextSeq(convDir);
+				for (long seq = 0; seq < endExclusive; seq++) {
+					EasyChatStorage.FragmentHeader header = storage.readFragmentHeader(convDir, seq);
+					if (header == null) {
+						continue;
+					}
+					if (storage.isDeleted(header)) {
+						continue;
+					}
+
 					for (int v = 0; v < header.variantCount; v++) {
 						totalSize += Math.max(0, header.lengths[v]);
 						if (v > 0) {
@@ -533,20 +541,47 @@ public class EasyChatService {
 						}
 					}
 					recordCount++;
+
+					int roleVariantIndex = storage.resolveVariantIndex(header, 0);
+					byte[] firstPayload = roleVariantIndex < 0 ? new byte[0] : storage.readPayload(convDir, seq, roleVariantIndex);
+
+					String role = "unknown";
+					if (firstPayload != null && firstPayload.length > 0) {
+						try {
+							JsonObject msgObj = JsonUtil.tryParseObject(new String(firstPayload, StandardCharsets.UTF_8));
+							if (msgObj != null && msgObj.has("role")) {
+								role = msgObj.get("role").getAsString();
+							}
+						} catch (Exception e) {
+							// ignore
+						}
+					}
+
+					int activeVariant = storage.resolveVariantIndex(header, header.activeVariantIndex);
+					if (activeVariant < 0) {
+						activeVariant = 0;
+					}
+
+					List<byte[]> variantPayloads = new ArrayList<>(header.variantCount);
+					for (int v = 0; v < header.variantCount; v++) {
+						byte[] payload = storage.readPayload(convDir, seq, v);
+						variantPayloads.add(payload != null ? payload : new byte[0]);
+					}
+
+					messages.add(new MessageRecord(seq, role, activeVariant, variantPayloads));
 				}
+			} catch (Exception e) {
+				logger.info("[EasyChat] 预扫描/读取碎片失败 conversation={}", conversationId, e);
+				sendHistoryError(ctx, "扫描碎片失败: " + e.getMessage());
+				globalLease.close();
+				return;
 			}
-		} catch (Exception e) {
-			logger.info("[EasyChat] 预扫描碎片失败 conversation={}", conversationId, e);
-			sendHistoryError(ctx, "扫描碎片失败: " + e.getMessage());
-			globalLease.close();
-			return;
 		}
 
-		// Phase 2: build JSON prefix
+		// Phase 2: build JSON prefix and start chunked response
 		String prefix = "{\"message\":\"success\",\"totalSize\":" + totalSize
 			+ ",\"recordCount\":" + recordCount + ",\"variantCount\":" + variantCount + ",\"data\":[";
 
-		// Start chunked response
 		HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
 		response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=UTF-8");
 		response.headers().set(HttpHeaderNames.TRANSFER_ENCODING, HttpHeaderValues.CHUNKED);
@@ -554,62 +589,32 @@ public class EasyChatService {
 		ctx.writeAndFlush(response);
 		ctx.writeAndFlush(Unpooled.wrappedBuffer(prefix.getBytes(StandardCharsets.UTF_8)));
 
-		// Phase 3: zero-copy fragment loop, writeAndFlush for ordering
+		// Phase 3: stream buffered data (no lock needed, no DefaultFileRegion)
 		byte[] comma = ",".getBytes(StandardCharsets.UTF_8);
 		byte[] variantPrefix = "{\"content\":".getBytes(StandardCharsets.UTF_8);
 		byte[] variantSuffix = "}".getBytes(StandardCharsets.UTF_8);
-		byte[] msgSuffix = "]}" .getBytes(StandardCharsets.UTF_8);
+		byte[] msgSuffix = "]}".getBytes(StandardCharsets.UTF_8);
 		byte[] dataSuffix = "]}".getBytes(StandardCharsets.UTF_8);
 		try {
-			long endExclusive = storage.readNextSeq(convDir);
 			boolean first = true;
-			for (long seq = 0; seq < endExclusive; seq++) {
-				EasyChatStorage.FragmentHeader header = storage.readFragmentHeader(convDir, seq);
-				if (header == null) {
-					continue;
-				}
-				if (storage.isDeleted(header)) {
-					continue;
-				}
-
-				int roleVariantIndex = storage.resolveVariantIndex(header, 0);
-				byte[] firstPayload = roleVariantIndex < 0 ? new byte[0] : storage.readPayload(convDir, seq, roleVariantIndex);
-
+			for (MessageRecord msg : messages) {
 				if (!first) {
 					ctx.writeAndFlush(Unpooled.wrappedBuffer(comma));
 				}
 				first = false;
 
-				String role = "unknown";
-				if (firstPayload != null && firstPayload.length > 0) {
-					try {
-						JsonObject msgObj = JsonUtil.tryParseObject(new String(firstPayload, StandardCharsets.UTF_8));
-						if (msgObj != null && msgObj.has("role")) {
-							role = msgObj.get("role").getAsString();
-						}
-					} catch (Exception e) {
-						// ignore
-					}
-				}
-
-				// {"seq":N,"role":"R","activeVariant":N,"variants":[
-				int activeVariant = storage.resolveVariantIndex(header, header.activeVariantIndex);
-				if (activeVariant < 0) {
-					activeVariant = 0;
-				}
-				String msgPrefix = "{\"seq\":" + seq + ",\"role\":\"" + escapeJsonString(role)
-					+ "\",\"activeVariant\":" + activeVariant + ",\"variants\":[";
+				String msgPrefix = "{\"seq\":" + msg.seq + ",\"role\":\"" + escapeJsonString(msg.role)
+					+ "\",\"activeVariant\":" + msg.activeVariant + ",\"variants\":[";
 				ctx.writeAndFlush(Unpooled.wrappedBuffer(msgPrefix.getBytes(StandardCharsets.UTF_8)));
 
-				// All variants
-				for (int v = 0; v < header.variantCount; v++) {
+				for (int v = 0; v < msg.variantPayloads.size(); v++) {
 					if (v > 0) {
 						ctx.writeAndFlush(Unpooled.wrappedBuffer(comma));
 					}
 					ctx.writeAndFlush(Unpooled.wrappedBuffer(variantPrefix));
-					EasyChatStorage.FragmentSlice slice = storage.getVariantSlice(convDir, seq, v);
-					if (slice != null && slice.length > 0) {
-						ctx.writeAndFlush(new DefaultFileRegion(slice.file.toFile(), slice.offset, slice.length));
+					byte[] payload = msg.variantPayloads.get(v);
+					if (payload != null && payload.length > 0) {
+						ctx.writeAndFlush(Unpooled.wrappedBuffer(payload));
 					} else {
 						ctx.writeAndFlush(Unpooled.wrappedBuffer("null".getBytes(StandardCharsets.UTF_8)));
 					}
@@ -845,6 +850,20 @@ public class EasyChatService {
 		public int nonDataLineCount = 0;
 		public String terminalFinishReason = "";
 		public String endReason;
+	}
+
+	private static final class MessageRecord {
+		final long seq;
+		final String role;
+		final int activeVariant;
+		final List<byte[]> variantPayloads;
+
+		MessageRecord(long seq, String role, int activeVariant, List<byte[]> variantPayloads) {
+			this.seq = seq;
+			this.role = role;
+			this.activeVariant = activeVariant;
+			this.variantPayloads = variantPayloads;
+		}
 	}
 
 	private boolean proxySseStream(ChannelHandlerContext ctx, HttpURLConnection connection,

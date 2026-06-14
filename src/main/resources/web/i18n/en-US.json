@@ -540,6 +540,7 @@
   "page.sysinfo.gpu.no_device": "No GPU devices detected",
   "page.sysinfo.row.type": "Type",
   "page.sysinfo.row.vram": "VRAM",
+  "page.sysinfo.row.vram_usage": "VRAM Usage",
   "page.sysinfo.row.temp": "Temperature",
   "page.sysinfo.row.util": "GPU Utilization",
   "page.sysinfo.row.power": "Power",

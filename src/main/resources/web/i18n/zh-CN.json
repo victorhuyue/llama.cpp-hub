@@ -540,6 +540,7 @@
   "page.sysinfo.gpu.no_device": "未检测到 GPU 设备",
   "page.sysinfo.row.type": "类型",
   "page.sysinfo.row.vram": "显存",
+  "page.sysinfo.row.vram_usage": "显存用量",
   "page.sysinfo.row.temp": "温度",
   "page.sysinfo.row.util": "GPU 利用率",
   "page.sysinfo.row.power": "功耗",

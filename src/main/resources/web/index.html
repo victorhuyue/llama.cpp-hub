@@ -1805,7 +1805,7 @@
 
         #main-sysinfo .ff-stats {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 12px;
             margin-bottom: 12px;
         }
@@ -6162,10 +6162,26 @@
             var memPct = (mem.total_bytes > 0) ? Math.round(mem.used_bytes / mem.total_bytes * 100) : 0;
             var memColor = memPct > 90 ? 'yellow' : memPct > 60 ? 'blue' : 'green';
 
+            var totalVram = 0;
+            var usedVram = 0;
+            devices.forEach(function (gpu) {
+                var sensors = gpu.sensors || {};
+                var gmem = gpu.memory || {};
+                var gpuTotal = sensors.memory_total_bytes || gmem.dedicated_vram_bytes || 0;
+                var gpuUsed = sensors.memory_used_bytes || 0;
+                if (gpuTotal > 0) {
+                    totalVram += gpuTotal;
+                    usedVram += gpuUsed;
+                }
+            });
+            var vramPct = (totalVram > 0) ? Math.round(usedVram / totalVram * 100) : 0;
+            var vramColor = vramPct > 90 ? 'yellow' : vramPct > 60 ? 'blue' : 'green';
+
             var statsHtml = '';
             statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-desktop"></i></div><div class="ff-stat-value">' + escapeHtml(os.name || '--') + '</div><div class="ff-stat-label">' + escapeHtml(os.hostname || '') + '</div></div>';
             statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-microchip"></i></div><div class="ff-stat-value">' + escapeHtml(cpu.name || '--') + '</div><div class="ff-stat-label">' + (cpu.cores || '?') + ' ' + t('page.sysinfo.row.cores') + ' / ' + (cpu.threads || '?') + ' ' + t('page.sysinfo.row.threads') + '</div></div>';
             statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-memory"></i></div><div class="ff-stat-value">' + formatBytes(mem.total_bytes) + ' (' + memPct + '%)</div><div class="ff-stat-label">' + t('page.sysinfo.row.used') + ' ' + formatBytes(mem.used_bytes) + '</div></div>';
+            statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-video"></i></div><div class="ff-stat-value">' + formatBytes(totalVram) + ' (' + vramPct + '%)</div><div class="ff-stat-label">' + t('page.sysinfo.row.vram_usage', '显存用量') + ' ' + formatBytes(usedVram) + '</div></div>';
             statsHtml += '<div class="ff-stat-card"><div class="ff-stat-icon"><i class="fas fa-plug"></i></div><div class="ff-stat-value">' + t('page.sysinfo.stat.device_count', { n: deviceCount }) + '</div><div class="ff-stat-label">' + t('page.sysinfo.stat.gpu_count', { n: devices.filter(function (d) { return d.type && d.type !== 'CPU'; }).length }) + '</div></div>';
             statsEl.innerHTML = statsHtml;
 
@@ -6224,11 +6240,15 @@
                 devices.forEach(function (gpu) {
                     var sensors = gpu.sensors || {};
                     var gmem = gpu.memory || {};
+                    var gpuTotal = sensors.memory_total_bytes || gmem.dedicated_vram_bytes || 0;
+                    var gpuUsed = sensors.memory_used_bytes || 0;
+                    var gpuVramPct = (gpuTotal > 0) ? Math.round(gpuUsed / gpuTotal * 100) : 0;
+                    var gpuVramColor = gpuVramPct > 90 ? 'yellow' : gpuVramPct > 60 ? 'blue' : 'green';
                     rightHtml += '<div class="ff-gpu-card">';
                     rightHtml += '<div class="ff-gpu-name">' + escapeHtml(gpu.name) + ' <span class="ff-gpu-vendor">' + escapeHtml(gpu.vendor || '') + '</span></div>';
                     rightHtml += '<div class="ff-gpu-stats">';
                     rightHtml += gpuStatItem(t('page.sysinfo.row.type'), gpu.type || '--');
-                    rightHtml += gpuStatItem(t('page.sysinfo.row.vram'), formatBytes(gmem.dedicated_vram_bytes));
+                    rightHtml += '<div class="ff-gpu-stat" style="grid-column:1/-1;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><span class="ff-gpu-stat-label">' + t('page.sysinfo.row.vram_usage', '显存用量') + ': </span><span class="ff-gpu-stat-value">' + formatBytes(gpuUsed) + ' / ' + formatBytes(gpuTotal) + ' (' + gpuVramPct + '%)</span></div><div class="ff-progress-bar"><div class="ff-progress-fill ' + gpuVramColor + '" style="width:' + gpuVramPct + '%"></div></div></div>';
                     rightHtml += gpuStatItem(t('page.sysinfo.row.temp'), sensors.temperature_celsius != null ? sensors.temperature_celsius + '°C' : '--');
                     rightHtml += gpuStatItem(t('page.sysinfo.row.util'), sensors.utilization_gpu_pct != null ? sensors.utilization_gpu_pct + '%' : '--');
                     rightHtml += gpuStatItem(t('page.sysinfo.row.power'), sensors.power_watts != null ? sensors.power_watts + 'W' : '--');

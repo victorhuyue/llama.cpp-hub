@@ -63,6 +63,9 @@ public class PerplexityService {
 	private static final Pattern FINAL_PPL_PATTERN = Pattern.compile(
 			"Final estimate:\\s*PPL\\s*=\\s*([0-9.Ee+\\-]+)\\s*\\+/-\\s*([0-9.Ee+\\-]+)");
 
+	private static final List<String> CACHE_TYPES = List.of(
+			"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1");
+
 	private static final ReentrantLock RUN_LOCK = new ReentrantLock();
 
 	private volatile String cachedTestRawPath = null;
@@ -83,6 +86,8 @@ public class PerplexityService {
 		int ngl = JsonUtil.getJsonInt(json, "ngl", 0);
 		int pplStride = JsonUtil.getJsonInt(json, "pplStride", 0);
 		String extraParams = JsonUtil.getJsonString(json, "extraParams", "").trim();
+		String cacheTypeK = JsonUtil.getJsonString(json, "cacheTypeK", "").trim();
+		String cacheTypeV = JsonUtil.getJsonString(json, "cacheTypeV", "").trim();
 
 		if (ctxSize <= 0) {
 			throw new IllegalArgumentException("ctx-size 必须大于 0");
@@ -92,6 +97,12 @@ public class PerplexityService {
 		}
 		if (pplStride < 0) {
 			throw new IllegalArgumentException("ppl-stride 不能小于 0");
+		}
+		if (!cacheTypeK.isEmpty() && !CACHE_TYPES.contains(cacheTypeK)) {
+			throw new IllegalArgumentException("--cache-type-k 不支持: " + cacheTypeK);
+		}
+		if (!cacheTypeV.isEmpty() && !CACHE_TYPES.contains(cacheTypeV)) {
+			throw new IllegalArgumentException("--cache-type-v 不支持: " + cacheTypeV);
 		}
 
 		LlamaServerManager manager = LlamaServerManager.getInstance();
@@ -123,7 +134,8 @@ public class PerplexityService {
 		StringBuilder rawOutput = new StringBuilder();
 		long startTime = System.currentTimeMillis();
 		try {
-			List<String> command = buildCommand(perplexityExe, modelPath, testFile, ctxSize, ngl, pplStride, extraParams);
+			List<String> command = buildCommand(perplexityExe, modelPath, testFile, ctxSize, ngl, pplStride,
+					cacheTypeK, cacheTypeV, extraParams);
 			sendJsonLine(ctx, "started", Map.of("command", command));
 
 			ProcessBuilder pb = new ProcessBuilder(command);
@@ -331,7 +343,7 @@ public class PerplexityService {
 	}
 
 	private List<String> buildCommand(File perplexityExe, String modelPath, File testFile,
-			int ctxSize, int ngl, int pplStride, String extraParams) {
+			int ctxSize, int ngl, int pplStride, String cacheTypeK, String cacheTypeV, String extraParams) {
 		List<String> command = new ArrayList<>();
 		command.add(perplexityExe.getAbsolutePath());
 		command.add("-m");
@@ -345,6 +357,14 @@ public class PerplexityService {
 		if (pplStride > 0) {
 			command.add("--ppl-stride");
 			command.add(String.valueOf(pplStride));
+		}
+		if (!cacheTypeK.isEmpty()) {
+			command.add("--cache-type-k");
+			command.add(cacheTypeK);
+		}
+		if (!cacheTypeV.isEmpty()) {
+			command.add("--cache-type-v");
+			command.add(cacheTypeV);
 		}
 		if (!extraParams.isEmpty()) {
 			command.addAll(CommandLineRunner.splitCommandLineArgs(extraParams));

@@ -1470,7 +1470,7 @@ public class LlamaServer {
 	
 	//================================================================================================
 	
-	private static void setCorsHeaders(HttpHeaders headers) {
+	public static void setCorsHeaders(HttpHeaders headers) {
 		headers.set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 		headers.set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
 		headers.set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, DELETE, OPTIONS");

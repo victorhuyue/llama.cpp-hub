@@ -3,6 +3,7 @@ package org.mark.llamacpp.server.controller;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,9 +25,17 @@ import org.slf4j.LoggerFactory;
 
 import com.google.gson.JsonObject;
 
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.LastHttpContent;
+import io.netty.handler.stream.ChunkedFile;
 
 public class CertController implements BaseController {
 
@@ -39,7 +48,80 @@ public class CertController implements BaseController {
             this.handleGenerate(ctx, request);
             return true;
         }
+        if (uri.startsWith("/api/cert/status")) {
+            this.handleStatus(ctx, request);
+            return true;
+        }
+        if (uri.startsWith("/api/cert/download")) {
+            this.handleDownload(ctx, request);
+            return true;
+        }
         return false;
+    }
+
+    private void handleStatus(ChannelHandlerContext ctx, FullHttpRequest request) {
+        try {
+            this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+            String keystorePath = LlamaServer.getHttpsCertPath();
+            Path path = Paths.get(keystorePath).toAbsolutePath().normalize();
+            boolean exists = Files.exists(path) && Files.isRegularFile(path);
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("exists", exists);
+            data.put("path", keystorePath);
+            data.put("password", LlamaServer.getHttpsPassword());
+            if (exists) {
+                try {
+                    data.put("size", Files.size(path));
+                } catch (Exception ignore) {
+                }
+            }
+            LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+        } catch (RequestMethodException e) {
+            LlamaServer.sendJsonResponse(ctx, ApiResponse.error(e.getMessage()));
+        } catch (Exception e) {
+            logger.error("获取证书状态时发生异常", e);
+            LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取证书状态失败: " + e.getMessage()));
+        }
+    }
+
+    private void handleDownload(ChannelHandlerContext ctx, FullHttpRequest request) {
+        if (request.method() != HttpMethod.GET) {
+            LlamaServer.sendErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "只支持GET请求");
+            return;
+        }
+        try {
+            String keystorePath = LlamaServer.getHttpsCertPath();
+            Path filePath = Paths.get(keystorePath).toAbsolutePath().normalize();
+            if (!Files.exists(filePath) || !Files.isRegularFile(filePath)) {
+                LlamaServer.sendErrorResponse(ctx, HttpResponseStatus.NOT_FOUND, "证书文件不存在");
+                return;
+            }
+
+            String fileName = filePath.getFileName() == null ? "keystore.p12" : filePath.getFileName().toString();
+            long fileLength = Files.size(filePath);
+            RandomAccessFile raf = new RandomAccessFile(filePath.toFile(), "r");
+
+            HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+            response.headers().set(HttpHeaderNames.CONTENT_LENGTH, fileLength);
+            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/x-pkcs12");
+            response.headers().set(HttpHeaderNames.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"");
+            LlamaServer.setCorsHeaders(response.headers());
+
+            ctx.write(response);
+            ctx.write(new ChunkedFile(raf, 0, fileLength, 8192), ctx.newProgressivePromise());
+            ChannelFuture last = ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+            last.addListener(f -> {
+                try {
+                    raf.close();
+                } catch (Exception ignore) {
+                }
+                ctx.close();
+            });
+        } catch (Exception e) {
+            logger.error("下载证书时发生异常", e);
+            LlamaServer.sendErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "下载证书失败: " + e.getMessage());
+        }
     }
 
     private void handleGenerate(ChannelHandlerContext ctx, FullHttpRequest request) {

@@ -344,6 +344,7 @@
             const password = byId('httpsPasswordInput');
             if (password && https.keystorePassword) password.value = https.keystorePassword;
             updateHttpsInputState();
+            loadHttpsCertStatus();
         }
 
         // Logging
@@ -383,6 +384,80 @@
         if (toggle && pathInput && passInput) {
             pathInput.disabled = !toggle.checked;
             passInput.disabled = !toggle.checked;
+        }
+    }
+
+    let currentHttpsCertPassword = '';
+
+    async function loadHttpsCertStatus() {
+        try {
+            const resp = await fetch('/api/cert/status', { method: 'GET' });
+            const json = await resp.json();
+            if (!json || !json.success || !json.data) return;
+            const status = json.data;
+            currentHttpsCertPassword = status.password || '';
+            const noCertState = byId('httpsNoCertState');
+            const hasCertState = byId('httpsHasCertState');
+            if (!noCertState || !hasCertState) return;
+            if (status.exists) {
+                noCertState.style.display = 'none';
+                hasCertState.style.display = 'block';
+                renderHttpsCertInfo(status);
+            } else {
+                noCertState.style.display = 'block';
+                hasCertState.style.display = 'none';
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    function renderHttpsCertInfo(status) {
+        const infoEl = byId('httpsCertInfo');
+        const guideEl = byId('httpsInstallGuide');
+        const downloadBtn = byId('httpsCertDownloadBtn');
+        if (!infoEl) return;
+        const path = escapeHtml(status.path || '');
+        const password = escapeHtml(status.password || '');
+        const sizeText = formatBytes(status.size);
+        if (downloadBtn && status.path) {
+            const fileName = status.path.replace(/\\/g, '/').split('/').pop() || 'keystore.p12';
+            downloadBtn.setAttribute('download', fileName);
+        }
+        infoEl.innerHTML =
+            '<div style="display:flex;justify-content:space-between;gap:0.5rem;padding:0.35rem 0;border-bottom:1px solid var(--border-color);"><span style="color:var(--text-secondary);">' + t('page.settings.https.cert_path', '文件路径') + '</span><code style="word-break:break-all;">' + path + '</code></div>' +
+            '<div style="display:flex;justify-content:space-between;gap:0.5rem;padding:0.35rem 0;border-bottom:1px solid var(--border-color);"><span style="color:var(--text-secondary);">' + t('page.settings.https.password', '密码') + '</span><code style="word-break:break-all;">' + password + '</code></div>' +
+            '<div style="display:flex;justify-content:space-between;gap:0.5rem;padding:0.35rem 0;"><span style="color:var(--text-secondary);">' + t('page.settings.https.cert_size', '文件大小') + '</span><span>' + sizeText + '</span></div>';
+        if (guideEl) {
+            guideEl.innerHTML =
+                '<div style="margin-bottom:0.5rem;"><strong>' + t('page.settings.https.install_windows_title', 'Windows') + '</strong><br>' + t('page.settings.https.install_windows', '下载 keystore.p12 后双击，选择“本地计算机”→“受信任的根证书颁发机构”完成导入。') + '</div>' +
+                '<div style="margin-bottom:0.5rem;"><strong>' + t('page.settings.https.install_macos_title', 'macOS') + '</strong><br>' + t('page.settings.https.install_macos', '双击下载的 .p12 文件，钥匙串访问会打开；在“登录”或“系统”中找到该证书，双击后展开“信任”并选择“始终信任”。') + '</div>' +
+                '<div><strong>' + t('page.settings.https.install_linux_title', 'Linux') + '</strong><br>' + t('page.settings.https.install_linux', '将证书导出为 PEM 格式后复制到 /usr/local/share/ca-certificates/，然后运行 sudo update-ca-certificates。') + '</div>';
+        }
+    }
+
+    function formatBytes(bytes) {
+        if (bytes == null || isNaN(bytes)) return '-';
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    function copyHttpsCertPassword() {
+        if (!currentHttpsCertPassword) return;
+        navigator.clipboard.writeText(currentHttpsCertPassword).then(() => {
+            toast(t('toast.success', '成功'), t('common.copied', '已复制'), 'success');
+        }).catch(() => {
+            toast(t('toast.error', '错误'), t('common.copy_failed', '复制失败'), 'error');
+        });
+    }
+
+    function showHttpsRegenerate() {
+        const noCertState = byId('httpsNoCertState');
+        const hasCertState = byId('httpsHasCertState');
+        if (noCertState && hasCertState) {
+            noCertState.style.display = 'block';
+            hasCertState.style.display = 'none';
         }
     }
 
@@ -622,6 +697,7 @@
             }
             if (resultEl) resultEl.style.display = 'block';
             if (status) status.innerHTML = '<i class="fas fa-check-circle" style="color:#10b981;"></i> ' + t('page.settings.https.cert_gen_success', '生成成功');
+            loadHttpsCertStatus();
             toast(t('toast.success', '成功'), t('page.settings.https.cert_gen_success', '证书生成成功'), 'success');
         } catch (e) {
             if (errorEl) {
@@ -1916,6 +1992,12 @@
 
         const httpsCertGenCopyCmdBtn = byId('httpsCertGenCopyCmdBtn');
         if (httpsCertGenCopyCmdBtn) httpsCertGenCopyCmdBtn.addEventListener('click', copyHttpsCertCommand);
+
+        const httpsCertCopyPasswordBtn = byId('httpsCertCopyPasswordBtn');
+        if (httpsCertCopyPasswordBtn) httpsCertCopyPasswordBtn.addEventListener('click', copyHttpsCertPassword);
+
+        const httpsCertRegenerateBtn = byId('httpsCertRegenerateBtn');
+        if (httpsCertRegenerateBtn) httpsCertRegenerateBtn.addEventListener('click', showHttpsRegenerate);
 
         // Logging tab
         const saveLoggingBtn = byId('saveLoggingBtn');

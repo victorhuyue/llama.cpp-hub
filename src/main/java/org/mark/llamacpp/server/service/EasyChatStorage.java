@@ -145,6 +145,24 @@ final class EasyChatStorage {
 		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
 	}
 
+	/**
+	 * Write fragment from a source file (streaming path).
+	 * Reads source file size, builds header, copies file content — avoids loading into memory.
+	 */
+	void writeFragment(Path dir, long seq, long timestamp, Path sourceFile) throws IOException {
+		long payloadLength = Files.size(sourceFile);
+		Path target = fragmentFile(dir, seq);
+		Path temp = target.resolveSibling(target.getFileName().toString() + ".tmp");
+		try (RandomAccessFile raf = new RandomAccessFile(temp.toFile(), "rw");
+			 RandomAccessFile sourceRaf = new RandomAccessFile(sourceFile.toFile(), "r")) {
+			FileChannel ch = raf.getChannel();
+			ByteBuffer header = buildHeader(timestamp, seq, 1, 0, 0, buildLengthsWithFirst((int) payloadLength));
+			ch.write(header);
+			sourceRaf.getChannel().transferTo(0, payloadLength, ch);
+		}
+		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+	}
+
 	void appendVariant(Path dir, long seq, byte[] payload) throws IOException {
 		Path file = fragmentFile(dir, seq);
 		FragmentHeader header = requireHeader(file, seq);

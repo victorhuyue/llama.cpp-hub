@@ -28,6 +28,7 @@ import org.mark.llamacpp.server.channel.CompletionRouterHandler;
 import org.mark.llamacpp.server.channel.FileDownloadRouterHandler;
 import org.apache.logging.log4j.LogManager;
 import org.mark.file.downloader.DownloadTaskManager;
+import org.mark.llamacpp.server.channel.EasyChatStreamingHandler;
 import org.mark.llamacpp.server.channel.FileUploadRouterHandler;
 import org.mark.llamacpp.server.channel.OpenAIChatStreamingHandler;
 import org.mark.llamacpp.server.channel.LlamaRouterHandler;
@@ -1072,6 +1073,7 @@ public class LlamaServer {
 								ch.pipeline().addLast(new SslHandler(engine)).addLast(new HttpServerCodec())
 										.addLast(new OpenAIChatStreamingHandler())
 										.addLast(new FileUploadRouterHandler())
+										.addLast(new EasyChatStreamingHandler())
 										.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
 										.addLast(new ChunkedWriteHandler())
 										.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
@@ -1082,6 +1084,7 @@ public class LlamaServer {
 							} else {
 								ch.pipeline().addLast(new HttpServerCodec()).addLast(new OpenAIChatStreamingHandler())
 										.addLast(new FileUploadRouterHandler())
+										.addLast(new EasyChatStreamingHandler())
 										.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
 										.addLast(new ChunkedWriteHandler())
 										.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))

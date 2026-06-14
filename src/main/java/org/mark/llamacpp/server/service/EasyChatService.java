@@ -21,6 +21,7 @@ import java.util.concurrent.Executors;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
+import org.mark.llamacpp.server.channel.EasyChatStreamingHandler;
 import org.mark.llamacpp.server.io.NettyWriteHelper;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.ApiResponse;
@@ -148,9 +149,19 @@ public class EasyChatService {
       String hdrAsstName = decodeHeader(request.headers().get("X-Assistant-Name"));
             String assistantName = (hdrAsstName != null) ? hdrAsstName : "";
 
-			// Read body bytes directly (no JSON parsing)
-			byte[] bodyBytes = new byte[request.content().readableBytes()];
-			request.content().readBytes(bodyBytes);
+			// Check if body was streamed to a temp file by EasyChatStreamingHandler
+			Path streamingBodyFile = ctx.channel().attr(EasyChatStreamingHandler.STREAMING_BODY_FILE).getAndSet(null);
+
+			// Read body bytes directly (no JSON parsing) — only if not from streaming file
+			byte[] bodyBytes;
+			if (streamingBodyFile != null && Files.exists(streamingBodyFile)) {
+				long fileSize = Files.size(streamingBodyFile);
+				logger.info("[EasyChat][Streaming] 检测到流式请求体: size={} bytes", fileSize);
+				bodyBytes = null; // Will read from file when needed
+			} else {
+				bodyBytes = new byte[request.content().readableBytes()];
+				request.content().readBytes(bodyBytes);
+			}
 
 			// Parse optional small headers (safe, tiny)
        JsonArray toolsArr = null;
@@ -277,9 +288,15 @@ public class EasyChatService {
 			if (isRegenerate) {
 				// For regenerate: no body needed, backend reads user message from fragment
 				// bodyBytes can be empty
-			} else if (bodyBytes.length == 0) {
+			} else if (bodyBytes != null && bodyBytes.length == 0) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
 				return;
+			} else if (bodyBytes == null && streamingBodyFile != null) {
+				long fileSize = Files.size(streamingBodyFile);
+				if (fileSize == 0) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
+					return;
+				}
 			}
 
 			// Per-conversation lock
@@ -310,7 +327,11 @@ public class EasyChatService {
 						storage.writeIndexSeq(indexPath, idxSeq + 2);
 
 						// Write user fragment (raw body bytes, no JSON parsing)
-						storage.writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
+						if (streamingBodyFile != null && Files.exists(streamingBodyFile)) {
+							storage.writeFragment(convDir, userSeq, System.currentTimeMillis(), streamingBodyFile);
+						} else {
+							storage.writeFragment(convDir, userSeq, System.currentTimeMillis(), bodyBytes);
+						}
 					}
 				}
 
@@ -351,7 +372,21 @@ public class EasyChatService {
 			// For persisted chats, the current message has already been written to fragments
 			// and will be replayed from history. Only ephemeral requests should append the
 			// transient body directly to the model request.
-			final byte[] finalTransientBodyBytes = finalIsEphemeral ? finalBodyBytes : null;
+			byte[] transientBodyBytes = finalIsEphemeral ? finalBodyBytes : null;
+			// Handle streaming body file cleanup
+			if (streamingBodyFile != null && Files.exists(streamingBodyFile)) {
+				if (finalIsEphemeral) {
+					// Ephemeral: read from file for transient body
+					transientBodyBytes = Files.readAllBytes(streamingBodyFile);
+				}
+				// Delete temp file after fragment write or ephemeral read
+				try {
+					Files.deleteIfExists(streamingBodyFile);
+				} catch (IOException e) {
+					logger.warn("[EasyChat][Streaming] 删除临时文件失败: {}", streamingBodyFile, e);
+				}
+			}
+			final byte[] finalTransientBodyBytes = transientBodyBytes;
 			final boolean finalRequestStream = requestStream;
 
 			// Dispatch to worker thread

@@ -2331,32 +2331,10 @@
 
         <!-- Scrollable Content -->
         <div class="content-scrollable">
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-check-circle"></i>
-                    </div>
-                    <div class="stat-info">
-                        <h3 id="loadedModelsCount">0</h3>
-                        <p data-i18n="page.model.stats.loaded">page.model.stats.loaded</p>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <i class="fas fa-box-open"></i>
-                    </div>
-                    <div class="stat-info">
-                        <h3 id="totalModelsCount">0</h3>
-                        <p data-i18n="page.model.stats.total">page.model.stats.total</p>
-                    </div>
-                </div>
-            </div>
-
             <!-- Model List -->
             <div class="model-list-container">
                 <div class="model-list-header">
-                    <h2 data-i18n="page.model.section.all">page.model.section.all</h2>
+                    <h2><span data-i18n="page.model.section.all">page.model.section.all</span> <span id="modelCountBadge" class="model-count-badge"></span></h2>
                     <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
                         <select id="modelNodeFilter" class="form-control"
                             style="padding: 4px 8px; width: auto; font-size: 0.875rem;"

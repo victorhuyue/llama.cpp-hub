@@ -392,6 +392,7 @@
             box-shadow: var(--shadow-sm);
             display: flex;
             flex-direction: column;
+            margin-top: 1.5rem;
         }
 
         .model-list-header {
@@ -407,6 +408,16 @@
         }
         
         .model-list-header h2 { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); }
+
+        .model-count-badge {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border-color);
+            border-radius: 999px;
+            padding: 1px 8px;
+        }
 
         .model-item {
             display: flex;

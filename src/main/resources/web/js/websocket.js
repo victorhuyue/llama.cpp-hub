@@ -127,11 +127,8 @@ function applyModelPatch(modelId, patch, nodeId) {
         const prev = currentModelsData[i] || {};
         currentModelsData[i] = Object.assign({}, prev, patch || {});
         if (typeof sortAndRenderModels === 'function') sortAndRenderModels();
-        const loadedCountEl = document.getElementById('loadedModelsCount');
-        if (loadedCountEl) {
-            const loadedCount = currentModelsData.filter(m => m && m.isLoaded).length;
-            loadedCountEl.textContent = loadedCount;
-        }
+        const loadedCount = currentModelsData.filter(m => m && m.isLoaded).length;
+        if (typeof updateModelCountBadge === 'function') updateModelCountBadge(loadedCount, currentModelsData.length);
     } catch (e) {}
 }
 

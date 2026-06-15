@@ -59,6 +59,13 @@ function loadBuildInfo() {
         });
 }
 
+function updateModelCountBadge(loadedCount, totalCount) {
+    const badge = document.getElementById('modelCountBadge');
+    if (badge) {
+        badge.textContent = loadedCount + '/' + totalCount;
+    }
+}
+
 function loadModels() {
     const modelsList = document.getElementById('modelsList');
     fetch('/api/models/list')
@@ -66,11 +73,8 @@ function loadModels() {
         .then(data => {
             if (data.success) {
                 const allModels = data.models || [];
-                if (data.success) {
-                    const totalCount = (allModels || []).length;
-                    const el = document.getElementById('totalModelsCount');
-                    if (el) el.textContent = totalCount;
-                }
+                const totalCount = allModels.length;
+                updateModelCountBadge(0, totalCount);
                 return fetch('/api/models/loaded')
                     .then(response => response.json())
                     .then(loadedData => {
@@ -112,8 +116,7 @@ function loadModels() {
                                 populateNodeFilter();
                                 if (loadedData.success) {
                                     const loadedCount = (loadedData.models || []).length;
-                                    const el = document.getElementById('loadedModelsCount');
-                                    if (el) el.textContent = loadedCount;
+                                    updateModelCountBadge(loadedCount, totalCount);
                                 }
                             })
                             .catch(() => {
@@ -122,8 +125,7 @@ function loadModels() {
                                 populateNodeFilter();
                                 if (loadedData.success) {
                                     const loadedCount = (loadedData.models || []).length;
-                                    const el = document.getElementById('loadedModelsCount');
-                                    if (el) el.textContent = loadedCount;
+                                    updateModelCountBadge(loadedCount, totalCount);
                                 }
                             });
                     });

@@ -1909,8 +1909,8 @@ public class LlamaServer {
 				}
 			});
 
-			tray.start("LlamaCpp Server - 运行中");
-			tray.displayInfoMessage("启动成功", "LlamaCpp Server 已在后台运行");
+			tray.start("llama.cpp-hub");
+			tray.displayInfoMessage("启动成功", "llama.cpp-hub 已在后台运行");
 		} catch (Exception e) {
 			e.printStackTrace();
 		}

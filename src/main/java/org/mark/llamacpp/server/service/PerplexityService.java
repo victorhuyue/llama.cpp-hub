@@ -35,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
 import io.netty.buffer.Unpooled;
@@ -66,6 +67,8 @@ public class PerplexityService {
 	private static final List<String> CACHE_TYPES = List.of(
 			"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1");
 
+	private static final List<String> SPLIT_MODES = List.of("none", "layer", "row", "tensor");
+
 	private static final ReentrantLock RUN_LOCK = new ReentrantLock();
 
 	private volatile String cachedTestRawPath = null;
@@ -88,6 +91,8 @@ public class PerplexityService {
 		String extraParams = JsonUtil.getJsonString(json, "extraParams", "").trim();
 		String cacheTypeK = JsonUtil.getJsonString(json, "cacheTypeK", "").trim();
 		String cacheTypeV = JsonUtil.getJsonString(json, "cacheTypeV", "").trim();
+		String splitMode = JsonUtil.getJsonString(json, "splitMode", "").trim();
+		List<String> devices = parseDevices(json.get("devices"));
 
 		if (ctxSize <= 0) {
 			throw new IllegalArgumentException("ctx-size 必须大于 0");
@@ -103,6 +108,9 @@ public class PerplexityService {
 		}
 		if (!cacheTypeV.isEmpty() && !CACHE_TYPES.contains(cacheTypeV)) {
 			throw new IllegalArgumentException("--cache-type-v 不支持: " + cacheTypeV);
+		}
+		if (!splitMode.isEmpty() && !SPLIT_MODES.contains(splitMode)) {
+			throw new IllegalArgumentException("--split-mode 不支持: " + splitMode);
 		}
 
 		LlamaServerManager manager = LlamaServerManager.getInstance();
@@ -135,7 +143,7 @@ public class PerplexityService {
 		long startTime = System.currentTimeMillis();
 		try {
 			List<String> command = buildCommand(perplexityExe, modelPath, testFile, ctxSize, ngl, pplStride,
-					cacheTypeK, cacheTypeV, extraParams);
+					cacheTypeK, cacheTypeV, splitMode, devices, extraParams);
 			sendJsonLine(ctx, "started", Map.of("command", command));
 
 			ProcessBuilder pb = new ProcessBuilder(command);
@@ -343,7 +351,8 @@ public class PerplexityService {
 	}
 
 	private List<String> buildCommand(File perplexityExe, String modelPath, File testFile,
-			int ctxSize, int ngl, int pplStride, String cacheTypeK, String cacheTypeV, String extraParams) {
+			int ctxSize, int ngl, int pplStride, String cacheTypeK, String cacheTypeV, String splitMode,
+			List<String> devices, String extraParams) {
 		List<String> command = new ArrayList<>();
 		command.add(perplexityExe.getAbsolutePath());
 		command.add("-m");
@@ -365,6 +374,14 @@ public class PerplexityService {
 		if (!cacheTypeV.isEmpty()) {
 			command.add("--cache-type-v");
 			command.add(cacheTypeV);
+		}
+		if (!splitMode.isEmpty()) {
+			command.add("--split-mode");
+			command.add(splitMode);
+		}
+		if (devices != null && !devices.isEmpty()) {
+			command.add("--device");
+			command.add(String.join(",", devices));
 		}
 		if (!extraParams.isEmpty()) {
 			command.addAll(CommandLineRunner.splitCommandLineArgs(extraParams));
@@ -427,6 +444,35 @@ public class PerplexityService {
 		byte[] bytes = (text + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
 		DefaultHttpContent content = new DefaultHttpContent(Unpooled.copiedBuffer(bytes));
 		NettyWriteHelper.writeAndFlushBlocking(ctx, content, logger, "[perplexity]");
+	}
+
+	private List<String> parseDevices(JsonElement element) {
+		if (element == null || element.isJsonNull()) {
+			return new ArrayList<>();
+		}
+		List<String> list = new ArrayList<>();
+		if (element.isJsonArray()) {
+			for (JsonElement e : element.getAsJsonArray()) {
+				if (e != null && !e.isJsonNull()) {
+					String v = e.getAsString().trim();
+					if (!v.isEmpty()) {
+						list.add(v);
+					}
+				}
+			}
+			return list;
+		}
+		String raw = element.getAsString().trim();
+		if (raw.isEmpty()) {
+			return list;
+		}
+		for (String v : raw.split("\\s*,\\s*")) {
+			v = v.trim();
+			if (!v.isEmpty()) {
+				list.add(v);
+			}
+		}
+		return list;
 	}
 
 	private String requireString(JsonObject json, String key) {

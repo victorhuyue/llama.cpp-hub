@@ -1873,5 +1873,17 @@
   "page.tools.perplexity.status.remote_running": "Running on remote node…",
   "page.tools.perplexity.hint.dataset_missing": "Dataset missing: {message}",
   "page.tools.perplexity.action.download_dataset": "Download Dataset",
-  "page.tools.perplexity.action.copy": "Copy"
+  "page.tools.perplexity.action.copy": "Copy",
+  "page.tools.perplexity.hint.select_model": "Select a model to test",
+  "page.tools.perplexity.hint.click_configure": "Click \"Configure\" to edit",
+  "page.tools.perplexity.empty.params": "Using default parameters",
+  "page.tools.perplexity.action.configure_params": "Configure",
+  "page.tools.perplexity.action.reset_params": "Reset",
+  "page.tools.perplexity.modal.params.title": "Parameter Configuration",
+  "page.tools.perplexity.label.split_mode": "Split Mode (--split-mode)",
+  "page.tools.perplexity.label.devices": "GPU Devices",
+  "page.tools.perplexity.devices.desc": "Select GPU devices for testing",
+  "page.tools.perplexity.devices.placeholder": "Please select a llama.cpp directory first",
+  "page.tools.perplexity.devices.empty": "No GPU devices found",
+  "page.tools.perplexity.error.split_mode_invalid": "Invalid split-mode value"
 }

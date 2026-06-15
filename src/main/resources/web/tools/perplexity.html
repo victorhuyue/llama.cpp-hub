@@ -20,7 +20,7 @@
     .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .status-text { font-size: 13px; color: var(--text-secondary); margin-left: 10px; min-width: 90px; text-align: right; }
     .main { flex: 1 1 0; display: flex; gap: 20px; min-height: 0; }
-    .left-col { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; gap: 18px; overflow: auto; }
+    .left-col { width: 460px; flex-shrink: 0; display: flex; flex-direction: column; gap: 18px; overflow: auto; }
     .right-col { flex: 1 1 0; display: flex; flex-direction: column; gap: 18px; min-width: 0; min-height: 0; }
     .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.05); }
     .card.grow { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; }
@@ -29,15 +29,19 @@
     .section-title .hint { font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-left: auto; }
     .field { display: flex; flex-direction: column; gap: 6px; }
     .field label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+    .field label.inline { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
+    .field .desc { font-size: 12px; color: var(--text-secondary); font-weight: 400; line-height: 1.4; }
     .form-control { width: 100%; padding: 9px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--card-bg); color: var(--text-primary); }
     .form-control:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(129,140,248,0.12); }
     .form-control:disabled { opacity: .55; cursor: not-allowed; background: var(--disabled-bg, rgba(128,128,128,0.08)); }
     select.form-control { cursor: pointer; }
     select[size] { height: auto; min-height: 140px; padding: 6px; }
     select[size] option { padding: 8px 10px; border-radius: 6px; margin: 2px 0; }
-    select[size] option:hover { background: rgba(129,140,248,0.10); }
-    select[size] option:checked { background: rgba(129,140,248,0.18); font-weight: 600; }
-    .param-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    select[size] option:hover { background: rgba(129,140,248,0.15); }
+    select[size] option:checked { background: var(--primary-color); color: #fff; font-weight: 600; box-shadow: 0 2px 6px rgba(99,102,241,0.35); }
+    .model-select { height: 220px; margin-top: 8px; }
+    .model-select option { padding: 10px 12px; }
+    .param-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
     .param-grid .full { grid-column: 1 / -1; }
     .warning-box { background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.35); border-radius: 10px; padding: 12px 14px; font-size: 13px; color: #b45309; display: flex; align-items: flex-start; gap: 10px; }
     [data-theme="dark"] .warning-box { color: #fbbf24; }
@@ -65,6 +69,40 @@
     .empty-tip { color: var(--text-secondary); opacity: .7; }
     .cmd-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .cmd-header .section-title { margin: 0; }
+    .summary-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .summary-tag { background: rgba(129,140,248,0.10); border: 1px solid rgba(129,140,248,0.25); border-radius: 20px; padding: 4px 10px; font-size: 12px; color: var(--primary-color); }
+    .summary-tag.empty { color: var(--text-secondary); border-style: dashed; background: transparent; }
+    .summary-tag i { margin-right: 4px; }
+
+    /* Modal */
+    #perplexityParamsModal .modal-content { max-width: 900px; height: 85vh; min-height: 85vh; max-height: 85vh; }
+    #perplexityParamsModal .modal-body { overflow: hidden; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    #perplexityParamsModal #paramsForm { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    #perplexityParamsModal .load-model-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; align-items: stretch; flex: 1; min-height: 0; }
+    #perplexityParamsModal #basicParamsContainer, #perplexityParamsModal #dynamicParamsContainer { overflow-y: auto; min-height: 0; }
+    #perplexityParamsModal .param-groups { display: flex; flex-direction: column; gap: 1rem; }
+    #perplexityParamsModal .param-group { border: 1px solid var(--border-color); border-radius: 0.875rem; background-color: var(--card-bg); overflow: hidden; }
+    #perplexityParamsModal .param-group-summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; cursor: pointer; padding: 0.85rem 1rem; background: #f4f8fb; font-size: 0.95rem; font-weight: 600; color: #334e68; }
+    [data-theme="dark"] #perplexityParamsModal .param-group-summary { background: rgba(255,255,255,0.04); }
+    #perplexityParamsModal .param-group-summary::-webkit-details-marker { display: none; }
+    #perplexityParamsModal .param-group-summary::after { content: '▾'; font-size: 0.85rem; color: #7b9bb8; transition: transform 0.2s ease; }
+    #perplexityParamsModal .param-group:not([open]) .param-group-summary::after { transform: rotate(-90deg); }
+    #perplexityParamsModal .param-group-title { flex: 1; min-width: 0; }
+    #perplexityParamsModal .param-group-body { padding: 1rem; }
+    #perplexityParamsModal .param-group-body .form-group:last-child { margin-bottom: 0; }
+    #perplexityParamsModal .device-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 260px; overflow-y: auto; padding: 0.25rem; }
+    #perplexityParamsModal .device-item { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.6rem 0.75rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: rgba(0,0,0,0.02); cursor: pointer; }
+    [data-theme="dark"] #perplexityParamsModal .device-item { background: rgba(0,0,0,0.12); }
+    #perplexityParamsModal .device-item:hover { border-color: var(--primary-color); }
+    #perplexityParamsModal .device-item input { margin-top: 0.15rem; flex-shrink: 0; }
+    #perplexityParamsModal .device-item span { font-size: 0.85rem; line-height: 1.4; }
+    #perplexityParamsModal .device-placeholder { color: var(--text-secondary); font-size: 0.85rem; padding: 0.5rem 0.25rem; }
+
+    @media (max-width: 768px) {
+      #perplexityParamsModal .modal-content { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; }
+      #perplexityParamsModal .load-model-layout { grid-template-columns: 1fr; }
+    }
+
     @media (max-width: 1000px) {
       .wrap { height: auto; min-height: 100vh; }
       .main { flex-direction: column; }
@@ -73,9 +111,9 @@
       header { flex-direction: column; align-items: flex-start; }
       .actions { width: 100%; }
       .status-text { margin-left: auto; }
+      .modal { max-width: 100%; }
     }
     @media (max-width: 720px) {
-      .param-grid { grid-template-columns: 1fr; }
       .wrap { padding: 12px; }
       .left-col { width: auto; }
     }
@@ -103,77 +141,33 @@
   <div class="main">
     <aside class="left-col">
       <section class="card">
-        <h2 class="section-title"><i class="fas fa-sliders-h"></i> <span data-i18n="page.tools.perplexity.section.configuration">测试配置</span></h2>
+        <h2 class="section-title"><i class="fas fa-cube"></i> <span data-i18n="page.tools.perplexity.section.models">模型</span> <span class="hint" data-i18n="page.tools.perplexity.hint.select_model">选择要测试的模型</span></h2>
 
-        <div class="param-grid">
-          <div class="field full">
-            <label for="nodeSelect" data-i18n="page.tools.perplexity.label.node">计算节点</label>
-            <select id="nodeSelect" class="form-control"></select>
-          </div>
+        <div class="form-group">
+          <label class="form-label" for="nodeSelect" data-i18n="page.tools.perplexity.label.node">计算节点</label>
+          <select id="nodeSelect" class="form-control"></select>
+        </div>
 
-          <div class="field full">
-            <label for="llamaBinSelect" data-i18n="page.tools.perplexity.label.llama_bin">llama.cpp 目录</label>
-            <select id="llamaBinSelect" class="form-control"></select>
-          </div>
+        <div class="form-group">
+          <label class="form-label" for="llamaBinSelect" data-i18n="page.tools.perplexity.label.llama_bin">llama.cpp 目录</label>
+          <select id="llamaBinSelect" class="form-control"></select>
+        </div>
 
-          <div class="field full">
-            <label for="modelSearch" data-i18n="page.tools.perplexity.label.model">模型</label>
-            <input id="modelSearch" class="form-control" type="text" placeholder="搜索模型..." data-i18n-attr="placeholder" data-i18n="page.tools.perplexity.placeholder.search" />
-            <select id="modelSelect" class="form-control" size="5"></select>
-            <div id="modelMeta" class="meta-line"></div>
-          </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="modelSearch" data-i18n="page.tools.perplexity.label.model">模型</label>
+          <input id="modelSearch" class="form-control" type="text" placeholder="搜索模型..." data-i18n-attr="placeholder" data-i18n="page.tools.perplexity.placeholder.search" />
+          <select id="modelSelect" class="form-control model-select" size="8"></select>
+          <div id="modelMeta" class="meta-line"></div>
         </div>
       </section>
 
       <section class="card">
-        <h2 class="section-title"><i class="fas fa-microchip"></i> <span>参数</span></h2>
-        <div class="param-grid">
-          <div class="field">
-            <label for="ctxSizeInput" data-i18n="page.tools.perplexity.label.ctx_size">上下文大小</label>
-            <input id="ctxSizeInput" type="number" class="form-control" value="512" min="1" />
-          </div>
-          <div class="field">
-            <label for="nglInput" data-i18n="page.tools.perplexity.label.ngl">GPU 层数</label>
-            <input id="nglInput" type="number" class="form-control" value="99" min="-1" />
-          </div>
-          <div class="field">
-            <label for="pplStrideInput" data-i18n="page.tools.perplexity.label.ppl_stride">PPL 步长</label>
-            <input id="pplStrideInput" type="number" class="form-control" value="0" min="0" />
-          </div>
-          <div class="field">
-            <label for="cacheTypeK" data-i18n="page.tools.perplexity.label.cache_type_k">K 缓存类型</label>
-            <select id="cacheTypeK" class="form-control">
-              <option value="" data-i18n="page.tools.perplexity.option.default">默认</option>
-              <option value="f32">f32</option>
-              <option value="f16">f16</option>
-              <option value="bf16">bf16</option>
-              <option value="q8_0">q8_0</option>
-              <option value="q4_0">q4_0</option>
-              <option value="q4_1">q4_1</option>
-              <option value="iq4_nl">iq4_nl</option>
-              <option value="q5_0">q5_0</option>
-              <option value="q5_1">q5_1</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="cacheTypeV" data-i18n="page.tools.perplexity.label.cache_type_v">V 缓存类型</label>
-            <select id="cacheTypeV" class="form-control">
-              <option value="" data-i18n="page.tools.perplexity.option.default">默认</option>
-              <option value="f32">f32</option>
-              <option value="f16">f16</option>
-              <option value="bf16">bf16</option>
-              <option value="q8_0">q8_0</option>
-              <option value="q4_0">q4_0</option>
-              <option value="q4_1">q4_1</option>
-              <option value="iq4_nl">iq4_nl</option>
-              <option value="q5_0">q5_0</option>
-              <option value="q5_1">q5_1</option>
-            </select>
-          </div>
-          <div class="field full">
-            <label for="extraParamsInput" data-i18n="page.tools.perplexity.label.extra_params">额外参数</label>
-            <input id="extraParamsInput" type="text" class="form-control" placeholder="例如: -t 4 --no-mmap" data-i18n-attr="placeholder" data-i18n="page.tools.perplexity.placeholder.extra_params" />
-          </div>
+        <div class="cmd-header" style="margin-bottom:12px;">
+          <h2 class="section-title" style="margin:0;"><i class="fas fa-sliders-h"></i> <span data-i18n="page.tools.perplexity.section.params">参数</span></h2>
+          <button id="openParamsBtn" class="btn btn-secondary btn-sm" data-i18n="page.tools.perplexity.action.configure_params"><i class="fas fa-cog"></i> 参数配置</button>
+        </div>
+        <div id="paramsSummary" class="summary-row">
+          <span class="summary-tag empty" data-i18n="page.tools.perplexity.empty.params">使用默认参数</span>
         </div>
       </section>
 
@@ -227,10 +221,123 @@
   </div>
 </div>
 
+<div class="modal" id="perplexityParamsModal">
+  <div class="modal-content load-model-modal">
+    <div class="modal-header">
+      <h3 class="modal-title"><i class="fas fa-sliders-h"></i> <span data-i18n="page.tools.perplexity.modal.params.title">参数配置</span></h3>
+      <button class="modal-close" id="closeParamsBtn">&times;</button>
+    </div>
+    <div class="modal-body">
+      <form id="paramsForm">
+        <div class="load-model-layout">
+          <div id="basicParamsContainer">
+            <div class="form-group">
+              <label class="form-label" for="ctxSizeInput" data-i18n="page.tools.perplexity.label.ctx_size">上下文大小</label>
+              <input id="ctxSizeInput" type="number" class="form-control" value="512" min="1" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="nglInput" data-i18n="page.tools.perplexity.label.ngl">GPU 层数</label>
+              <input id="nglInput" type="number" class="form-control" value="99" min="-1" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="pplStrideInput" data-i18n="page.tools.perplexity.label.ppl_stride">PPL 步长</label>
+              <input id="pplStrideInput" type="number" class="form-control" value="0" min="0" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="splitModeSelect" data-i18n="page.tools.perplexity.label.split_mode">拆分模式 (--split-mode)</label>
+              <select id="splitModeSelect" class="form-control">
+                <option value="" data-i18n="page.tools.perplexity.option.default">默认</option>
+                <option value="none">none</option>
+                <option value="layer">layer</option>
+                <option value="row">row</option>
+                <option value="tensor">tensor</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="cacheTypeK" data-i18n="page.tools.perplexity.label.cache_type_k">K 缓存类型</label>
+              <select id="cacheTypeK" class="form-control">
+                <option value="" data-i18n="page.tools.perplexity.option.default">默认</option>
+                <option value="f32">f32</option>
+                <option value="f16">f16</option>
+                <option value="bf16">bf16</option>
+                <option value="q8_0">q8_0</option>
+                <option value="q4_0">q4_0</option>
+                <option value="q4_1">q4_1</option>
+                <option value="iq4_nl">iq4_nl</option>
+                <option value="q5_0">q5_0</option>
+                <option value="q5_1">q5_1</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="cacheTypeV" data-i18n="page.tools.perplexity.label.cache_type_v">V 缓存类型</label>
+              <select id="cacheTypeV" class="form-control">
+                <option value="" data-i18n="page.tools.perplexity.option.default">默认</option>
+                <option value="f32">f32</option>
+                <option value="f16">f16</option>
+                <option value="bf16">bf16</option>
+                <option value="q8_0">q8_0</option>
+                <option value="q4_0">q4_0</option>
+                <option value="q4_1">q4_1</option>
+                <option value="iq4_nl">iq4_nl</option>
+                <option value="q5_0">q5_0</option>
+                <option value="q5_1">q5_1</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="dynamicParamsContainer">
+            <div class="param-groups">
+              <details class="param-group" open>
+                <summary class="param-group-summary">
+                  <span class="param-group-title" data-i18n="page.tools.perplexity.label.devices">GPU 设备</span>
+                </summary>
+                <div class="param-group-body">
+                  <div class="form-group" style="margin-bottom:0;">
+                    <small class="form-text" data-i18n="page.tools.perplexity.devices.desc">选择运行测试的 GPU 设备</small>
+                    <div id="devicesList" class="device-list">
+                      <div class="device-placeholder" data-i18n="page.tools.perplexity.devices.placeholder">请先选择 llama.cpp 目录</div>
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <details class="param-group" open>
+                <summary class="param-group-summary">
+                  <span class="param-group-title" data-i18n="page.tools.perplexity.label.extra_params">额外参数</span>
+                </summary>
+                <div class="param-group-body">
+                  <div class="form-group" style="margin-bottom:0;">
+                    <input id="extraParamsInput" type="text" class="form-control" placeholder="例如: -t 4 --no-mmap" data-i18n-attr="placeholder" data-i18n="page.tools.perplexity.placeholder.extra_params" />
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="cancelParamsBtn" data-i18n="common.cancel">取消</button>
+      <button class="btn btn-secondary" id="resetParamsBtn" data-i18n="page.tools.perplexity.action.reset_params">重置</button>
+      <button class="btn btn-primary" id="saveParamsBtn" data-i18n="common.save">保存</button>
+    </div>
+  </div>
+</div>
+
 <script src="/js/i18n.js"></script>
 <script>
 (function() {
   const DATASET_DOWNLOAD_URL = 'https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip';
+  const DEFAULT_PARAMS = {
+    ctxSize: '512',
+    ngl: '99',
+    pplStride: '0',
+    cacheTypeK: '',
+    cacheTypeV: '',
+    splitMode: '',
+    extraParams: ''
+  };
+  const SPLIT_MODES = ['none', 'layer', 'row', 'tensor'];
   const els = {
     nodeSelect: document.getElementById('nodeSelect'),
     modelSearch: document.getElementById('modelSearch'),
@@ -242,12 +349,21 @@
     pplStrideInput: document.getElementById('pplStrideInput'),
     cacheTypeK: document.getElementById('cacheTypeK'),
     cacheTypeV: document.getElementById('cacheTypeV'),
+    splitModeSelect: document.getElementById('splitModeSelect'),
+    devicesList: document.getElementById('devicesList'),
     extraParamsInput: document.getElementById('extraParamsInput'),
     runBtn: document.getElementById('runBtn'),
     cancelBtn: document.getElementById('cancelBtn'),
     clearBtn: document.getElementById('clearBtn'),
     copyCmdBtn: document.getElementById('copyCmdBtn'),
     copyCmdSmallBtn: document.getElementById('copyCmdSmallBtn'),
+    openParamsBtn: document.getElementById('openParamsBtn'),
+    closeParamsBtn: document.getElementById('closeParamsBtn'),
+    cancelParamsBtn: document.getElementById('cancelParamsBtn'),
+    saveParamsBtn: document.getElementById('saveParamsBtn'),
+    resetParamsBtn: document.getElementById('resetParamsBtn'),
+    paramsModal: document.getElementById('perplexityParamsModal'),
+    paramsSummary: document.getElementById('paramsSummary'),
     commandCard: document.getElementById('commandCard'),
     commandPre: document.getElementById('commandPre'),
     statusText: document.getElementById('statusText'),
@@ -275,6 +391,8 @@
   let abortController = null;
   let isRunning = false;
   let lastCommand = [];
+  let devices = [];
+  let selectedDevices = [];
 
   function t(key, fallback) {
     if (window.I18N && typeof window.I18N.t === 'function') {
@@ -440,9 +558,140 @@
         opt.textContent = item.name || item.path || '';
         els.llamaBinSelect.appendChild(opt);
       });
+      await loadDevices();
     } catch (e) {
       els.llamaBinSelect.innerHTML = '<option value="">' + t('page.tools.perplexity.option.load_failed', '加载失败') + '</option>';
+      devices = [];
+      renderDevices();
     }
+  }
+
+  async function loadDevices() {
+    const llamaBinPath = (els.llamaBinSelect.value || '').trim();
+    if (!llamaBinPath) {
+      devices = [];
+      els.devicesList.innerHTML = '<div class="device-placeholder">' + escapeHtml(t('page.tools.perplexity.devices.placeholder', '请先选择 llama.cpp 目录')) + '</div>';
+      return;
+    }
+    els.devicesList.innerHTML = '<div class="device-placeholder">' + escapeHtml(t('common.loading', '加载中…')) + '</div>';
+    try {
+      let url = '/api/model/device/list?llamaBinPath=' + encodeURIComponent(llamaBinPath);
+      if (selectedNodeId && selectedNodeId !== 'local') {
+        url += '&nodeId=' + encodeURIComponent(selectedNodeId);
+      }
+      const data = await fetchJson(url, { method: 'GET' });
+      if (data && data.success && data.data && Array.isArray(data.data.devices)) {
+        devices = data.data.devices;
+      } else {
+        devices = [];
+      }
+    } catch (e) {
+      devices = [];
+    }
+    const availablePrefixes = devices.map(devicePrefix);
+    selectedDevices = selectedDevices.filter(p => availablePrefixes.includes(p));
+    renderDevices();
+  }
+
+  function devicePrefix(dev) {
+    const raw = typeof dev === 'string' ? dev : (dev && (dev.name || dev.id || dev.brand || String(dev)));
+    if (!raw) return '';
+    const prefix = String(raw).split(':')[0].trim();
+    return prefix.toLowerCase();
+  }
+
+  function deviceLabel(dev) {
+    if (dev == null) return '';
+    return typeof dev === 'string' ? dev.trim() : String(dev.name || dev.id || dev.brand || dev).trim();
+  }
+
+  function renderDevices() {
+    els.devicesList.innerHTML = '';
+    if (!devices.length) {
+      els.devicesList.innerHTML = '<div class="device-placeholder">' + escapeHtml(t('page.tools.perplexity.devices.empty', '未发现可用 GPU 设备')) + '</div>';
+      return;
+    }
+    devices.forEach((dev, idx) => {
+      const label = deviceLabel(dev);
+      const prefix = devicePrefix(dev);
+      const item = document.createElement('label');
+      item.className = 'device-item';
+      const checked = selectedDevices.includes(prefix) ? 'checked' : '';
+      item.innerHTML = '<input type="checkbox" data-device-prefix="' + escapeHtml(prefix) + '" ' + checked + '><span>' + escapeHtml(label) + '</span>';
+      item.querySelector('input').addEventListener('change', () => {});
+      els.devicesList.appendChild(item);
+    });
+  }
+
+  function readDevicesFromUi() {
+    const checked = Array.from(els.devicesList.querySelectorAll('input[type=checkbox]:checked'));
+    return checked.map(chk => chk.dataset.devicePrefix).filter(Boolean);
+  }
+
+  function getSelectedDevices() {
+    if (els.paramsModal.classList.contains('show')) {
+      return readDevicesFromUi();
+    }
+    return selectedDevices.slice();
+  }
+
+  function openParamsModal() {
+    renderDevices();
+    els.paramsModal.classList.add('show');
+  }
+
+  function closeParamsModal() {
+    els.paramsModal.classList.remove('show');
+  }
+
+  function saveParams() {
+    selectedDevices = readDevicesFromUi();
+    updateParamsSummary();
+    closeParamsModal();
+  }
+
+  function resetParams() {
+    els.ctxSizeInput.value = DEFAULT_PARAMS.ctxSize;
+    els.nglInput.value = DEFAULT_PARAMS.ngl;
+    els.pplStrideInput.value = DEFAULT_PARAMS.pplStride;
+    els.cacheTypeK.value = DEFAULT_PARAMS.cacheTypeK;
+    els.cacheTypeV.value = DEFAULT_PARAMS.cacheTypeV;
+    els.splitModeSelect.value = DEFAULT_PARAMS.splitMode;
+    els.extraParamsInput.value = DEFAULT_PARAMS.extraParams;
+    selectedDevices = [];
+    renderDevices();
+  }
+
+  function updateParamsSummary() {
+    const tags = [];
+    const ctxSize = parseInt(els.ctxSizeInput.value, 10);
+    if (Number.isFinite(ctxSize) && ctxSize !== 512) tags.push({ icon: 'fa-ruler-horizontal', text: 'ctx=' + ctxSize });
+    const ngl = parseInt(els.nglInput.value, 10);
+    if (Number.isFinite(ngl) && ngl !== 99) tags.push({ icon: 'fa-layer-group', text: 'ngl=' + ngl });
+    const pplStride = parseInt(els.pplStrideInput.value, 10);
+    if (Number.isFinite(pplStride) && pplStride > 0) tags.push({ icon: 'fa-shoe-prints', text: 'stride=' + pplStride });
+    if (els.cacheTypeK.value) tags.push({ icon: 'fa-memory', text: 'K=' + els.cacheTypeK.value });
+    if (els.cacheTypeV.value) tags.push({ icon: 'fa-memory', text: 'V=' + els.cacheTypeV.value });
+    if (els.splitModeSelect.value) tags.push({ icon: 'fa-code-branch', text: 'split=' + els.splitModeSelect.value });
+    const selectedDevices = getSelectedDevices();
+    if (selectedDevices.length) tags.push({ icon: 'fa-microchip', text: selectedDevices.join(',') });
+    const extra = els.extraParamsInput.value.trim();
+    if (extra) tags.push({ icon: 'fa-terminal', text: extra });
+
+    els.paramsSummary.innerHTML = '';
+    if (!tags.length) {
+      const span = document.createElement('span');
+      span.className = 'summary-tag empty';
+      span.textContent = t('page.tools.perplexity.empty.params', '使用默认参数');
+      els.paramsSummary.appendChild(span);
+      return;
+    }
+    tags.forEach(tag => {
+      const span = document.createElement('span');
+      span.className = 'summary-tag';
+      span.innerHTML = '<i class="fas ' + escapeHtml(tag.icon) + '"></i>' + escapeHtml(tag.text);
+      els.paramsSummary.appendChild(span);
+    });
   }
 
   function setStatus(text) {
@@ -497,6 +746,8 @@
       pplStride: parseInt(els.pplStrideInput.value, 10) || 0,
       cacheTypeK: els.cacheTypeK.value,
       cacheTypeV: els.cacheTypeV.value,
+      splitMode: els.splitModeSelect.value,
+      devices: getSelectedDevices(),
       extraParams: els.extraParamsInput.value.trim()
     };
   }
@@ -512,12 +763,16 @@
     if (!Number.isFinite(p.ctxSize) || p.ctxSize <= 0) return t('page.tools.perplexity.error.ctx_size_gt0', 'ctx-size 必须大于 0');
     if (!Number.isFinite(p.ngl) || p.ngl < -1) return t('page.tools.perplexity.error.ngl_ge_minus1', 'n-gpu-layers 不能小于 -1');
     if (!Number.isFinite(p.pplStride) || p.pplStride < 0) return t('page.tools.perplexity.error.ppl_stride_ge0', 'ppl-stride 不能小于 0');
+    if (p.splitMode && !SPLIT_MODES.includes(p.splitMode)) return t('page.tools.perplexity.error.split_mode_invalid', 'split-mode 值无效');
     return null;
   }
 
   function setInputsDisabled(disabled) {
     [els.nodeSelect, els.modelSearch, els.modelSelect, els.llamaBinSelect, els.ctxSizeInput,
-      els.nglInput, els.pplStrideInput, els.cacheTypeK, els.cacheTypeV, els.extraParamsInput].forEach(el => el.disabled = disabled);
+      els.nglInput, els.pplStrideInput, els.cacheTypeK, els.cacheTypeV, els.splitModeSelect,
+      els.extraParamsInput, els.openParamsBtn].forEach(el => { if (el) el.disabled = disabled; });
+    const deviceChecks = els.devicesList.querySelectorAll('input[type=checkbox]');
+    deviceChecks.forEach(chk => chk.disabled = disabled);
   }
 
   function showDatasetBanner(text) {
@@ -657,16 +912,31 @@
     els.nodeSelect.addEventListener('change', onNodeChange);
     els.modelSearch.addEventListener('input', renderModelSelect);
     els.modelSelect.addEventListener('change', () => selectModel(els.modelSelect.value));
+    els.llamaBinSelect.addEventListener('change', loadDevices);
     els.runBtn.addEventListener('click', runTest);
     els.cancelBtn.addEventListener('click', cancelTest);
     els.clearBtn.addEventListener('click', clearLog);
     els.copyCmdBtn.addEventListener('click', copyCommand);
     els.copyCmdSmallBtn.addEventListener('click', copyCommand);
+    els.openParamsBtn.addEventListener('click', openParamsModal);
+    els.closeParamsBtn.addEventListener('click', closeParamsModal);
+    els.cancelParamsBtn.addEventListener('click', closeParamsModal);
+    els.saveParamsBtn.addEventListener('click', saveParams);
+    els.resetParamsBtn.addEventListener('click', resetParams);
+    els.paramsModal.addEventListener('click', (e) => {
+      if (e.target === els.paramsModal) closeParamsModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && els.paramsModal.classList.contains('show')) {
+        closeParamsModal();
+      }
+    });
   }
 
   function init() {
     initEvents();
     loadNodes();
+    updateParamsSummary();
     setStatus(t('page.tools.perplexity.status.ready', '就绪'));
   }
 

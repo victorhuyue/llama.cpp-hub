@@ -19,19 +19,12 @@ import java.util.List;
 import java.util.Map;
 
 import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLEngine;
 
 import org.mark.llamacpp.lmstudio.LMStudio;
 import org.mark.llamacpp.ollama.Ollama;
-import org.mark.llamacpp.server.channel.BasicRouterHandler;
-import org.mark.llamacpp.server.channel.CompletionRouterHandler;
-import org.mark.llamacpp.server.channel.FileDownloadRouterHandler;
 import org.apache.logging.log4j.LogManager;
 import org.mark.file.downloader.DownloadTaskManager;
-import org.mark.llamacpp.server.channel.EasyChatStreamingHandler;
-import org.mark.llamacpp.server.channel.FileUploadRouterHandler;
-import org.mark.llamacpp.server.channel.OpenAIChatStreamingHandler;
-import org.mark.llamacpp.server.channel.LlamaRouterHandler;
+import org.mark.llamacpp.server.channel.HttpHttpsUnificationHandler;
 import org.mark.llamacpp.server.io.ConsoleBroadcastOutputStream;
 import org.mark.llamacpp.server.io.ConsoleBufferLogAppender;
 import org.mark.llamacpp.server.mcp.McpClientService;
@@ -46,7 +39,6 @@ import org.mark.llamacpp.server.struct.ProxyConfigData;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
 import org.mark.llamacpp.server.websocket.WebSocketManager;
-import org.mark.llamacpp.server.websocket.WebSocketServerHandler;
 import org.mark.test.mcp.DefaultMcpServiceImpl;
 import org.mark.llamacpp.win.WindowsTray;
 import org.slf4j.Logger;
@@ -77,19 +69,14 @@ import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
-import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedFile;
 import io.netty.handler.stream.ChunkedInput;
-import io.netty.handler.stream.ChunkedWriteHandler;
 import io.netty.util.CharsetUtil;
 
 
@@ -1068,31 +1055,8 @@ public class LlamaServer {
 					.childHandler(new ChannelInitializer<SocketChannel>() {
 						@Override
 						protected void initChannel(SocketChannel ch) throws Exception {
-							if (httpsSslContext != null) {
-								SSLEngine engine = httpsSslContext.newEngine(ch.alloc());
-								ch.pipeline().addLast(new SslHandler(engine)).addLast(new HttpServerCodec())
-										.addLast(new OpenAIChatStreamingHandler())
-										.addLast(new FileUploadRouterHandler())
-										.addLast(new EasyChatStreamingHandler())
-										.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
-										.addLast(new ChunkedWriteHandler())
-										.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
-										.addLast(new WebSocketServerHandler())
-
-										.addLast(new BasicRouterHandler()).addLast(new CompletionRouterHandler())
-										.addLast(new FileDownloadRouterHandler()).addLast(new LlamaRouterHandler());
-							} else {
-								ch.pipeline().addLast(new HttpServerCodec()).addLast(new OpenAIChatStreamingHandler())
-										.addLast(new FileUploadRouterHandler())
-										.addLast(new EasyChatStreamingHandler())
-										.addLast(new HttpObjectAggregator(MAX_HTTP_CONTENT_LENGTH))
-										.addLast(new ChunkedWriteHandler())
-										.addLast(new WebSocketServerProtocolHandler(WEBSOCKET_PATH, null, true, 32768))
-										.addLast(new WebSocketServerHandler())
-
-										.addLast(new BasicRouterHandler()).addLast(new CompletionRouterHandler())
-										.addLast(new FileDownloadRouterHandler()).addLast(new LlamaRouterHandler());
-							}
+							ch.pipeline().addLast(new HttpHttpsUnificationHandler(
+									httpsSslContext, port, WEBSOCKET_PATH, MAX_HTTP_CONTENT_LENGTH));
 						}
 
 						@Override
@@ -1104,8 +1068,11 @@ public class LlamaServer {
             
             ChannelFuture future = bootstrap.bind(port).sync();
             logger.info("OpenAI服务启动成功，端口: {}", port);
-            String protocol = httpsSslContext != null ? "https" : "http";
-            logger.info("访问地址: {}://localhost:{}", protocol, port);
+            if (httpsSslContext != null) {
+                logger.info("访问地址: https://localhost:{} (HTTP 请求会自动重定向到 HTTPS)", port);
+            } else {
+                logger.info("访问地址: http://localhost:{}", port);
+            }
             registerWebServerChannel(future.channel());
             
             future.channel().closeFuture().sync();

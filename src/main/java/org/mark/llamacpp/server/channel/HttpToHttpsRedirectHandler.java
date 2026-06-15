@@ -58,6 +58,7 @@ public class HttpToHttpsRedirectHandler extends SimpleChannelInboundHandler<Full
             response.headers().set(HttpHeaderNames.LOCATION, location);
             response.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0);
             response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+            response.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-store, must-revalidate");
             LlamaServer.setCorsHeaders(response.headers());
 
             ctx.writeAndFlush(response);

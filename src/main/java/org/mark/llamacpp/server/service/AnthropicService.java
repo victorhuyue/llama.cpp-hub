@@ -492,7 +492,7 @@ public class AnthropicService {
                     if (data.equals("[DONE]")) {
                         logger.info("收到流式响应结束标记");
                         ByteBuf doneContent = ctx.alloc().buffer();
-                        doneContent.writeBytes("data: [DONE]\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+                        doneContent.writeBytes("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
                         NettyWriteHelper.writeAndFlushBlocking(ctx, new DefaultHttpContent(doneContent), logger, "[AnthropicService]");
                         break;
                     }
@@ -514,7 +514,7 @@ public class AnthropicService {
 
                     ByteBuf content = ctx.alloc().buffer();
                     content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
-                    content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+                    content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 
                     HttpContent httpContent = new DefaultHttpContent(content);
                     if (!NettyWriteHelper.writeAndFlushBlocking(
@@ -532,7 +532,7 @@ public class AnthropicService {
                 } else if (line.startsWith("event: ")) {
                     ByteBuf content = ctx.alloc().buffer();
                     content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
-                    content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+                    content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 
                     HttpContent httpContent = new DefaultHttpContent(content);
                     if (!NettyWriteHelper.writeAndFlushBlocking(
@@ -547,7 +547,7 @@ public class AnthropicService {
                     }
                 } else if (line.isEmpty()) {
                     ByteBuf content = ctx.alloc().buffer();
-                    content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+                    content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 
                     HttpContent httpContent = new DefaultHttpContent(content);
                     if (!NettyWriteHelper.writeAndFlushBlocking(

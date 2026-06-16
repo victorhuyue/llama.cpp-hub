@@ -736,7 +736,7 @@ public class OpenAIService {
 							String data = line.substring(6);
 							if (data.equals("[DONE]")) {
 								ByteBuf doneContent = ctx.alloc().buffer();
-								doneContent.writeBytes("data: [DONE]\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+								doneContent.writeBytes("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
 								NettyWriteHelper.writeAndFlushBlocking(ctx, new DefaultHttpContent(doneContent), logger, "[OpenAIService-remote]");
 								break;
 							}
@@ -759,7 +759,7 @@ public class OpenAIService {
 
 							ByteBuf content = ctx.alloc().buffer();
 							content.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
-							content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+							content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 							if (!NettyWriteHelper.writeAndFlushBlocking(
 									ctx,
 									new DefaultHttpContent(content),
@@ -770,7 +770,7 @@ public class OpenAIService {
 						} else if (line.startsWith("event: ")) {
 							ByteBuf content = ctx.alloc().buffer();
 							content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
-							content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+							content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 							if (!NettyWriteHelper.writeAndFlushBlocking(
 									ctx,
 									new DefaultHttpContent(content),
@@ -780,7 +780,7 @@ public class OpenAIService {
 							}
 						} else if (line.isEmpty()) {
 							ByteBuf content = ctx.alloc().buffer();
-							content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+							content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 							if (!NettyWriteHelper.writeAndFlushBlocking(
 									ctx,
 									new DefaultHttpContent(content),
@@ -1550,7 +1550,7 @@ public class OpenAIService {
 					if (data.equals("[DONE]")) {
 						logger.info("收到流式响应结束标记");
 						ByteBuf doneContent = ctx.alloc().buffer();
-						doneContent.writeBytes("data: [DONE]\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+						doneContent.writeBytes("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
 						NettyWriteHelper.writeAndFlushBlocking(ctx, new DefaultHttpContent(doneContent), logger, "[OpenAIService-local]");
 						break;
 					}
@@ -1575,7 +1575,7 @@ public class OpenAIService {
 					// 创建数据块
 					ByteBuf content = ctx.alloc().buffer();
 					content.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					
 					// 创建HTTP内容块
 					HttpContent httpContent = new DefaultHttpContent(content);
@@ -1601,7 +1601,7 @@ public class OpenAIService {
 					// 处理事件行
 					ByteBuf content = ctx.alloc().buffer();
 					content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					
 					HttpContent httpContent = new DefaultHttpContent(content);
 					if (!NettyWriteHelper.writeAndFlushBlocking(
@@ -1617,7 +1617,7 @@ public class OpenAIService {
 				} else if (line.isEmpty()) {
 					// 发送空行作为分隔符
 					ByteBuf content = ctx.alloc().buffer();
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					
 					HttpContent httpContent = new DefaultHttpContent(content);
 					if (!NettyWriteHelper.writeAndFlushBlocking(

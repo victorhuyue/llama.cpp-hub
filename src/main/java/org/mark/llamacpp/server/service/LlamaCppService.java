@@ -379,7 +379,7 @@ public class LlamaCppService {
 				}
 				if ("[DONE]".equals(payload.trim())) {
 					io.netty.buffer.ByteBuf doneBuf = ctx.alloc().buffer();
-					doneBuf.writeBytes("data: [DONE]\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+					doneBuf.writeBytes("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
 					HttpContent doneContent = new DefaultHttpContent(doneBuf);
 					ctx.writeAndFlush(doneContent);
 					break;
@@ -423,7 +423,7 @@ public class LlamaCppService {
 									com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
 									arr.add(c);
 									out.add("choices", arr);
-									String outLine = "data: " + gson.toJson(out) + "\r\n\r\n";
+									String outLine = "data: " + gson.toJson(out) + "\n\n";
 									io.netty.buffer.ByteBuf contentBuf = ctx.alloc().buffer();
 									contentBuf.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
 									HttpContent httpContent = new DefaultHttpContent(contentBuf);
@@ -448,7 +448,7 @@ public class LlamaCppService {
 								com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
 								arr.add(c);
 								out.add("choices", arr);
-								String outLine = "data: " + gson.toJson(out) + "\r\n\r\n";
+								String outLine = "data: " + gson.toJson(out) + "\n\n";
 								io.netty.buffer.ByteBuf contentBuf = ctx.alloc().buffer();
 								contentBuf.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
 								HttpContent httpContent = new DefaultHttpContent(contentBuf);
@@ -476,7 +476,7 @@ public class LlamaCppService {
                                     com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
                                     arr.add(c);
                                     out.add("choices", arr);
-                                    String outLine = "data: " + gson.toJson(out) + "\r\n\r\n";
+                                    String outLine = "data: " + gson.toJson(out) + "\n\n";
                                     io.netty.buffer.ByteBuf contentBuf = ctx.alloc().buffer();
                                     contentBuf.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
                                     HttpContent httpContent = new DefaultHttpContent(contentBuf);
@@ -501,7 +501,7 @@ public class LlamaCppService {
 								com.google.gson.JsonArray arr = new com.google.gson.JsonArray();
 								arr.add(c);
 								out.add("choices", arr);
-								String outLine = "data: " + gson.toJson(out) + "\r\n\r\n";
+								String outLine = "data: " + gson.toJson(out) + "\n\n";
 								io.netty.buffer.ByteBuf contentBuf = ctx.alloc().buffer();
 								contentBuf.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
 								HttpContent httpContent = new DefaultHttpContent(contentBuf);
@@ -528,14 +528,14 @@ public class LlamaCppService {
 					com.google.gson.JsonArray farr = new com.google.gson.JsonArray();
 					farr.add(fc);
 					finalChunk.add("choices", farr);
-					String finalLine = "data: " + gson.toJson(finalChunk) + "\r\n\r\n";
+					String finalLine = "data: " + gson.toJson(finalChunk) + "\n\n";
 					io.netty.buffer.ByteBuf finalBuf = ctx.alloc().buffer();
 					finalBuf.writeBytes(finalLine.getBytes(StandardCharsets.UTF_8));
 					HttpContent finalContent = new DefaultHttpContent(finalBuf);
 					ctx.writeAndFlush(finalContent);
 					
 					io.netty.buffer.ByteBuf doneBuf = ctx.alloc().buffer();
-					doneBuf.writeBytes("data: [DONE]\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+					doneBuf.writeBytes("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
 					HttpContent doneContent = new DefaultHttpContent(doneBuf);
 					ctx.writeAndFlush(doneContent);
 					break;

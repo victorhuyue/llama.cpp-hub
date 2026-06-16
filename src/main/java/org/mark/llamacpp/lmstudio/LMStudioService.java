@@ -806,7 +806,7 @@ public class LMStudioService {
 					// 创建数据块
 					ByteBuf content = ctx.alloc().buffer();
 					content.writeBytes(outLine.getBytes(StandardCharsets.UTF_8));
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					
 					// 创建HTTP内容块
 					HttpContent httpContent = new DefaultHttpContent(content);
@@ -832,14 +832,14 @@ public class LMStudioService {
 					// 处理事件行
 					ByteBuf content = ctx.alloc().buffer();
 					content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					
 					HttpContent httpContent = new DefaultHttpContent(content);
 					ctx.writeAndFlush(httpContent);
 				} else if (line.isEmpty()) {
 					// 发送空行作为分隔符
 					ByteBuf content = ctx.alloc().buffer();
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					
 					HttpContent httpContent = new DefaultHttpContent(content);
 					ctx.writeAndFlush(httpContent);
@@ -853,13 +853,13 @@ public class LMStudioService {
 				
 				//// 这里做一个调试日志
 				//logger.info("测试输出 - lmstudio响应结果：{}", completion);
-				String out = "data: " + JsonUtil.toJson(completion) + "\r\n\r\n";
+				String out = "data: " + JsonUtil.toJson(completion) + "\n\n";
 				ByteBuf buf = ctx.alloc().buffer();
 				buf.writeBytes(out.getBytes(StandardCharsets.UTF_8));
 				ctx.writeAndFlush(new DefaultHttpContent(buf));
 				chunkCount++;
 
-				String done = "data: [DONE]\r\n\r\n";
+				String done = "data: [DONE]\n\n";
 				ByteBuf doneBuf = ctx.alloc().buffer();
 				doneBuf.writeBytes(done.getBytes(StandardCharsets.UTF_8));
 				ctx.writeAndFlush(new DefaultHttpContent(doneBuf));
@@ -976,7 +976,7 @@ public class LMStudioService {
 					
 					ByteBuf content = ctx.alloc().buffer();
 					content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					HttpContent httpContent = new DefaultHttpContent(content);
 					ChannelFuture future = ctx.writeAndFlush(httpContent);
 					future.addListener((ChannelFutureListener) channelFuture -> {
@@ -988,12 +988,12 @@ public class LMStudioService {
 				} else if (line.startsWith("event: ")) {
 					ByteBuf content = ctx.alloc().buffer();
 					content.writeBytes(line.getBytes(StandardCharsets.UTF_8));
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					HttpContent httpContent = new DefaultHttpContent(content);
 					ctx.writeAndFlush(httpContent);
 				} else if (line.isEmpty()) {
 					ByteBuf content = ctx.alloc().buffer();
-					content.writeBytes("\r\n".getBytes(StandardCharsets.UTF_8));
+					content.writeBytes("\n".getBytes(StandardCharsets.UTF_8));
 					HttpContent httpContent = new DefaultHttpContent(content);
 					ctx.writeAndFlush(httpContent);
 				}
@@ -1001,13 +1001,13 @@ public class LMStudioService {
 			
 			if (responseCode >= 200 && responseCode < 300) {
 				JsonObject completion = buildLmStudioTextCompletion(modelName, completionId, created, lastChoices, usage, timings, finishReason, fullText.toString());
-				String out = "data: " + JsonUtil.toJson(completion) + "\r\n\r\n";
+				String out = "data: " + JsonUtil.toJson(completion) + "\n\n";
 				ByteBuf buf = ctx.alloc().buffer();
 				buf.writeBytes(out.getBytes(StandardCharsets.UTF_8));
 				ctx.writeAndFlush(new DefaultHttpContent(buf));
 				chunkCount++;
 				
-				String done = "data: [DONE]\r\n\r\n";
+				String done = "data: [DONE]\n\n";
 				ByteBuf doneBuf = ctx.alloc().buffer();
 				doneBuf.writeBytes(done.getBytes(StandardCharsets.UTF_8));
 				ctx.writeAndFlush(new DefaultHttpContent(doneBuf));

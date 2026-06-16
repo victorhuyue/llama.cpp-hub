@@ -18,6 +18,12 @@ import org.mark.llamacpp.server.tools.ParamTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -128,6 +134,11 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 			// /llama.cpp/slots and /slots - proxy to model's /slots endpoint
 			if (uri.startsWith("/llama.cpp/slots") || uri.startsWith("/slots")) {
 				this.handleSlotsRequest(ctx, request);
+				return;
+			}
+			// /control endpoint - proxy to model's /v1/chat/completions/control
+			if (uri.startsWith("/llama.cpp/v1/chat/completions/control")) {
+				this.handleControlRequest(ctx, request);
 				return;
 			}
 
@@ -261,6 +272,138 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		} catch (Exception e) {
 			logger.info("获取slots信息时发生错误", e);
 			this.sendJsonResponse(ctx, ApiResponse.error("获取slots信息失败: " + e.getMessage()));
+		}
+	}
+
+	/**
+	 * 处理 /llama.cpp/v1/chat/completions/control 请求，代理到对应模型的 /v1/chat/completions/control 端点。
+	 */
+	private void handleControlRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
+		if (request.method() != HttpMethod.POST) {
+			this.sendJsonResponse(ctx, ApiResponse.error("只支持POST请求"));
+			return;
+		}
+		HttpURLConnection connection = null;
+		try {
+			String content = request.content().toString(CharsetUtil.UTF_8);
+			if (content == null || content.trim().isEmpty()) {
+				this.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
+				return;
+			}
+
+			com.google.gson.JsonObject body = JsonUtil.fromJson(content, com.google.gson.JsonObject.class);
+			String modelName = JsonUtil.getJsonString(body, "model");
+			if (modelName == null || modelName.trim().isEmpty()) {
+				this.sendJsonResponse(ctx, ApiResponse.error("缺少参数: model"));
+				return;
+			}
+			modelName = modelName.trim();
+
+			LlamaServerManager manager = LlamaServerManager.getInstance();
+			String modelId = manager.resolveModelId(modelName);
+			if (modelId == null) {
+				this.sendJsonResponse(ctx, ApiResponse.error("Model not found: " + modelName));
+				return;
+			}
+
+			if (!manager.getLoadedProcesses().containsKey(modelId)) {
+				this.sendJsonResponse(ctx, ApiResponse.error("模型未加载: " + modelId));
+				return;
+			}
+
+			Integer port = manager.getModelPort(modelId);
+			if (port == null) {
+				this.sendJsonResponse(ctx, ApiResponse.error("未找到模型端口: " + modelId));
+				return;
+			}
+
+			String targetUrl = String.format("http://localhost:%d/v1/chat/completions/control", port.intValue());
+			connection = (HttpURLConnection) URI.create(targetUrl).toURL().openConnection();
+			connection.setRequestMethod("POST");
+			connection.setDoOutput(true);
+			connection.setConnectTimeout(30000);
+			connection.setReadTimeout(30000);
+
+			for (Map.Entry<String, String> entry : request.headers()) {
+				String key = entry.getKey();
+				if (key == null) {
+					continue;
+				}
+				if ("Host".equalsIgnoreCase(key)
+						|| "Connection".equalsIgnoreCase(key)
+						|| "Content-Length".equalsIgnoreCase(key)
+						|| "Transfer-Encoding".equalsIgnoreCase(key)
+						|| "X-Node-Id".equalsIgnoreCase(key)) {
+					continue;
+				}
+				connection.setRequestProperty(key, entry.getValue());
+			}
+
+			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
+			connection.setRequestProperty("Content-Length", String.valueOf(outBytes.length));
+			try (OutputStream os = connection.getOutputStream()) {
+				os.write(outBytes);
+			}
+
+			int responseCode = connection.getResponseCode();
+			String responseBody = this.readBody(connection, responseCode >= 200 && responseCode < 300);
+			com.google.gson.JsonElement parsed = null;
+			try {
+				parsed = JsonUtil.fromJson(responseBody, com.google.gson.JsonElement.class);
+			} catch (Exception ignore) {
+			}
+
+			if (responseCode >= 200 && responseCode < 300) {
+				if (parsed != null) {
+					this.sendJsonResponse(ctx, parsed);
+				} else {
+					this.sendJsonResponse(ctx, ApiResponse.error("模型返回了非JSON响应"));
+				}
+				return;
+			}
+
+			if (parsed != null) {
+				this.sendJsonResponse(ctx, parsed);
+				return;
+			}
+			String msg = responseBody == null || responseBody.isBlank() ? ("模型错误: HTTP " + responseCode) : responseBody;
+			this.sendJsonResponse(ctx, ApiResponse.error(msg));
+		} catch (Exception e) {
+			logger.info("control代理失败", e);
+			this.sendJsonResponse(ctx, ApiResponse.error("control失败: " + e.getMessage()));
+		} finally {
+			if (connection != null) {
+				try {
+					connection.disconnect();
+				} catch (Exception ignore) {
+				}
+			}
+		}
+	}
+
+	private String readBody(HttpURLConnection connection, boolean ok) {
+		if (connection == null) return "";
+		java.io.InputStream in = null;
+		try {
+			in = ok ? connection.getInputStream() : connection.getErrorStream();
+			if (in == null) return "";
+			try (BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+				StringBuilder sb = new StringBuilder();
+				String line;
+				while ((line = br.readLine()) != null) {
+					sb.append(line);
+				}
+				return sb.toString();
+			}
+		} catch (Exception e) {
+			return "";
+		} finally {
+			if (in != null) {
+				try {
+					in.close();
+				} catch (Exception ignore) {
+				}
+			}
 		}
 	}
 }

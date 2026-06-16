@@ -173,6 +173,9 @@ public class OpenAIChatStreamingHandler extends ChannelInboundHandlerAdapter {
 		if (uri == null) {
 			return false;
 		}
+		if (uri.contains("/control")) {
+			return false;
+		}
 		return uri.startsWith("/v1/chat/completions")
 				|| uri.startsWith("/v1/chat/completion")
 				|| uri.startsWith("/chat/completion")

@@ -1158,7 +1158,6 @@ public class LlamaServerManager {
 	 * @param modelId 模型 ID
 	 * @return preset 字符串
 	 */
-	@SuppressWarnings("unchecked")
 	private String buildPresetString(String modelId) {
 		try {
 			GGUFModel model = this.findModelById(modelId);
@@ -1188,20 +1187,10 @@ public class LlamaServerManager {
 
 			Object evObj = config.get("enableVision");
 			boolean enableVision = evObj instanceof Boolean ? (Boolean) evObj : true;
-			List<String> device = (List<String>) config.get("device");
-			Object mgObj = config.get("mg");
-			Integer mg = (mgObj instanceof Number) ? ((Number) mgObj).intValue() : null;
 
 			if (enableVision && model.getMmproj() != null) {
 				String mmprojFile = Paths.get(model.getPath(), model.getMmproj().getFileName()).toString();
 				sb.append("mmproj = ").append(mmprojFile).append("\n");
-			}
-
-			if (device != null && !device.isEmpty()) {
-				sb.append("device = ").append(String.join(",", device)).append("\n");
-				if (mg != null && mg >= 0) {
-					sb.append("main_gpu = ").append(mg).append("\n");
-				}
 			}
 
 			return sb.toString();
@@ -1218,7 +1207,7 @@ public class LlamaServerManager {
 	 * @param caps 能力配置
 	 * @return architecture JsonObject
 	 */
-	private JsonObject buildModelArchitecture(GGUFModel model, JsonObject caps) {
+	public JsonObject buildModelArchitecture(GGUFModel model, JsonObject caps) {
 		JsonObject arch = new JsonObject();
 		JsonArray inputs = new JsonArray();
 		JsonArray outputs = new JsonArray();

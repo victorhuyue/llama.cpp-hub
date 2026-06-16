@@ -9,7 +9,6 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -412,11 +411,9 @@ public class BasicRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 					}
 					responseBody = sb.toString();
 				}
-				Object parsed = JsonUtil.fromJson(responseBody, Object.class);
-				Map<String, Object> data = new HashMap<>();
-				data.put("modelId", modelId);
-				data.put("props", parsed);
-				LlamaServer.sendJsonResponse(ctx, data);
+				JsonObject json = JsonUtil.fromJson(responseBody, JsonObject.class);
+				json.addProperty("ui", true);
+				LlamaServer.sendExpressRawJsonResponse(ctx, HttpResponseStatus.OK, json.toString().getBytes(CharsetUtil.UTF_8), true);
 			} else {
 				try (BufferedReader br = new BufferedReader(
 						new InputStreamReader(connection.getErrorStream(), StandardCharsets.UTF_8))) {

@@ -474,11 +474,9 @@ public class GGUFMetaData {
 	private static MtpInfo buildMtpInfo(String architecture, Integer blockCount, Integer nextnPredictLayers) {
 		if (architecture == null)
 			return MtpInfo.none();
-		if (!"qwen35".equals(architecture) && !"qwen35moe".equals(architecture))
-			return MtpInfo.none();
 		if (nextnPredictLayers == null || nextnPredictLayers <= 0)
 			return MtpInfo.none();
-		if (blockCount == null)
+		if (blockCount == null || blockCount < nextnPredictLayers)
 			return MtpInfo.none();
 
 		int bc = blockCount;
@@ -490,5 +488,13 @@ public class GGUFMetaData {
 			prefixes.add("blk." + (trunk + i) + ".");
 		}
 		return new MtpInfo(true, architecture, bc, nn, trunk, prefixes);
+	}
+
+	/**
+	 * 是否为仅包含 MTP 层的独立 donor/draft 文件（不能作为主模型加载）。
+	 * 当模型 block_count 等于 nextn_predict_layers 时，说明没有 trunk 层，全是 MTP 层。
+	 */
+	public boolean isStandaloneMtpDonor() {
+		return mtpInfo != null && mtpInfo.hasMtp() && mtpInfo.trunkCount() == 0;
 	}
 }

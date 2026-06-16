@@ -45,7 +45,6 @@ import java.util.stream.Stream;
 
 import org.mark.llamacpp.gguf.GGUFBundle;
 import org.mark.llamacpp.gguf.GGUFMetaData;
-import org.mark.llamacpp.gguf.MtpHelper.MtpInfo;
 import org.mark.llamacpp.gguf.GGUFModel;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.struct.ModelPathConfig;
@@ -1383,13 +1382,27 @@ public class LlamaServerManager {
         if (file == null || !file.isFile()) return null;
         String name = file.getName().toLowerCase();
         if (name.contains("mmproj")) return null;
+        // 先通过文件名排除明显为独立 MTP donor / draft 的文件（metadata 可能不标准）
+        if (isStandaloneMtpDonorFileName(name)) return null;
         GGUFMetaData md = GGUFMetaData.readFile(file);
         if (md == null) return null;
         if ("projector".equals(md.getGeneralType())) return null;
         if ("dflash-draft".equals(md.getArchitecture())) return null;
-        MtpInfo mtp = md.getMtpInfo();
-        if (mtp != null && mtp.hasMtp() && mtp.trunkCount() == 0) return null;
+        // 仅包含 MTP 层的 donor 模型不能作为主模型
+        if (md.isStandaloneMtpDonor()) return null;
         return md;
+    }
+
+    /**
+     * 根据文件名判断是否为仅含 MTP 层的 donor/draft 文件。
+     * 规则保守，只处理明确的命名后缀，避免误伤主模型。
+     */
+    private static boolean isStandaloneMtpDonorFileName(String lowerName) {
+        if (!lowerName.endsWith(".gguf")) return false;
+        String base = lowerName.substring(0, lowerName.length() - 5);
+        return base.endsWith("-mtp-donor") || base.contains("-mtp-donor-")
+            || base.endsWith("-donor") || base.contains("-donor-")
+            || base.endsWith("-draft") || base.contains("-draft-");
     }
 
 	/**

@@ -25,6 +25,7 @@ import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.exception.RequestMethodException;
 import org.mark.llamacpp.server.service.ModelSamplingService;
 import org.mark.llamacpp.server.tools.GPUInfoHelper;
+import org.mark.llamacpp.win.AutoStartManager;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
@@ -214,9 +215,15 @@ public class SystemController implements BaseController {
 			return true;
 		}
 
-		// 获取计算机信息（gpu-info）
+       // 获取计算机信息（gpu-info）
 		if (uri.startsWith("/api/sys/sysinfo")) {
 			this.handleSysInfoRequest(ctx, request);
+			return true;
+		}
+
+		// 开机自启
+		if (uri.startsWith("/api/sys/autostart")) {
+			this.handleAutoStartRequest(ctx, request);
 			return true;
 		}
 
@@ -2069,4 +2076,74 @@ public class SystemController implements BaseController {
 //			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("调用远程节点失败: " + e.getMessage()));
 //		}
 //	}
+
+	/**
+	 * 处理开机自启请求
+	 * GET: 查询当前状态
+	 * POST: 启用/禁用 (body: {"enable": true/false})
+	 *
+	 * @param ctx
+	 * @param request
+	 * @throws RequestMethodException
+	 */
+	private void handleAutoStartRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		if (request.method() == HttpMethod.OPTIONS) {
+			LlamaServer.sendCorsResponse(ctx);
+			return;
+		}
+
+		String osName = System.getProperty("os.name", "").toLowerCase();
+		if (!osName.startsWith("windows")) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("仅支持 Windows 系统"));
+			return;
+		}
+
+		if (request.method() == HttpMethod.GET) {
+			// 查询当前状态
+			try {
+				boolean enabled = AutoStartManager.isAutoStartEnabled();
+				Map<String, Object> data = new HashMap<>();
+				data.put("enabled", enabled);
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+			} catch (Exception e) {
+				logger.info("查询开机自启状态时发生错误", e);
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("查询开机自启状态失败: " + e.getMessage()));
+			}
+			return;
+		}
+
+		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+
+		try {
+			JsonObject obj = parseJsonBody(ctx, request);
+			if (obj == null) {
+				return;
+			}
+			if (!obj.has("enable") || obj.get("enable") == null || obj.get("enable").isJsonNull()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少必需的enable参数"));
+				return;
+			}
+
+			boolean enable = obj.get("enable").getAsBoolean();
+			boolean success;
+			if (enable) {
+				success = AutoStartManager.enableAutoStart();
+			} else {
+				success = AutoStartManager.disableAutoStart();
+			}
+
+			if (success) {
+				Map<String, Object> data = new HashMap<>();
+				data.put("enabled", enable);
+				data.put("message", enable ? "开机自启已启用" : "开机自启已禁用");
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+			} else {
+				String errorMsg = enable ? "启用开机自启失败" : "禁用开机自启失败";
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(errorMsg));
+			}
+		} catch (Exception e) {
+			logger.info("处理开机自启请求时发生错误", e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("处理开机自启失败: " + e.getMessage()));
+		}
+	}
 }

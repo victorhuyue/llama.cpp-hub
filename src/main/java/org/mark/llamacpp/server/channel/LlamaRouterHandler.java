@@ -9,13 +9,16 @@ import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
 
 import org.mark.llamacpp.server.LlamaServer;
+import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.service.AnthropicService;
 import org.mark.llamacpp.server.service.OpenAIService;
 import org.mark.llamacpp.server.struct.ApiResponse;
 import org.mark.llamacpp.server.tools.JsonUtil;
+import org.mark.llamacpp.server.tools.ParamTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -122,6 +125,11 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				this.anthropicService.handleMessagesCountTokensRequest(ctx, request);
 				return;
 			}
+			// /llama.cpp/slots and /slots - proxy to model's /slots endpoint
+			if (uri.startsWith("/llama.cpp/slots") || uri.startsWith("/slots")) {
+				this.handleSlotsRequest(ctx, request);
+				return;
+			}
 
 			this.sendJsonResponse(ctx, ApiResponse.error("404 Not Found"));
 		} catch (Exception e) {
@@ -225,5 +233,34 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * 处理 /llama.cpp/slots 和 /slots 请求，代理到对应模型的 /slots 端点。
+	 * 用法：/llama.cpp/slots?model=Qwen3.5-0.8B-Q4_K_M
+	 */
+	private void handleSlotsRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
+		if (request.method() != HttpMethod.GET) {
+			this.sendJsonResponse(ctx, ApiResponse.error("只支持GET请求"));
+			return;
+		}
+		try {
+			Map<String, String> params = ParamTool.getQueryParam(request.uri());
+			String model = params.get("model");
+			if (model == null || model.trim().isEmpty()) {
+				this.sendJsonResponse(ctx, ApiResponse.error("缺少必需的model参数"));
+				return;
+			}
+			LlamaServerManager manager = LlamaServerManager.getInstance();
+			if (!manager.getLoadedProcesses().containsKey(model)) {
+				this.sendJsonResponse(ctx, ApiResponse.error("模型未加载: " + model));
+				return;
+			}
+			com.google.gson.JsonObject result = manager.handleModelSlotsGet(model);
+			this.sendJsonResponse(ctx, ApiResponse.success(result));
+		} catch (Exception e) {
+			logger.info("获取slots信息时发生错误", e);
+			this.sendJsonResponse(ctx, ApiResponse.error("获取slots信息失败: " + e.getMessage()));
+		}
 	}
 }

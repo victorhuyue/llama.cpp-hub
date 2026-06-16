@@ -303,6 +303,9 @@ public class BasicRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		if (uri.startsWith("/llama.cpp/tools")) {
 			return true;
 		}
+		if (uri.startsWith("/llama.cpp/slots")) {
+			return true;
+		}
 		// 4. 显式补充非 /v1 前缀的具体端点 (源自路由逻辑中的完整路径)
 		// 注意：这里写死具体的根路径，以确保与路由层的处理完全一致
 		if (uri.startsWith("/models") || 
@@ -310,7 +313,8 @@ public class BasicRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				uri.startsWith("/completions") || 
 				uri.startsWith("/embeddings") ||
 				uri.startsWith("/rerank") || 
-				uri.startsWith("/responses")) {
+				uri.startsWith("/responses") ||
+				uri.startsWith("/slots")) {
 			if(!uri.endsWith(".html"))
 				return true;
 		}

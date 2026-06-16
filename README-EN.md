@@ -225,6 +225,32 @@ The system info page uses gpu-info to collect hardware information (CPU, memory,
 
 It might get flagged by antivirus software (hello there, 360!). Don't worry — it's generally safe. Don't trust me or concerned about security? Go ahead and delete it.
 
+### A Note on Auto-Load Models
+
+When enabled, if an API request (e.g., `/v1/chat/completions`) targets a model that is not currently loaded, the server will automatically execute the following steps:
+
+**① Policy Check:** Confirm the model's auto-load policy is set to "allowed". If not, return 404 immediately.
+
+**② Hardware Resource Check:** Fetch available system memory via `gpu-info`, estimate model VRAM requirements via `llama-fit-params`. Tensor parallel mode only checks VRAM; other modes check the combined total of RAM + VRAM. Requires available memory ≥ estimated value × 1.1 (10% headroom). Any check failure will reject the load.
+
+> ⚠ **Important Warning:** `llama-fit-params` cannot account for the memory usage of the following components:
+> - Multimodal (mmproj): visual projector models
+> - Draft models (Speculative Decoding)
+> - MTP (Multi-Token Prediction)
+>
+> If any of the above features are enabled, the hardware resource check results will be significantly inaccurate. Actual memory usage will exceed the estimate, potentially causing OOM. Use these features with extreme caution and always manually reserve sufficient memory.
+
+**③ Auto-Load:** Asynchronously load the model using the saved launch config (the config matching `selectedConfig` in `launch_config.json`).
+
+**④ Blocking Wait:** Poll until the model finishes loading, with a max timeout of `autoLoadTimeoutMs` (default 120 seconds). On timeout, the current request is abandoned, but the background load process is not interrupted.
+
+**⑤ Forward Request:** Once the model loads successfully, forward the original API request to it.
+
+- **Duplicate Request Handling:** When multiple requests trigger auto-load for the same model simultaneously, only the first one submits the load task; the rest wait for the same load to complete.
+- **Models are never auto-unloaded.** Unloading must always be done manually by the user.
+
+Use at your own risk.
+
 ---
 
 ## Guide: Model Paths

@@ -3611,7 +3611,7 @@
         .node-card-header {
             display: grid;
             grid-template-columns: auto minmax(0, 1fr) auto;
-            align-items: start;
+            align-items: center;
             gap: 0.65rem;
         }
         .node-card-title-group {

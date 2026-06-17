@@ -2602,158 +2602,154 @@
                                         </div>
                                     </div>
                                 </div>
-                                <hr style="margin: 1rem 0; border-color: var(--border-color);">
-                                <div class="form-group" style="margin: 0;">
-                                    <label class="form-label"
-                                        style="font-size: 1rem; cursor: pointer; user-select: none;"
-                                        onclick="toggleLlamaCppSection()">
-                                        <i class="fas fa-microchip"></i>
-                                        <span data-i18n="page.settings.server.llamacpp_section">Llama.cpp 路径管理</span>
-                                        <i class="fas fa-chevron-down" id="llamacppSectionChevron"
-                                            style="margin-left: 0.5rem; font-size: 0.75rem; transition: transform 0.2s;"></i>
-                                    </label>
-                                    <small class="form-text" data-i18n="page.settings.server.llamacpp_section_desc">
-                                        管理 llama-cli/llama-server 可执行文件所在目录，用于启动模型子进程。
-                                    </small>
-                                </div>
-                                <div id="llamacppSectionContent" style="display: none;">
-                                    <div style="margin-top: 0.75rem;">
-                                        <div
-                                            style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                            <span style="font-size: 0.85rem; color: var(--text-secondary);">
+                                <div class="settings-section">
+                                    <div class="settings-section-header" onclick="toggleLlamaCppSection(this)"
+                                        aria-expanded="false">
+                                        <div class="settings-toggle-title">
+                                            <i class="fas fa-microchip"></i>
+                                            <span
+                                                data-i18n="page.settings.server.llamacpp_section">Llama.cpp 路径管理</span>
+                                        </div>
+                                        <i class="fas fa-chevron-down settings-section-chevron"
+                                            id="llamacppSectionChevron"></i>
+                                    </div>
+                                    <div class="settings-section-content" id="llamacppSectionContent">
+                                        <div class="settings-section-body">
+                                            <div class="settings-section-stats">
                                                 <span data-i18n="page.settings.server.llamacpp_stats"></span>
                                                 <strong id="llamacppCountSettings">0</strong>
-                                            </span>
-                                        </div>
-                                        <div id="llamacppListSettings">
-                                            <div class="empty-state" style="padding: 1rem;">
-                                                <div class="empty-state-icon"><i class="fas fa-folder-open"></i></div>
-                                                <div class="empty-state-text" data-i18n="page.llamacpp.empty">尚未配置任何
-                                                    Llama.cpp 路径</div>
                                             </div>
-                                        </div>
-                                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-                                            <button class="btn btn-primary btn-sm" onclick="openAddLlamaCppModal()">
-                                                <i class="fas fa-plus"></i> <span
-                                                    data-i18n="common.add_path">添加路径</span>
-                                            </button>
-                                            <button class="btn btn-secondary btn-sm" onclick="loadLlamaCppList()">
-                                                <i class="fas fa-sync-alt"></i> <span
-                                                    data-i18n="common.refresh">刷新</span>
-                                            </button>
+                                            <small class="form-text"
+                                                data-i18n="page.settings.server.llamacpp_section_desc">
+                                                管理 llama-cli/llama-server 可执行文件所在目录，用于启动模型子进程。
+                                            </small>
+                                            <div class="settings-path-list" id="llamacppListSettings">
+                                                <div class="empty-state">
+                                                    <div class="empty-state-icon"><i class="fas fa-folder-open"></i>
+                                                    </div>
+                                                    <div class="empty-state-text" data-i18n="page.llamacpp.empty">尚未配置任何
+                                                        Llama.cpp 路径</div>
+                                                </div>
+                                            </div>
+                                            <div class="settings-list-actions">
+                                                <button class="btn btn-primary" onclick="openAddLlamaCppModal()">
+                                                    <i class="fas fa-plus"></i> <span
+                                                        data-i18n="common.add_path">添加路径</span>
+                                                </button>
+                                                <button class="btn btn-secondary" onclick="loadLlamaCppList()">
+                                                    <i class="fas fa-sync-alt"></i> <span
+                                                        data-i18n="common.refresh">刷新</span>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                                <hr style="margin: 1rem 0; border-color: var(--border-color);">
-                                <div class="form-group" style="margin: 0;">
-                                    <label class="form-label"
-                                        style="font-size: 1rem; cursor: pointer; user-select: none;"
-                                        onclick="toggleModelPathSection()">
-                                        <i class="fas fa-folder-open"></i>
-                                        <span data-i18n="page.settings.server.modelpath_section">模型路径管理</span>
-                                        <i class="fas fa-chevron-down" id="modelPathSectionChevron"
-                                            style="margin-left: 0.5rem; font-size: 0.75rem; transition: transform 0.2s;"></i>
-                                    </label>
-                                    <small class="form-text" data-i18n="page.settings.server.modelpath_section_desc">
-                                        管理模型文件所在目录，用于自动扫描和发现 GGUF 模型。
-                                    </small>
-                                </div>
-                                <div id="modelPathSectionContent" style="display: none;">
-                                    <div style="margin-top: 0.75rem;">
-                                        <div
-                                            style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                            <span style="font-size: 0.85rem; color: var(--text-secondary);">
+
+                                <div class="settings-section">
+                                    <div class="settings-section-header" onclick="toggleModelPathSection(this)"
+                                        aria-expanded="false">
+                                        <div class="settings-toggle-title">
+                                            <i class="fas fa-folder-open"></i>
+                                            <span
+                                                data-i18n="page.settings.server.modelpath_section">模型路径管理</span>
+                                        </div>
+                                        <i class="fas fa-chevron-down settings-section-chevron"
+                                            id="modelPathSectionChevron"></i>
+                                    </div>
+                                    <div class="settings-section-content" id="modelPathSectionContent">
+                                        <div class="settings-section-body">
+                                            <div class="settings-section-stats">
                                                 <span data-i18n="page.settings.server.modelpath_stats"></span>
                                                 <strong id="modelPathCountSettings">0</strong>
-                                            </span>
-                                        </div>
-                                        <div id="modelPathListSettings">
-                                            <div class="empty-state" style="padding: 1rem;">
-                                                <div class="empty-state-icon"><i class="fas fa-folder-open"></i></div>
-                                                <div class="empty-state-text" data-i18n="page.model_path.empty">
-                                                    尚未配置任何模型路径</div>
                                             </div>
-                                        </div>
-                                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-                                            <button class="btn btn-primary btn-sm" onclick="openAddModelPathModal()">
-                                                <i class="fas fa-plus"></i> <span
-                                                    data-i18n="common.add_path">添加路径</span>
-                                            </button>
-                                            <button class="btn btn-secondary btn-sm" onclick="loadModelPathList()">
-                                                <i class="fas fa-sync-alt"></i> <span
-                                                    data-i18n="common.refresh">刷新</span>
-                                            </button>
+                                            <small class="form-text"
+                                                data-i18n="page.settings.server.modelpath_section_desc">
+                                                管理模型文件所在目录，用于自动扫描和发现 GGUF 模型。
+                                            </small>
+                                            <div class="settings-path-list" id="modelPathListSettings">
+                                                <div class="empty-state">
+                                                    <div class="empty-state-icon"><i class="fas fa-folder-open"></i>
+                                                    </div>
+                                                    <div class="empty-state-text" data-i18n="page.model_path.empty">
+                                                        尚未配置任何模型路径</div>
+                                                </div>
+                                            </div>
+                                            <div class="settings-list-actions">
+                                                <button class="btn btn-primary" onclick="openAddModelPathModal()">
+                                                    <i class="fas fa-plus"></i> <span
+                                                        data-i18n="common.add_path">添加路径</span>
+                                                </button>
+                                                <button class="btn btn-secondary" onclick="loadModelPathList()">
+                                                    <i class="fas fa-sync-alt"></i> <span
+                                                        data-i18n="common.refresh">刷新</span>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                                <hr style="margin: 1rem 0; border-color: var(--border-color);">
-                                <div class="form-group" style="margin: 0;">
-                                    <label class="form-label"
-                                        style="font-size: 1rem; cursor: pointer; user-select: none;"
-                                        onclick="toggleProxySection()">
-                                        <i class="fas fa-globe"></i>
-                                        <span data-i18n="page.settings.server.proxy_section">HTTP 代理</span>
-                                        <i class="fas fa-chevron-down" id="proxySectionChevron"
-                                            style="margin-left: 0.5rem; font-size: 0.75rem; transition: transform 0.2s;"></i>
-                                    </label>
-                                    <small class="form-text" data-i18n="page.settings.server.proxy_section_desc">
-                                        配置 HTTP 代理，用于访问 HuggingFace 等外部服务。
-                                    </small>
-                                </div>
-                                <div id="proxySectionContent" style="display: none;">
-                                    <div style="margin-top: 0.75rem;">
-                                        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                                            <div class="form-check" style="margin: 0;">
+
+                                <div class="settings-section">
+                                    <div class="settings-section-header" onclick="toggleProxySection(this)"
+                                        aria-expanded="false">
+                                        <div class="settings-toggle-title">
+                                            <i class="fas fa-globe"></i>
+                                            <span data-i18n="page.settings.server.proxy_section">HTTP 代理</span>
+                                        </div>
+                                        <i class="fas fa-chevron-down settings-section-chevron"
+                                            id="proxySectionChevron"></i>
+                                    </div>
+                                    <div class="settings-section-content" id="proxySectionContent">
+                                        <div class="settings-section-body">
+                                            <small class="form-text"
+                                                data-i18n="page.settings.server.proxy_section_desc">
+                                                配置 HTTP 代理，用于访问 HuggingFace 等外部服务。
+                                            </small>
+                                            <div class="form-check" style="margin: 0 0 0.75rem;">
                                                 <input class="form-check-input" type="checkbox" id="toggleProxyEnabled">
                                                 <label class="form-check-label" for="toggleProxyEnabled"
                                                     data-i18n="common.enable">启用代理</label>
                                             </div>
-                                            <div class="row"
-                                                style="display: flex; flex-direction: column; gap: 0.5rem;">
-                                                <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                                    <div class="row" style="flex: 1;">
-                                                        <label class="form-label" style="font-size: 12px;"
-                                                            data-i18n="page.settings.server.proxy_host">主机/域名</label>
-                                                        <input class="form-control" type="text" id="proxyHostInput"
-                                                            placeholder="例如: 127.0.0.1 或 proxy.example.com"
-                                                            data-i18n-attr="placeholder"
-                                                            data-i18n="page.settings.server.proxy_host_placeholder"
-                                                            style="font-size: 13px;">
-                                                    </div>
-                                                    <div class="row" style="width: 120px;">
-                                                        <label class="form-label" style="font-size: 12px;"
-                                                            data-i18n="page.settings.server.proxy_port">端口</label>
-                                                        <input class="form-control" type="number" id="proxyPortInput"
-                                                            min="1" max="65535" placeholder="7890"
-                                                            style="font-size: 13px;">
-                                                    </div>
+                                            <div class="settings-field-row">
+                                                <div class="settings-field">
+                                                    <label class="form-label"
+                                                        data-i18n="page.settings.server.proxy_host">主机/域名</label>
+                                                    <input class="form-control" type="text" id="proxyHostInput"
+                                                        placeholder="例如: 127.0.0.1 或 proxy.example.com"
+                                                        data-i18n-attr="placeholder"
+                                                        data-i18n="page.settings.server.proxy_host_placeholder">
                                                 </div>
-                                                <div class="row">
-                                                    <label class="form-label" style="font-size: 12px;"
+                                                <div class="settings-field" style="max-width: 140px;">
+                                                    <label class="form-label"
+                                                        data-i18n="page.settings.server.proxy_port">端口</label>
+                                                    <input class="form-control" type="number" id="proxyPortInput"
+                                                        min="1" max="65535" placeholder="7890">
+                                                </div>
+                                            </div>
+                                            <div class="settings-field-row" style="margin-top: 0.75rem;">
+                                                <div class="settings-field">
+                                                    <label class="form-label"
                                                         data-i18n="page.settings.server.proxy_username">用户名（可选）</label>
                                                     <input class="form-control" type="text" id="proxyUsernameInput"
                                                         placeholder="无需认证则留空" data-i18n-attr="placeholder"
-                                                        data-i18n="page.settings.server.proxy_username_placeholder"
-                                                        style="font-size: 13px;">
+                                                        data-i18n="page.settings.server.proxy_username_placeholder">
                                                 </div>
-                                                <div class="row">
-                                                    <label class="form-label" style="font-size: 12px;"
+                                                <div class="settings-field">
+                                                    <label class="form-label"
                                                         data-i18n="page.settings.server.proxy_password">密码（可选）</label>
                                                     <input class="form-control" type="password" id="proxyPasswordInput"
                                                         placeholder="输入密码" data-i18n-attr="placeholder"
-                                                        data-i18n="page.settings.server.proxy_password_placeholder"
-                                                        style="font-size: 13px;">
+                                                        data-i18n="page.settings.server.proxy_password_placeholder">
                                                 </div>
                                             </div>
-                                            <div
-                                                style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.25rem;">
-                                                <button class="btn btn-secondary btn-sm"
-                                                    onclick="testProxyConnection()">
+                                            <div class="settings-actions-row"
+                                                style="justify-content: flex-end; margin-top: 0.75rem; padding-top: 0.75rem;">
+                                                <button class="btn btn-secondary" onclick="testProxyConnection()">
                                                     <i class="fas fa-plug"></i> <span
                                                         data-i18n="page.settings.server.proxy_test">测试连接</span>
                                                 </button>
-                                                <button class="btn btn-primary btn-sm" onclick="saveProxyConfig()">
-                                                    <i class="fas fa-save"></i> <span data-i18n="common.save">保存</span>
+                                                <button class="btn btn-primary" onclick="saveProxyConfig()">
+                                                    <i class="fas fa-save"></i> <span
+                                                        data-i18n="common.save">保存</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -6031,14 +6027,15 @@ llama.cpp-hub</textarea>
             }, 50);
         }
 
-        function toggleLlamaCppSection() {
+        function toggleLlamaCppSection(header) {
             var content = document.getElementById('llamacppSectionContent');
-            var chevron = document.getElementById('llamacppSectionChevron');
-            if (content) {
-                var collapsed = content.style.display === 'none';
-                content.style.display = collapsed ? '' : 'none';
-                if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+            if (!content) return;
+            var collapsed = !content.classList.contains('active');
+            content.classList.toggle('active', collapsed);
+            if (!header) {
+                header = document.querySelector('.settings-section-header[onclick*="toggleLlamaCppSection"]');
             }
+            if (header) header.setAttribute('aria-expanded', String(collapsed));
         }
 
         function showModelPathSetting() {
@@ -6047,7 +6044,7 @@ llama.cpp-hub</textarea>
                 SettingsPage.switchTab('server');
             }
             var content = document.getElementById('modelPathSectionContent');
-            if (content && content.style.display === 'none') {
+            if (content && !content.classList.contains('active')) {
                 toggleModelPathSection();
             }
         }

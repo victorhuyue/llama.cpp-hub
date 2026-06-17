@@ -1387,25 +1387,27 @@
     }
 
     // --- Llama.cpp path management ---
-    function toggleLlamaCppSection() {
+    function toggleLlamaCppSection(header) {
         const content = byId('llamacppSectionContent');
-        const chevron = byId('llamacppSectionChevron');
-        if (content) {
-            const collapsed = content.style.display === 'none';
-            content.style.display = collapsed ? '' : 'none';
-            if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+        if (!content) return;
+        const collapsed = !content.classList.contains('active');
+        content.classList.toggle('active', collapsed);
+        if (!header) {
+            header = document.querySelector('.settings-section-header[onclick*="toggleLlamaCppSection"]');
         }
+        if (header) header.setAttribute('aria-expanded', String(collapsed));
     }
 
     // --- Model path management ---
-    function toggleModelPathSection() {
+    function toggleModelPathSection(header) {
         const content = byId('modelPathSectionContent');
-        const chevron = byId('modelPathSectionChevron');
-        if (content) {
-            const collapsed = content.style.display === 'none';
-            content.style.display = collapsed ? '' : 'none';
-            if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+        if (!content) return;
+        const collapsed = !content.classList.contains('active');
+        content.classList.toggle('active', collapsed);
+        if (!header) {
+            header = document.querySelector('.settings-section-header[onclick*="toggleModelPathSection"]');
         }
+        if (header) header.setAttribute('aria-expanded', String(collapsed));
     }
 
     function loadModelPathList() {
@@ -1438,7 +1440,7 @@
         if (!container) return;
 
         if (!modelPathItems || modelPathItems.length === 0) {
-            container.innerHTML = '<div class="empty-state" style="padding: 1rem;"><div class="empty-state-icon"><i class="fas fa-folder-open"></i></div><div class="empty-state-title">' + t('page.model_path.empty_title', '暂无路径') + '</div><div class="empty-state-text">' + t('page.model_path.empty_desc', '尚未配置任何模型路径') + '</div></div>';
+            container.innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-folder-open"></i></div><div class="empty-state-title">' + t('page.model_path.empty_title', '暂无路径') + '</div><div class="empty-state-text">' + t('page.model_path.empty_desc', '尚未配置任何模型路径') + '</div></div>';
             return;
         }
 
@@ -1453,7 +1455,7 @@
             const escapedDesc = desc ? desc.replace(/'/g, "\\'") : '';
 
             html += ''
-                + '<div class="model-item" style="padding: 0.5rem 0.625rem;">'
+                + '<div class="model-item">'
                 + '<div class="model-icon-wrapper">'
                 + '<i class="fas fa-folder-open"></i>'
                 + '</div>'
@@ -1614,7 +1616,7 @@
         if (!container) return;
 
         if (!llamaCppItems || llamaCppItems.length === 0) {
-            container.innerHTML = '<div class="empty-state" style="padding: 1rem;"><div class="empty-state-icon"><i class="fas fa-folder-open"></i></div><div class="empty-state-title">' + t('page.llamacpp.empty_title', '暂无配置') + '</div><div class="empty-state-text">' + t('page.llamacpp.empty_desc', '尚未配置任何 Llama.cpp 路径') + '</div></div>';
+            container.innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fas fa-folder-open"></i></div><div class="empty-state-title">' + t('page.llamacpp.empty_title', '暂无配置') + '</div><div class="empty-state-text">' + t('page.llamacpp.empty_desc', '尚未配置任何 Llama.cpp 路径') + '</div></div>';
             return;
         }
 
@@ -1630,7 +1632,7 @@
             const escapedDesc = desc ? desc.replace(/'/g, "\\'") : '';
             const isScanned = source === 'scanned';
             html += ''
-                + '<div class="model-item" style="padding: 0.5rem 0.625rem;">'
+                + '<div class="model-item">'
                 + '<div class="model-icon-wrapper">'
                 + '<i class="fas fa-microchip"></i>'
                 + '</div>'
@@ -2021,14 +2023,15 @@
     }
 
     // --- HTTP Proxy ---
-    function toggleProxySection() {
+    function toggleProxySection(header) {
         const content = byId('proxySectionContent');
-        const chevron = byId('proxySectionChevron');
-        if (content) {
-            const collapsed = content.style.display === 'none';
-            content.style.display = collapsed ? '' : 'none';
-            if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+        if (!content) return;
+        const collapsed = !content.classList.contains('active');
+        content.classList.toggle('active', collapsed);
+        if (!header) {
+            header = document.querySelector('.settings-section-header[onclick*="toggleProxySection"]');
         }
+        if (header) header.setAttribute('aria-expanded', String(collapsed));
     }
 
     function loadProxyConfig() {

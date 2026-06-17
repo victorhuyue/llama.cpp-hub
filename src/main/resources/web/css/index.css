@@ -429,6 +429,14 @@
         
         .model-list-header h2 { font-size: 1.125rem; font-weight: 600; color: var(--text-primary); }
 
+        #main-model-list .top-bar {
+            height: auto;
+            min-height: 64px;
+            padding: 0.75rem 2rem;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
         .model-count-badge {
             font-size: 0.8rem;
             font-weight: 500;

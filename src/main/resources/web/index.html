@@ -2391,55 +2391,54 @@
 
     <!-- Main Content -->
     <main class="main-area" id="main-model-list">
-        <div class="content-scrollable">
-            <!-- Model List -->
-            <div class="model-list-container">
-                <div class="model-list-header">
-                    <h2><span data-i18n="page.model.title">page.model.title</span> <span id="modelCountBadge" class="model-count-badge"></span></h2>
-                    <div class="search-box" style="flex-shrink:0; width: 220px;">
-                        <i class="fas fa-search search-icon"></i>
-                        <input type="text" id="modelSearchInput" class="search-input"
-                            placeholder="page.model.search_placeholder" data-i18n="page.model.search_placeholder"
-                            data-i18n-attr="placeholder">
-                    </div>
-                    <button class="btn btn-secondary" onclick="refreshModels()" title="common.refresh"
-                        data-i18n="common.refresh" data-i18n-attr="title" style="flex-shrink:0;">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>
-                    <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
-                        <select id="modelNodeFilter" class="form-control"
-                            style="padding: 4px 8px; width: auto; font-size: 0.875rem;"
-                            onchange="sortAndRenderModels()">
-                            <option value="all" data-i18n="page.model.filter.all">page.model.filter.all</option>
-                            <option value="local" data-i18n="page.model.filter.local">page.model.filter.local</option>
-                        </select>
-                        <select id="modelSortSelect" class="form-control"
-                            style="padding: 4px 8px; width: auto; font-size: 0.875rem;"
-                            onchange="sortAndRenderModels()">
-                            <option value="name_asc" data-i18n="page.model.sort.name_asc">page.model.sort.name_asc
-                            </option>
-                            <option value="name_desc" data-i18n="page.model.sort.name_desc">page.model.sort.name_desc
-                            </option>
-                            <option value="size_asc" data-i18n="page.model.sort.size_asc">page.model.sort.size_asc
-                            </option>
-                            <option value="size_desc" data-i18n="page.model.sort.size_desc">page.model.sort.size_desc
-                            </option>
-                            <option value="params_asc" data-i18n="page.model.sort.params_asc">page.model.sort.params_asc
-                            </option>
-                            <option value="params_desc" data-i18n="page.model.sort.params_desc">
-                                page.model.sort.params_desc</option>
-                        </select>
-                        <button id="runningFirstToggle" class="btn-icon active" style="width:36px;height:36px;"
-                            title="page.model.sort.running_first" data-i18n="page.model.sort.running_first" data-i18n-attr="title"
-                            onclick="toggleRunningFirst()">
-                            <i class="fas fa-bolt"></i>
-                        </button>
-                        <button id="modelViewToggle" class="btn-icon" style="width:36px;height:36px;"
-                            title="Toggle view" onclick="toggleModelView()">
-                            <i class="fas fa-th-large"></i>
-                        </button>
-                    </div>
+        <div class="top-bar">
+            <h1 class="page-title"><span data-i18n="page.model.title">page.model.title</span> <span id="modelCountBadge" class="model-count-badge"></span></h1>
+            <div class="top-actions">
+                <div class="search-box" style="flex-shrink:0; width: 220px;">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" id="modelSearchInput" class="search-input"
+                        placeholder="page.model.search_placeholder" data-i18n="page.model.search_placeholder"
+                        data-i18n-attr="placeholder">
                 </div>
+                <button class="btn btn-secondary" onclick="refreshModels()" title="common.refresh"
+                    data-i18n="common.refresh" data-i18n-attr="title" style="flex-shrink:0;">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <select id="modelNodeFilter" class="form-control"
+                    style="padding: 4px 8px; width: auto; font-size: 0.875rem;"
+                    onchange="sortAndRenderModels()">
+                    <option value="all" data-i18n="page.model.filter.all">page.model.filter.all</option>
+                    <option value="local" data-i18n="page.model.filter.local">page.model.filter.local</option>
+                </select>
+                <select id="modelSortSelect" class="form-control"
+                    style="padding: 4px 8px; width: auto; font-size: 0.875rem;"
+                    onchange="sortAndRenderModels()">
+                    <option value="name_asc" data-i18n="page.model.sort.name_asc">page.model.sort.name_asc
+                    </option>
+                    <option value="name_desc" data-i18n="page.model.sort.name_desc">page.model.sort.name_desc
+                    </option>
+                    <option value="size_asc" data-i18n="page.model.sort.size_asc">page.model.sort.size_asc
+                    </option>
+                    <option value="size_desc" data-i18n="page.model.sort.size_desc">page.model.sort.size_desc
+                    </option>
+                    <option value="params_asc" data-i18n="page.model.sort.params_asc">page.model.sort.params_asc
+                    </option>
+                    <option value="params_desc" data-i18n="page.model.sort.params_desc">
+                        page.model.sort.params_desc</option>
+                </select>
+                <button id="runningFirstToggle" class="btn-icon active" style="width:36px;height:36px;"
+                    title="page.model.sort.running_first" data-i18n="page.model.sort.running_first" data-i18n-attr="title"
+                    onclick="toggleRunningFirst()">
+                    <i class="fas fa-bolt"></i>
+                </button>
+                <button id="modelViewToggle" class="btn-icon" style="width:36px;height:36px;"
+                    title="Toggle view" onclick="toggleModelView()">
+                    <i class="fas fa-th-large"></i>
+                </button>
+            </div>
+        </div>
+        <div class="content-scrollable">
+            <div class="model-list-container">
                 <div id="modelsList">
                     <div class="loading-spinner">
                         <div class="spinner"></div>

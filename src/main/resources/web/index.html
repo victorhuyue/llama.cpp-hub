@@ -2614,6 +2614,13 @@
                                     </div>
                                     <div class="settings-section-content" id="llamacppSectionContent">
                                         <div class="settings-section-body">
+                                            <div class="settings-node-select-row" style="margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                                                <label class="form-label" style="margin: 0; white-space: nowrap;">节点</label>
+                                                <select class="form-control" id="llamacppNodeSelect" style="width: auto; min-width: 160px;"
+                                                    onchange="loadLlamaCppList()">
+                                                    <option value="local" data-i18n="page.model.filter.local">本机</option>
+                                                </select>
+                                            </div>
                                             <div class="settings-section-stats">
                                                 <span data-i18n="page.settings.server.llamacpp_stats"></span>
                                                 <strong id="llamacppCountSettings">0</strong>
@@ -2657,6 +2664,13 @@
                                     </div>
                                     <div class="settings-section-content" id="modelPathSectionContent">
                                         <div class="settings-section-body">
+                                            <div class="settings-node-select-row" style="margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                                                <label class="form-label" style="margin: 0; white-space: nowrap;">节点</label>
+                                                <select class="form-control" id="modelPathNodeSelect" style="width: auto; min-width: 160px;"
+                                                    onchange="loadModelPathList()">
+                                                    <option value="local" data-i18n="page.model.filter.local">本机</option>
+                                                </select>
+                                            </div>
                                             <div class="settings-section-stats">
                                                 <span data-i18n="page.settings.server.modelpath_stats"></span>
                                                 <strong id="modelPathCountSettings">0</strong>
@@ -2699,6 +2713,13 @@
                                     </div>
                                     <div class="settings-section-content" id="proxySectionContent">
                                         <div class="settings-section-body">
+                                            <div class="settings-node-select-row" style="margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                                                <label class="form-label" style="margin: 0; white-space: nowrap;">节点</label>
+                                                <select class="form-control" id="proxyNodeSelect" style="width: auto; min-width: 160px;"
+                                                    onchange="loadProxyConfig()">
+                                                    <option value="local" data-i18n="page.model.filter.local">本机</option>
+                                                </select>
+                                            </div>
                                             <small class="form-text"
                                                 data-i18n="page.settings.server.proxy_section_desc">
                                                 配置 HTTP 代理，用于访问 HuggingFace 等外部服务。
@@ -3865,7 +3886,7 @@ llama.cpp-hub</textarea>
                     <div class="dir-browse-input-row">
                         <input class="form-control" id="addLlamaCppPathInput" placeholder="/path/to/llama.cpp">
                         <button class="btn btn-secondary btn-sm dir-browse-btn" type="button"
-                            onclick="openDirectoryBrowser('addLlamaCppPathInput')" data-i18n="common.browse"
+                            onclick="openDirectoryBrowser('addLlamaCppPathInput', document.getElementById('llamacppNodeSelect').value)" data-i18n="common.browse"
                             data-i18n-attr="title" title="common.browse">
                             <i class="fas fa-folder-open"></i>
                         </button>
@@ -4110,7 +4131,7 @@ llama.cpp-hub</textarea>
                     <div class="dir-browse-input-row">
                         <input class="form-control" id="addModelPathInput" placeholder="/path/to/models">
                         <button class="btn btn-secondary btn-sm dir-browse-btn" type="button"
-                            onclick="openDirectoryBrowser('addModelPathInput')" data-i18n="common.browse"
+                            onclick="openDirectoryBrowser('addModelPathInput', document.getElementById('modelPathNodeSelect').value)" data-i18n="common.browse"
                             data-i18n-attr="title" title="common.browse">
                             <i class="fas fa-folder-open"></i>
                         </button>
@@ -4571,7 +4592,7 @@ llama.cpp-hub</textarea>
             return [];
         }
 
-        function openDirectoryBrowser(targetInputId) {
+        function openDirectoryBrowser(targetInputId, nodeId) {
             const el = document.getElementById(targetInputId);
             if (!el) return;
             ensureDirectoryBrowserModal();
@@ -4594,7 +4615,7 @@ llama.cpp-hub</textarea>
                 truncated: false,
                 extensions: '',
                 filter: null,
-                nodeId: null
+                nodeId: nodeId || null
             };
             directoryBrowserSetConfirmState();
             directoryBrowserLoad(current || null, { roots: false });

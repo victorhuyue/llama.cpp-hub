@@ -51,6 +51,46 @@
      * Get the directory name created after extracting a release archive.
      * The ZIP is extracted into llamacpp/, keeping its top-level directory name.
      */
+    function populateSettingsNodeSelect(selectId) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return;
+        while (sel.options.length > 1) sel.remove(1);
+        fetch('/api/node/list')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                var nodes = data && data.data ? data.data : [];
+                nodes.forEach(function (n) {
+                    if (n && n.nodeId && n.nodeId !== 'local' && n.enabled !== false) {
+                        var opt = document.createElement('option');
+                        opt.value = n.nodeId;
+                        opt.textContent = n.name || n.nodeId;
+                        sel.appendChild(opt);
+                    }
+                });
+            })
+            .catch(function () {});
+    }
+
+    function getLlamaCppNodeId() {
+        var sel = document.getElementById('llamacppNodeSelect');
+        return sel ? sel.value : 'local';
+    }
+    function getModelPathNodeId() {
+        var sel = document.getElementById('modelPathNodeSelect');
+        return sel ? sel.value : 'local';
+    }
+    function getProxyNodeId() {
+        var sel = document.getElementById('proxyNodeSelect');
+        return sel ? sel.value : 'local';
+    }
+
+    function appendNodeId(url, nodeId) {
+        if (nodeId && nodeId !== 'local') {
+            url += (url.indexOf('?') === -1 ? '?' : '&') + 'nodeId=' + encodeURIComponent(nodeId);
+        }
+        return url;
+    }
+
     function parseLlamaCppBackendName(fileName) {
         if (!fileName) return '';
         var base = fileName;
@@ -1415,7 +1455,8 @@
         if (!container) return;
         container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
 
-        fetch('/api/model/path/list')
+        var mListUrl = appendNodeId('/api/model/path/list', getModelPathNodeId());
+        fetch(mListUrl)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
@@ -1521,9 +1562,11 @@
         if (name) payload.name = name;
         if (description) payload.description = description;
 
+        var mNodeId = getModelPathNodeId();
         try {
             if (editingModelPath) {
-                const resp = await fetch('/api/model/path/update', {
+                var mUpdateUrl = appendNodeId('/api/model/path/update', mNodeId);
+                const resp = await fetch(mUpdateUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ originalPath: editingModelPath, ...payload })
@@ -1541,7 +1584,8 @@
                 return;
             }
 
-            const resp = await fetch('/api/model/path/add', {
+            var mAddUrl = appendNodeId('/api/model/path/add', mNodeId);
+            const resp = await fetch(mAddUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -1565,7 +1609,8 @@
     function removeModelPath(path) {
         if (!confirm(t('confirm.model_path.remove', '确定要删除此路径吗？'))) return;
 
-        fetch('/api/model/path/remove', {
+        var mRemoveUrl = appendNodeId('/api/model/path/remove', getModelPathNodeId());
+        fetch(mRemoveUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: path })
@@ -1591,7 +1636,8 @@
         if (!container) return;
         container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div></div>';
 
-        fetch('/api/llamacpp/list')
+        var listUrl = appendNodeId('/api/llamacpp/list', getLlamaCppNodeId());
+        fetch(listUrl)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
@@ -1701,16 +1747,19 @@
         if (name) payload.name = name;
         if (desc) payload.description = desc;
 
+        var nodeId = getLlamaCppNodeId();
         try {
             if (editingLlamaCppPath) {
-                await fetch('/api/llamacpp/remove', {
+                var removeUrl = appendNodeId('/api/llamacpp/remove', nodeId);
+                await fetch(removeUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: editingLlamaCppPath })
                 }).catch(function() {});
             }
 
-            const resp = await fetch('/api/llamacpp/add', {
+            var addUrl = appendNodeId('/api/llamacpp/add', nodeId);
+            const resp = await fetch(addUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -1741,7 +1790,8 @@
     }
 
     function doRemoveLlamaCpp(path) {
-        fetch('/api/llamacpp/remove', {
+        var removeUrl = appendNodeId('/api/llamacpp/remove', getLlamaCppNodeId());
+        fetch(removeUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: path })
@@ -1893,7 +1943,8 @@
             if (name) payload.name = name;
             if (desc) payload.description = desc;
 
-            var resp = await fetch('/api/llamacpp/test', {
+            var testUrl = appendNodeId('/api/llamacpp/test', getLlamaCppNodeId());
+            var resp = await fetch(testUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -2007,6 +2058,11 @@
             updateProxy.addEventListener('change', function () { llamacppProxy.value = this.value; });
             llamacppProxy.addEventListener('change', function () { updateProxy.value = this.value; });
         }
+
+        // Populate node selects for each section
+        populateSettingsNodeSelect('llamacppNodeSelect');
+        populateSettingsNodeSelect('modelPathNodeSelect');
+        populateSettingsNodeSelect('proxyNodeSelect');
     }
 
     let _initialized = false;
@@ -2035,7 +2091,8 @@
     }
 
     function loadProxyConfig() {
-        fetch('/api/proxy/get')
+        var pUrl = appendNodeId('/api/proxy/get', getProxyNodeId());
+        fetch(pUrl)
             .then(response => response.json())
             .then(data => {
                 if (data.success && data.data) {
@@ -2072,7 +2129,8 @@
             password: password ? password.value : ''
         };
 
-        fetch('/api/proxy/save', {
+        var pSaveUrl = appendNodeId('/api/proxy/save', getProxyNodeId());
+        fetch(pSaveUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -2115,7 +2173,8 @@
 
         toast(t('page.settings.server.proxy_testing', '测试中'), t('page.settings.server.proxy_testing_desc', '正在测试代理连接...'), 'info');
 
-        fetch('/api/proxy/test', {
+        var pTestUrl = appendNodeId('/api/proxy/test', getProxyNodeId());
+        fetch(pTestUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -2165,4 +2224,5 @@
     window.loadProxyConfig = loadProxyConfig;
     window.saveProxyConfig = saveProxyConfig;
     window.testProxyConnection = testProxyConnection;
+    window.populateSettingsNodeSelect = populateSettingsNodeSelect;
 })();

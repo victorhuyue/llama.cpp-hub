@@ -54,6 +54,7 @@ import org.mark.llamacpp.server.tools.ChatTemplateFileTool;
 import org.mark.llamacpp.server.tools.GPUInfoHelper;
 import org.mark.llamacpp.server.tools.ParamTool;
 import org.mark.llamacpp.server.tools.PortChecker;
+import org.apache.logging.log4j.CloseableThreadContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1679,7 +1680,10 @@ public class LlamaServerManager {
 	 */
 	private void loadModelInBackgroundFromCmd(String modelId, GGUFModel targetModel, String llamaBinPath, List<String> device,
 			Integer mg, boolean enableVision, String cmd, String extraParams, String chatTemplateFilePath) {
-		try {
+		String canonicalId = targetModel.getModelId();
+		String sanitizedId = sanitizeModelId(canonicalId);
+		try (var loadCtx = CloseableThreadContext.put("modelId", sanitizedId)) {
+			try {
 			if (this.isLoadCanceled(modelId)) {
 				return;
 			}
@@ -1688,8 +1692,8 @@ public class LlamaServerManager {
 			Integer clientPort = cmdHasFlag(allArgs, "--port") ? extractPortFromCmd(allArgs) : null;
 			int actualPort = clientPort != null && clientPort > 0 && clientPort < 65535 ? clientPort : port;
 			String commandStr = this.buildCommandStr(targetModel, port, llamaBinPath, device, mg, enableVision, cmd, extraParams, chatTemplateFilePath);
-			String processName = "llama-server-" + modelId;
-			LlamaCppProcess process = new LlamaCppProcess(processName, commandStr, llamaBinPath);
+			String processName = "llama-server-" + canonicalId;
+			LlamaCppProcess process = new LlamaCppProcess(processName, commandStr, llamaBinPath, canonicalId);
 
 			logger.info("启动命令：{}", commandStr);
 
@@ -1717,7 +1721,8 @@ public class LlamaServerManager {
 			});
 
 			process.setOnProcessExited(info -> {
-				logger.info("模型进程退出事件: modelId={}, exitCode={}, unexpected={}", modelId, info.exitCode, info.unexpected);
+				try (var exitCtx = CloseableThreadContext.put("modelId", sanitizedId)) {
+					logger.info("模型进程退出事件: modelId={}, exitCode={}, unexpected={}", modelId, info.exitCode, info.unexpected);
 				if (latchResolved.compareAndSet(false, true)) {
 					// 加载期间进程退出 = 加载失败（不论 unexpected 标志）
 					logger.warn("模型进程在加载期间退出 (exitCode={}): {}", info.exitCode, modelId);
@@ -1735,6 +1740,7 @@ public class LlamaServerManager {
 							}
 						}
 					}
+				}
 				}
 			});
 
@@ -1852,6 +1858,7 @@ public class LlamaServerManager {
 			synchronized (this.loadingModels) {
 				this.loadingModels.remove(targetModel.getModelId());
 			}
+		}
 		}
 	}
 	
@@ -2019,6 +2026,11 @@ public class LlamaServerManager {
 	private static boolean isWindows() {
 		String os = System.getProperty("os.name");
 		return os != null && os.toLowerCase(Locale.ROOT).contains("win");
+	}
+
+	private static String sanitizeModelId(String id) {
+		if (id == null) return "unknown";
+		return id.replace('\\', '_').replace('/', '_').replace(':', '_');
 	}
 
 	/**

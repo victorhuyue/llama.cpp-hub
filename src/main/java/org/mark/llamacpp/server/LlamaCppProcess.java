@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import org.apache.logging.log4j.CloseableThreadContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +45,7 @@ public class LlamaCppProcess {
 	private final String name;
 	private final String cmd;
 	private final String llamaBinPath;
+	private final String modelId;
 	private long pid;
 	private Process process;
 	private Thread outputThread;
@@ -58,10 +60,11 @@ public class LlamaCppProcess {
 	private CompletableFuture<Void> exitFuture;
 	private final AtomicReference<ProcessExitInfo> exitInfoRef = new AtomicReference<>();
 
-	public LlamaCppProcess(String name, String cmd, String llamaBinPath) {
+	public LlamaCppProcess(String name, String cmd, String llamaBinPath, String modelId) {
 		this.name = name;
 		this.cmd = cmd;
 		this.llamaBinPath = llamaBinPath;
+		this.modelId = sanitizeModelId(modelId);
 	}
 
 	public String getLlamaBinPath() {
@@ -422,15 +425,17 @@ public class LlamaCppProcess {
 
 	private void startOutputReaders() {
 		Consumer<String> safeHandler = line -> {
-			if (this.outputHandler != null) {
-				try {
-					this.outputHandler.accept(line);
-				} catch (Exception e) {
-					logger.error("outputHandler 抛出异常: {}", e.getMessage());
+			try (var ctx = CloseableThreadContext.put("modelId", this.modelId)) {
+				if (this.outputHandler != null) {
+					try {
+						this.outputHandler.accept(line);
+					} catch (Exception e) {
+						logger.error("outputHandler 抛出异常: {}", e.getMessage());
+					}
 				}
-			}
-			if (!line.contains("update_slots") && !line.contains("log_server_r")) {
-				RAW_PROCESS_LOGGER.info(line);
+				if (!line.contains("update_slots") && !line.contains("log_server_r")) {
+					RAW_PROCESS_LOGGER.info(line);
+				}
 			}
 		};
 
@@ -626,6 +631,11 @@ public class LlamaCppProcess {
 	private static boolean isWindows() {
 		String os = System.getProperty("os.name");
 		return os != null && os.toLowerCase(Locale.ROOT).contains("win");
+	}
+
+	private static String sanitizeModelId(String id) {
+		if (id == null) return "unknown";
+		return id.replace('\\', '_').replace('/', '_').replace(':', '_');
 	}
 
 	/**

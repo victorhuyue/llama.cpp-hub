@@ -1154,20 +1154,19 @@
         }
         const source = String(text ?? '');
         const isStreaming = !!options.isStreaming;
-        const isUser = String(options.role).toLowerCase() === 'user';
-       if (isStreaming || isUser) {
-         target.innerHTML = escapeHtml(source).replace(/\n/g, '<br>');
-       } else {
-         target.innerHTML = renderMarkdown(source);
-       }
-       if (!isStreaming && !isUser && window.hljs && typeof window.hljs.highlightElement === 'function' && (source.includes('```') || source.includes('`'))) {
+       if (isStreaming) {
+          target.innerHTML = escapeHtml(source).replace(/\n/g, '<br>');
+        } else {
+          target.innerHTML = renderMarkdown(source);
+        }
+        if (!isStreaming && window.hljs && typeof window.hljs.highlightElement === 'function' && (source.includes('```') || source.includes('`'))) {
          const blocks = target.querySelectorAll('pre code');
          for (const block of blocks) {
            window.hljs.highlightElement(block);
          }
        }
-       if (!isStreaming && !isUser) {
-         const pres = target.querySelectorAll('pre');
+        if (!isStreaming) {
+          const pres = target.querySelectorAll('pre');
          for (const pre of pres) {
            if (pre.querySelector('.code-copy-btn')) continue;
            const btn = document.createElement('button');
@@ -1209,7 +1208,7 @@
            pre.appendChild(btn);
          }
        }
-       if (!isStreaming && !isUser && /[\\$]/.test(source)) {
+        if (!isStreaming && /[\\$]/.test(source)) {
          requestMathTypeset(target);
        }
      }

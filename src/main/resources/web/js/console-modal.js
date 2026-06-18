@@ -106,13 +106,23 @@
         const cacheKey = getCacheKey();
         if (!currentFilter || currentFilter === 'system') {
             chunk = snapshotText || '';
-        } else if (cacheKey && modelSnapshots[cacheKey]) {
-            chunk = modelSnapshots[cacheKey];
-        }
-        for (let i = 0; i < logBuffer.length; i++) {
-            if (matchFilter(logBuffer[i].modelId)) {
-                chunk += logBuffer[i].text;
-                matched++;
+        } else {
+            if (modelSnapshots[cacheKey]) {
+                // 已获取过历史日志，只使用 logBuffer（WebSocket 实时推送）
+                for (let i = 0; i < logBuffer.length; i++) {
+                    if (matchFilter(logBuffer[i].modelId)) {
+                        chunk += logBuffer[i].text;
+                        matched++;
+                    }
+                }
+            } else {
+                // 第一次选择，还没有缓存，从 API 获取
+                for (let i = 0; i < logBuffer.length; i++) {
+                    if (matchFilter(logBuffer[i].modelId)) {
+                        chunk += logBuffer[i].text;
+                        matched++;
+                    }
+                }
             }
         }
         logEl.textContent = chunk;
@@ -182,7 +192,7 @@
         cleanupStaleRemoteState();
         if (!consoleInitialized) {
             activeNodeTab = 'local';
-            if (typeof populateLogFilter === 'function') populateLogFilter('local');
+            if (typeof populateLogFilter === 'function') populateLogFilter(activeNodeTab);
             initConsoleTabs();
             consoleInitialized = true;
         }
@@ -274,7 +284,7 @@
                 populateLogFilter(id === 'local' ? 'local' : id);
             }
             currentFilter = '';
-            currentFilterNodeId = 'local';
+            currentFilterNodeId = id;
             window._consoleCurrentFilter = '';
             var listItems = document.getElementById('consoleModelListItems');
             if (listItems) {
@@ -334,4 +344,7 @@
     window.stopConsoleAuto = stopConsoleAuto;
     window.initConsoleTabs = initConsoleTabs;
     window.appendRemoteLogLine = appendRemoteLogLine;
+    window.getConsoleActiveNodeTab = function() {
+        return activeNodeTab;
+    };
 })();

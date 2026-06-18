@@ -128,7 +128,8 @@ function applyModelPatch(modelId, patch, nodeId) {
         const prev = currentModelsData[i] || {};
         currentModelsData[i] = Object.assign({}, prev, patch || {});
         if (typeof sortAndRenderModels === 'function') sortAndRenderModels();
-        if (typeof populateLogFilter === 'function') populateLogFilter('local');
+        var activeTab = typeof window.getConsoleActiveNodeTab === 'function' ? window.getConsoleActiveNodeTab() : 'local';
+        if (typeof populateLogFilter === 'function') populateLogFilter(activeTab);
         const loadedCount = currentModelsData.filter(m => m && m.isLoaded).length;
         if (typeof updateModelCountBadge === 'function') updateModelCountBadge(loadedCount, currentModelsData.length);
     } catch (e) {}
@@ -205,8 +206,8 @@ async function populateLogFilter(activeNodeId) {
     const container = document.getElementById('consoleModelListItems');
     if (!container) return;
     const currentFilter = window._consoleCurrentFilter || '';
-    // 清除动态添加的模型项（保留前两个硬编码的 All Logs 和 System Logs）
-    while (container.children.length > 2) {
+    // 清除动态添加的模型项（保留 All Logs）
+    while (container.children.length > 1) {
         container.removeChild(container.lastChild);
     }
     const seen = {};

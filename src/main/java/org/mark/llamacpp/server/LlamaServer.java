@@ -1140,7 +1140,7 @@ public class LlamaServer {
         if (safeId.isBlank() || ".".equals(safeId) || "..".equals(safeId)) {
             return "";
         }
-        Path logFile = LOG_DIR.resolve(safeId + ".log").normalize();
+        Path logFile = LOG_DIR.resolve(safeId + ".log").toAbsolutePath().normalize();
         if (!logFile.startsWith(LOG_DIR.toAbsolutePath().normalize())) {
             return "";
         }
@@ -1148,7 +1148,7 @@ public class LlamaServer {
             if (!Files.exists(logFile) || !Files.isRegularFile(logFile)) return "";
             return readTailUtf8(logFile, CONSOLE_BUFFER_MAX_BYTES);
         } catch (Exception e) {
-            logger.warn("读取模型日志失败: modelId={}, path={}", modelId, logFile, e);
+            logger.info("读取模型日志失败: modelId={}, path={}", modelId, logFile, e);
             return "";
         }
     }

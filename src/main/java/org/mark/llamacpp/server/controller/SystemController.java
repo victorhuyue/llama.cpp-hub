@@ -2224,12 +2224,14 @@ public class SystemController implements BaseController {
 			String nodeId = params.get("nodeId");
 			String modelId = params.get("modelId");
 			if (nodeId != null && !nodeId.isBlank() && !"local".equals(nodeId)) {
+				logger.info("[模型日志] 远程请求: nodeId={}, modelId={}", nodeId, modelId);
 				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
 						nodeId, "GET", "api/sys/model-log?modelId=" + java.net.URLEncoder.encode(modelId, java.nio.charset.StandardCharsets.UTF_8), null);
+				logger.info("[模型日志] 远程响应: nodeId={}, success={}, statusCode={}, bodyLength={}", nodeId, result.isSuccess(), result.getStatusCode(), result.getBody() != null ? result.getBody().length() : 0);
 				if (result.isSuccess()) {
 					LlamaServer.sendTextResponse(ctx, result.getBody());
 				} else {
-					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败: code=" + result.getStatusCode()));
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败: code=" + result.getStatusCode() + ", body=" + result.getBody()));
 				}
 				return;
 			}
@@ -2240,7 +2242,8 @@ public class SystemController implements BaseController {
 			String text = LlamaServer.getModelLogText(modelId);
 			LlamaServer.sendTextResponse(ctx, text != null ? text : "");
 		} catch (Exception e) {
-			LlamaServer.sendTextResponse(ctx, "");
+			logger.warn("[模型日志] 读取失败: error={}", e.getMessage(), e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("读取模型日志失败: " + e.getMessage()));
 		}
 	}
 }

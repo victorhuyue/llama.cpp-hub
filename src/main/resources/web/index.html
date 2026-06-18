@@ -184,7 +184,7 @@
             margin: 0 18px;
         }
 
-        .console-tab-panel {
+        #consoleTabContainer > .console-tab-panel {
             position: absolute;
             top: 0;
             right: 0;
@@ -194,7 +194,7 @@
             display: none;
         }
 
-        .console-tab-panel.active {
+        #consoleTabContainer > .console-tab-panel.active {
             display: flex;
         }
 
@@ -3688,9 +3688,6 @@ llama.cpp-hub</textarea>
                 <div class="console-model-list-items" id="consoleModelListItems">
                     <div class="console-model-item active" data-filter="" data-node-id="local">
                         <span class="console-model-item-name" data-i18n="modal.console.all_logs">All Logs</span>
-                    </div>
-                    <div class="console-model-item" data-filter="system" data-node-id="local">
-                        <span class="console-model-item-name" data-i18n="modal.console.system_logs">System Logs</span>
                     </div>
                 </div>
             </div>

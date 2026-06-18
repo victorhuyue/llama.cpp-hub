@@ -24,7 +24,7 @@ public class ConsoleBroadcastOutputStream extends OutputStream {
 
     private void emitLine() {
         String line = buffer.toString();
-        LlamaServer.sendConsoleLineEvent(null, line);
+        LlamaServer.sendConsoleLineEvent("system", line);
         lineConsumer.accept(line);
         buffer.setLength(0);
     }

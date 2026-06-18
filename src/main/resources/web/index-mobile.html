@@ -650,6 +650,10 @@
             <div class="modal-body" style="display:flex; flex-direction:column; padding: 0; overflow:hidden; min-height:0;">
                 <div style="display:flex; flex-wrap: wrap; align-items:center; gap: 0.75rem; padding: 0.75rem; border-bottom: 1px solid var(--border-color); background: #f8f9fa;">
                     <button class="btn btn-secondary btn-sm" id="refreshConsoleBtn"><i class="fas fa-sync-alt"></i> 刷新</button>
+                    <select id="logFilterSelect" style="font-size:0.8rem;padding:2px 6px;border-radius:4px;border:1px solid var(--border-color);background:var(--card-bg);color:var(--text-primary);">
+                        <option value="">All Logs</option>
+                        <option value="system">System Logs</option>
+                    </select>
                     <div id="consoleStatusText" style="font-size: 0.85rem; color: var(--text-secondary); margin-left:auto;"></div>
                 </div>
                 <div id="logContainer" style="flex:1; min-height:0; overflow:auto; padding: 0.75rem; background: #0b1220;">

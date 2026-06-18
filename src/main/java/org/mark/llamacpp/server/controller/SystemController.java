@@ -79,6 +79,16 @@ public class SystemController implements BaseController {
 			this.handleSysConsoleRequest(ctx, request);
 			return true;
 		}
+		// 返回有日志文件的模型列表
+		if (uri.startsWith("/api/sys/log-models")) {
+			this.handleLogModelsRequest(ctx, request);
+			return true;
+		}
+		// 返回指定模型的日志文件内容
+		if (uri.startsWith("/api/sys/model-log")) {
+			this.handleModelLogRequest(ctx, request);
+			return true;
+		}
 		
 		// 列出可用的设备，基于当前选择的llamacpp
 		if (uri.startsWith("/api/model/device/list")) {
@@ -2161,6 +2171,52 @@ public class SystemController implements BaseController {
 		} catch (Exception e) {
 			logger.info("处理开机自启请求时发生错误", e);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("处理开机自启失败: " + e.getMessage()));
+		}
+	}
+
+	/**
+	 * 返回有日志文件的模型ID列表（扫描 logs/*.log 排除 app.log）
+	 */
+	private void handleLogModelsRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+		try {
+			Path logDir = Paths.get("logs");
+			List<String> modelIds = new ArrayList<>();
+			if (Files.exists(logDir)) {
+				try (Stream<Path> files = Files.list(logDir)) {
+					modelIds = files
+						.filter(p -> p.toString().endsWith(".log"))
+						.map(p -> p.getFileName().toString())
+						.filter(name -> !name.equals("app.log"))
+						.map(name -> name.substring(0, name.length() - 4))
+						.collect(java.util.stream.Collectors.toList());
+				}
+			}
+			Map<String, Object> response = new HashMap<>();
+			response.put("success", true);
+			response.put("data", modelIds);
+			LlamaServer.sendJsonResponse(ctx, response);
+		} catch (Exception e) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("读取日志文件列表失败: " + e.getMessage()));
+		}
+	}
+
+	/**
+	 * 返回指定模型日志文件的尾部内容
+	 */
+	private void handleModelLogRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+		try {
+			Map<String, String> params = ParamTool.getQueryParam(request.uri());
+			String modelId = params.get("modelId");
+			if (modelId == null || modelId.isBlank()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少modelId参数"));
+				return;
+			}
+			String text = LlamaServer.getModelLogText(modelId);
+			LlamaServer.sendTextResponse(ctx, text != null ? text : "");
+		} catch (Exception e) {
+			LlamaServer.sendTextResponse(ctx, "");
 		}
 	}
 }

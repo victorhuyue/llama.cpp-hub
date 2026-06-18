@@ -11,6 +11,60 @@
     let remotePending = {};
     let remoteSnapshotInFlight = {};
 
+    let logBuffer = [];
+    let currentFilter = '';
+    let snapshotText = '';
+    let modelSnapshots = {};
+    const MAX_BUFFER = 10000;
+
+    function matchFilter(modelId) {
+        if (!currentFilter) return true;
+        return (modelId || 'system') === currentFilter;
+    }
+
+    function setLogFilter(filter) {
+        currentFilter = filter || '';
+        const sel = document.getElementById('logFilterSelect');
+        if (sel) sel.value = currentFilter;
+        if (currentFilter && currentFilter !== 'system' && !modelSnapshots[currentFilter]) {
+            fetch('/api/sys/model-log?modelId=' + encodeURIComponent(currentFilter))
+                .then(function (r) { return r.text(); })
+                .then(function (text) {
+                    modelSnapshots[currentFilter] = text || '';
+                    renderFiltered();
+                })
+                .catch(function () {
+                    modelSnapshots[currentFilter] = '';
+                    renderFiltered();
+                });
+        }
+        renderFiltered();
+    }
+
+    function renderFiltered() {
+        if (!logEl) return;
+        const atBottom = nearBottom();
+        let chunk = '';
+        let matched = 0;
+        if (!currentFilter || currentFilter === 'system') {
+            chunk = snapshotText || '';
+        } else if (modelSnapshots[currentFilter]) {
+            chunk = modelSnapshots[currentFilter];
+        }
+        for (let i = 0; i < logBuffer.length; i++) {
+            if (matchFilter(logBuffer[i].modelId)) {
+                chunk += logBuffer[i].text;
+                matched++;
+            }
+        }
+        logEl.textContent = chunk;
+        if (consoleStatusText) {
+            const label = currentFilter || 'All';
+            consoleStatusText.textContent = 'Filter: ' + label + ' · Lines: ' + matched + '/' + logBuffer.length;
+        }
+        if (atBottom) scrollBottom();
+    }
+
     function nearBottom() {
         if (!logContainer) return true;
         return Math.abs(logContainer.scrollHeight - logContainer.scrollTop - logContainer.clientHeight) < 50;
@@ -27,11 +81,9 @@
         try {
             const res = await fetch('/api/sys/console');
             const text = await res.text();
-            const atBottom = nearBottom();
-            if (logEl) logEl.textContent = text;
+            snapshotText = text;
             snapshotInFlight = false;
-            flushPendingLogs();
-            if (atBottom) scrollBottom();
+            renderFiltered();
             if (consoleStatusText) {
                 consoleStatusText.textContent = t('page.console.status.updated', '已更新 · ') + new Date().toLocaleTimeString() + ' · Size: ' + text.length;
             }
@@ -42,6 +94,7 @@
     }
 
     function openConsoleModal() {
+        if (typeof populateLogFilter === 'function') populateLogFilter();
         initConsoleTabs();
         fetchConsole();
         var nodes = window.remoteNodes || [];
@@ -55,12 +108,17 @@
         }, 100);
     }
 
-    function appendLogLine(line, timestamp) {
+    function appendLogLine(line, timestamp, modelId) {
         if (!logEl) return;
         const clean = (line || '').replace(/\r/g, '');
         const withNl = clean.endsWith('\n') ? clean : clean + '\n';
+        const entry = { text: withNl, ts: typeof timestamp === 'number' ? timestamp : 0, modelId: modelId || 'system' };
+        logBuffer.push(entry);
+        if (logBuffer.length > MAX_BUFFER) {
+            logBuffer.splice(0, logBuffer.length - MAX_BUFFER);
+        }
         pendingLogs.push(withNl);
-        pendingLogsWithTs.push({ text: withNl, ts: typeof timestamp === 'number' ? timestamp : 0 });
+        pendingLogsWithTs.push(entry);
         if (snapshotInFlight) return;
         scheduleFlush();
     }
@@ -76,18 +134,9 @@
 
     function flushPendingLogs() {
         flushScheduled = false;
-        if (!snapshotInFlight && pendingLogs.length && logEl) {
-            const atBottom = nearBottom();
-            pendingLogsWithTs.sort(function (a, b) { return a.ts - b.ts; });
-            var chunk = '';
-            for (var i = 0; i < pendingLogsWithTs.length; i++) {
-                chunk += pendingLogsWithTs[i].text;
-            }
-            pendingLogs = [];
-            pendingLogsWithTs = [];
-            logEl.textContent += chunk;
-            if (atBottom) scrollBottom();
-        }
+        pendingLogs = [];
+        pendingLogsWithTs = [];
+        renderFiltered();
         for (var nid in remotePending) {
             if (remoteSnapshotInFlight[nid]) continue;
             var lines = remotePending[nid];
@@ -181,6 +230,7 @@
 
     window.openConsoleModal = openConsoleModal;
     window.appendLogLine = appendLogLine;
+    window.setLogFilter = setLogFilter;
     window.stopConsoleAuto = stopConsoleAuto;
     window.initConsoleTabs = initConsoleTabs;
     window.appendRemoteLogLine = appendRemoteLogLine;

@@ -104,7 +104,7 @@ function handleWebSocketMessage(message) {
                         if (data.nodeId && typeof appendRemoteLogLine === 'function') {
                             appendRemoteLogLine(data.nodeId, text);
                         } else if (typeof appendLogLine === 'function') {
-                            appendLogLine(text, data.timestamp);
+                            appendLogLine(text, data.timestamp, data.modelId || 'system');
                         }
                     }
                     break;
@@ -197,3 +197,46 @@ function handleModelBusyEvent(data) {
     if (!data || !data.modelId) return;
     applyModelPatch(data.modelId, { busy: !!data.busy }, data.nodeId);
 }
+
+async function populateLogFilter() {
+    const sel = document.getElementById('logFilterSelect');
+    if (!sel) return;
+    const current = sel.value;
+    while (sel.options.length > 2) sel.remove(2);
+    const seen = {};
+    if (Array.isArray(currentModelsData)) {
+        currentModelsData.forEach(function (m) {
+            if (m && m.id) {
+                seen[m.id] = true;
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = (m.alias || m.id) + (m.isLoaded ? '' : ' (offline)');
+                sel.appendChild(opt);
+            }
+        });
+    }
+    try {
+        const resp = await fetch('/api/sys/log-models');
+        const data = await resp.json();
+        if (data.success && Array.isArray(data.data)) {
+            data.data.forEach(function (id) {
+                if (!seen[id]) {
+                    seen[id] = true;
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.textContent = id + ' (offline)';
+                    sel.appendChild(opt);
+                }
+            });
+        }
+    } catch (e) {}
+    sel.value = current;
+}
+
+document.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'logFilterSelect') {
+        if (typeof setLogFilter === 'function') {
+            setLogFilter(e.target.value);
+        }
+    }
+});

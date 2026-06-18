@@ -37,7 +37,7 @@ public class ConsoleBufferLogAppender extends AbstractAppender {
         String line = new String(bytes, StandardCharsets.UTF_8);
         line = stripTrailingLineBreaks(line);
         if (!line.isEmpty()) {
-            LlamaServer.sendConsoleLineEvent(null, line);
+            LlamaServer.sendConsoleLineEvent("system", line);
         }
     }
 

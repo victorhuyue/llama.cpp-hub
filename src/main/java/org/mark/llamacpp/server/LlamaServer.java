@@ -13,6 +13,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.KeyStore;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -1129,6 +1131,17 @@ public class LlamaServer {
         }
     }
 
+    public static String getModelLogText(String modelId) {
+        String safeId = modelId.replaceAll("[^a-zA-Z0-9_\\-.]", "_");
+        Path logFile = LOG_DIR.resolve(safeId + ".log");
+        try {
+            if (!Files.exists(logFile)) return "";
+            return readTailUtf8(logFile, CONSOLE_BUFFER_MAX_BYTES);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private static void preloadConsoleBufferFromAppLog() {
         try {
             if (!Files.exists(APPLICATION_LOG_PATH) || !Files.isRegularFile(APPLICATION_LOG_PATH)) {
@@ -1238,8 +1251,12 @@ public class LlamaServer {
     }
     
     public static void sendConsoleLineEvent(String modelId, String line) {
-        appendConsoleBufferLine(line);
-        WebSocketManager.getInstance().sendConsoleLineEvent(modelId, line);
+        String formatted = line;
+        if (modelId != null && !modelId.isEmpty()) {
+            formatted = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")) + " - " + line;
+        }
+        appendConsoleBufferLine(formatted);
+        WebSocketManager.getInstance().sendConsoleLineEvent(modelId, formatted);
     }
     
     public static void sendModelSlotsEvent(String modelId, com.google.gson.JsonArray slots) {

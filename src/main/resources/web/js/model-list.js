@@ -114,6 +114,7 @@ function loadModels() {
                                 });
                                 sortAndRenderModels();
                                 populateNodeFilter();
+                                if (typeof populateLogFilter === 'function') populateLogFilter();
                                 if (loadedData.success) {
                                     const loadedCount = (loadedData.models || []).length;
                                     updateModelCountBadge(loadedCount, totalCount);
@@ -123,6 +124,7 @@ function loadModels() {
                                 currentModelsData = modelsWithStatus;
                                 sortAndRenderModels();
                                 populateNodeFilter();
+                                if (typeof populateLogFilter === 'function') populateLogFilter();
                                 if (loadedData.success) {
                                     const loadedCount = (loadedData.models || []).length;
                                     updateModelCountBadge(loadedCount, totalCount);

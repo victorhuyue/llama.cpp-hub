@@ -223,7 +223,9 @@ Why bother with option 2? Because most fine-tune authors don't bother quantizing
 
 The system info page uses gpu-info to collect hardware information (CPU, memory, disks, GPUs, etc.). The binary is located in the `classes/tools/easy-tools/` directory.
 
-It might get flagged by antivirus software (hello there, 360!). Don't worry — it's generally safe. Don't trust me or concerned about security? Go ahead and delete it.
+The source code is available at: https://github.com/IIIIIllllIIIIIlllll/Easy-GPU-Tools
+The binary is built via GitHub CLI — theoretically no security risk (you can inspect the code). I ship the precompiled binary in this project to avoid mixing Java + C compilation in the build pipeline.
+However, false positives and antivirus flags on Windows are still unavoidable. I have no control over that — if you have any suggestions, please let me know.
 
 ### A Note on Auto-Load Models
 

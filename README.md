@@ -222,7 +222,9 @@ llama.cpp 支持两种 MTP 使用方式：
 
 系统信息页面使用 gpu-info 工具获取硬件信息（CPU、内存、磁盘、GPU 等）。可执行文件位于 `classes/tools/easy-tools/` 目录下。
 
-该工具可能会被安全软件拦截（比如超级无敌我爱你的 360！）。没事，一般来说它是安全的。不相信我 or 担心安全问题？那就删了它。
+这个工具的项目地址：https://github.com/IIIIIllllIIIIIlllll/Easy-GPU-Tools
+程序是通过GitHub的cli编译得到的，理论上不存在安全风险（可以检查代码），我会下载下来放在该项目中，避免 Java + C 混合编译。
+但是Windows平台依然有各种误报、当作病毒的可能，对此我没有办法，如果有好的建议就请告诉我吧。
 
 ### 说明：自动加载模型
 

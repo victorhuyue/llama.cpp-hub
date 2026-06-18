@@ -186,13 +186,83 @@
 
         .console-tab-panel {
             position: absolute;
-            inset: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 180px;
             overflow: hidden;
             display: none;
         }
 
         .console-tab-panel.active {
             display: flex;
+        }
+
+        /* === Console Model List === */
+        .console-tab-container {
+            display: flex;
+            flex-direction: row;
+        }
+
+        .console-model-list {
+            width: 180px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            border-right: 2px solid var(--border-color);
+            background: var(--sidebar-bg);
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        .console-model-list-header {
+            padding: 8px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+        }
+
+        .console-model-list-items {
+            flex: 1;
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+
+        .console-model-item {
+            padding: 5px 10px;
+            cursor: pointer;
+            transition: background 0.1s;
+            border-left: 3px solid transparent;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .console-model-item:hover {
+            background: rgba(99, 102, 241, 0.06);
+        }
+
+        .console-model-item.active {
+            background: rgba(99, 102, 241, 0.12);
+            border-left-color: var(--primary-color);
+        }
+
+        .console-model-item.loaded:not(.active) {
+            border-left-color: #10b981;
+        }
+
+        .console-model-item-name {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-primary);
+            display: block;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.3;
+        }
+
+        .console-model-item.offline .console-model-item-name {
+            color: var(--text-secondary);
         }
 
         /* === Benchmark V3 Panel === */
@@ -2100,6 +2170,14 @@
             color: #a5b4fc;
         }
 
+        [data-theme="dark"] .console-model-item:hover {
+            background: rgba(129, 140, 248, 0.06);
+        }
+
+        [data-theme="dark"] .console-model-item.active {
+            background: rgba(129, 140, 248, 0.14);
+        }
+
         [data-theme="dark"] #main-benchmark-v3 .result-table th {
             background: var(--sidebar-bg);
         }
@@ -3595,10 +3673,6 @@ llama.cpp-hub</textarea>
                     data-i18n="common.refresh" data-i18n-attr="title">
                     <i class="fas fa-sync-alt"></i>
                 </button>
-                <select id="logFilterSelect" class="log-filter-select">
-                    <option value="" data-i18n="modal.console.all_logs">All Logs</option>
-                    <option value="system" data-i18n="modal.console.system_logs">System Logs</option>
-                </select>
                 <div id="consoleStatusText" style="font-size:12px; color:var(--text-secondary); margin-left:auto;">
                 </div>
             </div>
@@ -3609,6 +3683,17 @@ llama.cpp-hub</textarea>
                 data-i18n="page.console.tab_local">page.console.tab_local</button>
         </div>
         <div class="console-tab-container" id="consoleTabContainer">
+            <div class="console-model-list" id="consoleModelList">
+                <div class="console-model-list-header" data-i18n="page.console.model_list">模型列表</div>
+                <div class="console-model-list-items" id="consoleModelListItems">
+                    <div class="console-model-item active" data-filter="" data-node-id="local">
+                        <span class="console-model-item-name" data-i18n="modal.console.all_logs">All Logs</span>
+                    </div>
+                    <div class="console-model-item" data-filter="system" data-node-id="local">
+                        <span class="console-model-item-name" data-i18n="modal.console.system_logs">System Logs</span>
+                    </div>
+                </div>
+            </div>
             <div class="console-tab-panel active" data-panel="local">
                 <div id="logContainer"
                     style="width:100%; height:100%; overflow:auto; padding:16px; font-family:'Menlo', 'Monaco', 'Courier New', monospace; background:#0f172a; color:#e5e7eb; font-size: 0.875rem;">

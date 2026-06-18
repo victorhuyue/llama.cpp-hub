@@ -68,8 +68,13 @@
         const plainModelId = filter && filter.includes('|||') ? filter.split('|||')[0] : (filter || '');
         currentFilter = plainModelId;
         currentFilterNodeId = nodeId || 'local';
-        const sel = document.getElementById('logFilterSelect');
-        if (sel) sel.value = filter || '';
+        window._consoleCurrentFilter = filter || '';
+        const container = document.getElementById('consoleModelListItems');
+        if (container) {
+            container.querySelectorAll('.console-model-item').forEach(function (item) {
+                item.classList.toggle('active', item.dataset.filter === (filter || ''));
+            });
+        }
         const cacheKey = getCacheKey();
         if (currentFilter && currentFilter !== 'system' && !modelSnapshots[cacheKey]) {
             const url = currentFilterNodeId !== 'local'
@@ -270,8 +275,14 @@
             }
             currentFilter = '';
             currentFilterNodeId = 'local';
-            var sel = document.getElementById('logFilterSelect');
-            if (sel) sel.value = '';
+            window._consoleCurrentFilter = '';
+            var listItems = document.getElementById('consoleModelListItems');
+            if (listItems) {
+                var allItems = listItems.querySelectorAll('.console-model-item');
+                allItems.forEach(function (item, idx) {
+                    item.classList.toggle('active', idx === 0);
+                });
+            }
             if (id === 'local') {
                 renderFiltered();
             } else {

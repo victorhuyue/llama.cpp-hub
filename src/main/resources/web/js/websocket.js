@@ -128,6 +128,7 @@ function applyModelPatch(modelId, patch, nodeId) {
         const prev = currentModelsData[i] || {};
         currentModelsData[i] = Object.assign({}, prev, patch || {});
         if (typeof sortAndRenderModels === 'function') sortAndRenderModels();
+        if (typeof populateLogFilter === 'function') populateLogFilter('local');
         const loadedCount = currentModelsData.filter(m => m && m.isLoaded).length;
         if (typeof updateModelCountBadge === 'function') updateModelCountBadge(loadedCount, currentModelsData.length);
     } catch (e) {}
@@ -201,10 +202,13 @@ function handleModelBusyEvent(data) {
 
 async function populateLogFilter(activeNodeId) {
     const gen = ++populateLogFilterGen;
-    const sel = document.getElementById('logFilterSelect');
-    if (!sel) return;
-    const current = sel.value;
-    while (sel.options.length > 2) sel.remove(2);
+    const container = document.getElementById('consoleModelListItems');
+    if (!container) return;
+    const currentFilter = window._consoleCurrentFilter || '';
+    // 清除动态添加的模型项（保留前两个硬编码的 All Logs 和 System Logs）
+    while (container.children.length > 2) {
+        container.removeChild(container.lastChild);
+    }
     const seen = {};
     if (Array.isArray(currentModelsData)) {
         currentModelsData.slice().sort(function (a, b) {
@@ -217,16 +221,15 @@ async function populateLogFilter(activeNodeId) {
                 if (activeNodeId && mNodeId !== activeNodeId) return;
                 const key = m.id + '|||' + mNodeId;
                 seen[key] = true;
-                const opt = document.createElement('option');
-                opt.value = key;
-                opt.dataset.nodeId = mNodeId;
-                if (mNodeId !== 'local') {
-                    const node = (window.remoteNodes || []).find(function (n) { return n.nodeId === mNodeId; });
-                    opt.textContent = (m.alias || m.id) + ' (' + (node ? (node.name || mNodeId) : mNodeId) + ')' + (m.isLoaded ? '' : ' (offline)');
-                } else {
-                    opt.textContent = (m.alias || m.id) + (m.isLoaded ? '' : ' (offline)');
-                }
-                sel.appendChild(opt);
+                const item = document.createElement('div');
+                item.className = 'console-model-item' + (m.isLoaded ? ' loaded' : ' offline');
+                item.dataset.filter = key;
+                item.dataset.nodeId = mNodeId;
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'console-model-item-name';
+                nameSpan.textContent = (m.alias || m.id) + (m.isLoaded ? '' : ' (offline)');
+                item.appendChild(nameSpan);
+                container.appendChild(item);
             }
         });
     }
@@ -254,24 +257,37 @@ async function populateLogFilter(activeNodeId) {
                 const key = id + '|||' + nodeId;
                 if (!seen[key]) {
                     seen[key] = true;
-                    const opt = document.createElement('option');
-                    opt.value = key;
-                    opt.dataset.nodeId = nodeId;
-                    if (nodeId !== 'local') {
-                        const node = (window.remoteNodes || []).find(function (n) { return n.nodeId === nodeId; });
-                        opt.textContent = id + ' (' + (node ? (node.name || nodeId) : nodeId) + ') (offline)';
-                    } else {
-                        opt.textContent = id + ' (offline)';
-                    }
-                    sel.appendChild(opt);
+                    const item = document.createElement('div');
+                    item.className = 'console-model-item offline';
+                    item.dataset.filter = key;
+                    item.dataset.nodeId = nodeId;
+                    const nameSpan = document.createElement('span');
+                    nameSpan.className = 'console-model-item-name';
+                    nameSpan.textContent = id + ' (offline)';
+                    item.appendChild(nameSpan);
+                    container.appendChild(item);
                 }
             });
         });
     } catch (e) {}
     if (gen === populateLogFilterGen) {
-        sel.value = current;
+        container.querySelectorAll('.console-model-item').forEach(function (item) {
+            item.classList.toggle('active', item.dataset.filter === currentFilter);
+        });
     }
 }
+
+document.addEventListener('click', function (e) {
+    var item = e.target.closest('.console-model-item');
+    if (item) {
+        if (typeof setLogFilter === 'function') {
+            var filter = item.dataset.filter || '';
+            var nodeId = item.dataset.nodeId || 'local';
+            setLogFilter(filter, nodeId);
+        }
+        return;
+    }
+});
 
 document.addEventListener('change', function (e) {
     if (e.target && e.target.id === 'logFilterSelect') {

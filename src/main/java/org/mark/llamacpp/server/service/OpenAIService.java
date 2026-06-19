@@ -1282,6 +1282,17 @@ public class OpenAIService {
 				return;
 			}
 			
+			byte[] bodyBytes = new byte[requestContent.readableBytes()];
+			requestContent.getBytes(requestContent.readerIndex(), bodyBytes);
+			
+			String endpoint = request.uri();
+			if (endpoint != null && endpoint.startsWith("/audio/transcriptions")) {
+				endpoint = "/v1" + endpoint;
+			}
+			if (endpoint == null || endpoint.isBlank()) {
+				endpoint = "/v1/audio/transcriptions";
+			}
+			
 			LlamaServerManager manager = LlamaServerManager.getInstance();
 			String modelName = this.resolveAudioTranscriptionModel(request);
 			if (modelName == null || modelName.isBlank()) {
@@ -1302,19 +1313,19 @@ public class OpenAIService {
 				if (loadError == null) {
 					Integer modelPort = manager.getModelPort(modelName);
 					if (modelPort != null) {
-						byte[] bodyBytes = new byte[requestContent.readableBytes()];
-						requestContent.getBytes(requestContent.readerIndex(), bodyBytes);
-						String endpoint = request.uri();
-						if (endpoint != null && endpoint.startsWith("/audio/transcriptions")) {
-							endpoint = "/v1" + endpoint;
-						}
-						if (endpoint == null || endpoint.isBlank()) {
-							endpoint = "/v1/audio/transcriptions";
-						}
 						this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, endpoint, false, bodyBytes);
 						return;
 					}
 				}
+				
+				logger.info("[OpenAIAudioTranscriptions路由] 本地未找到模型，开始搜索远程节点: model={}", modelName);
+				String[] remote = this.resolveFromRemoteNodes(modelName, "[OpenAIAudioTranscriptions路由]");
+				if (remote != null) {
+					String targetUrl = this.joinBaseUrlAndPath(remote[0], endpoint);
+					this.forwardRawBodyToRemote(ctx, request, modelName, targetUrl, remote[1], endpoint, bodyBytes);
+					return;
+				}
+				
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null,
 					loadError != null ? loadError : "Model not found: " + modelName, "model");
 				return;
@@ -1326,16 +1337,6 @@ public class OpenAIService {
 				return;
 			}
 			
-			byte[] bodyBytes = new byte[requestContent.readableBytes()];
-			requestContent.getBytes(requestContent.readerIndex(), bodyBytes);
-			
-			String endpoint = request.uri();
-			if (endpoint != null && endpoint.startsWith("/audio/transcriptions")) {
-				endpoint = "/v1" + endpoint;
-			}
-			if (endpoint == null || endpoint.isBlank()) {
-				endpoint = "/v1/audio/transcriptions";
-			}
 			this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, endpoint, false, bodyBytes);
 		} catch (Exception e) {
 			logger.info("处理OpenAI音频转录请求时发生错误", e);
@@ -1384,9 +1385,64 @@ public class OpenAIService {
 		}
 		return null;
 	}
-	
-	
-	
+
+	private void forwardRawBodyToRemote(ChannelHandlerContext ctx, FullHttpRequest request,
+			String modelName, String targetUrl, String remoteApiKey, String endpoint, byte[] bodyBytes) {
+		Map<String, String> headers = new HashMap<>();
+		for (Map.Entry<String, String> entry : request.headers()) {
+			headers.put(entry.getKey(), entry.getValue());
+		}
+		HttpMethod method = request.method();
+
+		worker.execute(() -> {
+			String requestId = ModelRequestTracker.getInstance().createRequest(modelName, endpoint);
+			HttpURLConnection connection = null;
+			try {
+				connection = (HttpURLConnection) URI.create(targetUrl).toURL().openConnection();
+				if (connection instanceof javax.net.ssl.HttpsURLConnection) {
+					NodeManager.trustAllCerts((javax.net.ssl.HttpsURLConnection) connection);
+				}
+				connection.setRequestMethod(method.name());
+				connection.setConnectTimeout(36000 * 1000);
+				connection.setReadTimeout(36000 * 1000);
+				for (Map.Entry<String, String> entry : headers.entrySet()) {
+					if (this.shouldForwardRequestHeader(entry.getKey())) {
+						connection.setRequestProperty(entry.getKey(), entry.getValue());
+					}
+				}
+				if (remoteApiKey != null && !remoteApiKey.isBlank()) {
+					connection.setRequestProperty("Authorization", "Bearer " + remoteApiKey);
+				}
+				connection.setDoOutput(true);
+				try (OutputStream os = connection.getOutputStream()) {
+					os.write(bodyBytes);
+				}
+
+				int responseCode = connection.getResponseCode();
+				ModelRequestTracker.getInstance().updatePhase(requestId, ActiveRequest.Phase.GENERATION);
+
+				String contentType = connection.getContentType();
+				byte[] responseBytes;
+				if (responseCode >= 200 && responseCode < 300) {
+					responseBytes = this.readConnectionBodyBytes(connection, true);
+					this.recordRawProxyStats(modelName, requestId, responseBytes);
+				} else {
+					responseBytes = this.readConnectionBodyBytes(connection, false);
+				}
+				this.writeRawProxyResponse(ctx, responseCode, contentType, responseBytes);
+			} catch (Exception e) {
+				logger.info("转发音频转录请求到远程节点时发生错误", e);
+				this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, e.getMessage(), null);
+			} catch (Throwable t) {
+				logger.error("虚拟线程异常已兜底: {}", t.getMessage(), t);
+			} finally {
+				ModelRequestTracker.getInstance().removeRequest(requestId);
+				if (connection != null) {
+					connection.disconnect();
+				}
+			}
+		});
+	}
 
 	public HttpURLConnection openTrackedConnection(ChannelHandlerContext ctx, String targetUrl, HttpMethod method, Map<String, String> headers, boolean chunkedStreaming) throws IOException {
 		URL url = URI.create(targetUrl).toURL();

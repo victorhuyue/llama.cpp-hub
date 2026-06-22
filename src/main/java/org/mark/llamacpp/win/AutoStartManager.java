@@ -129,7 +129,7 @@ public class AutoStartManager {
     }
 
     /**
-     * 解析启动目标：优先使用 run.bat，其次用 javaw + classpath 直接运行。
+     * 解析启动目标：优先使用 run.bat，其次用当前 JVM 的 javaw + classpath 直接运行。
      */
     private static StartupTarget resolveStartupTarget() {
         String userDir = System.getProperty("user.dir");
@@ -141,7 +141,14 @@ public class AutoStartManager {
             return new StartupTarget("cmd.exe", "/c start \"\" \"" + runBatPath.toString().replace("\\", "\\\\") + "\"", userDir);
         }
 
-        // 尝试 2: 使用 javaw + classpath 直接运行
+        // 尝试 2: 使用当前 JVM 的 javaw + classpath 直接运行
+        String javaHome = System.getProperty("java.home");
+        Path javawPath = Paths.get(javaHome, "bin", "javaw.exe");
+        if (!javawPath.toFile().exists()) {
+            logger.error("当前 JRE 的 javaw.exe 不存在: {}", javawPath);
+            return null;
+        }
+
         Path classesDir = Paths.get(userDir, "build", "classes");
         Path libDir = Paths.get(userDir, "build", "lib");
         if (classesDir.toFile().exists()) {
@@ -149,8 +156,8 @@ public class AutoStartManager {
             if (libDir.toFile().exists()) {
                 classpath += libDir.toString().replace("\\", "\\\\") + "\\*";
             }
-            logger.info("使用 classpath 作为启动目标");
-            return new StartupTarget("javaw.exe",
+            logger.info("使用 JRE [{}] + classpath 作为启动目标", javaHome);
+            return new StartupTarget(javawPath.toString(),
                 "-Xms512m -Xmx512m -XX:MaxDirectMemorySize=256m -classpath \"" + classpath +
                 "\" org.mark.llamacpp.server.LlamaServer",
                 userDir);

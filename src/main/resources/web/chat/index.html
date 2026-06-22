@@ -1751,6 +1751,67 @@
       textarea.style.height = textarea.scrollHeight + 'px';
     }
 
+    const EDIT_VIEWPORT_RESERVE = 96;
+
+    function getEditViewportHeight() {
+      if (window.visualViewport && typeof window.visualViewport.height === 'number') {
+        return window.visualViewport.height;
+      }
+      return window.innerHeight || 0;
+    }
+
+    function fitEditInputToViewport(textarea) {
+      if (!textarea || !textarea.isConnected) return;
+      const viewportHeight = getEditViewportHeight();
+      if (!viewportHeight) return;
+      const maxH = Math.max(80, viewportHeight - EDIT_VIEWPORT_RESERVE);
+      textarea.style.maxHeight = maxH + 'px';
+      const scrollH = textarea.scrollHeight;
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(scrollH, maxH) + 'px';
+    }
+
+    function scrollEditBlockIntoView(textarea) {
+      if (!textarea || !textarea.isConnected) return;
+      const container = els.chatScroll;
+      if (!container) return;
+      const viewportHeight = getEditViewportHeight() || (window.innerHeight || 0);
+      const rect = textarea.getBoundingClientRect();
+      const bottom = rect.bottom;
+      const margin = 8;
+      const overflow = bottom - (viewportHeight - margin);
+      if (overflow > 0) {
+        container.scrollTop += overflow;
+      } else {
+        const top = rect.top;
+        const containerTop = container.getBoundingClientRect().top;
+        if (top < containerTop + margin) {
+          container.scrollTop -= (containerTop + margin - top);
+        }
+      }
+    }
+
+    let editViewportHandler = null;
+    function attachEditViewportListeners(textarea) {
+      detachEditViewportListeners();
+      if (!textarea || !window.visualViewport) return;
+      editViewportHandler = () => {
+        fitEditInputToViewport(textarea);
+        scrollEditBlockIntoView(textarea);
+      };
+      window.visualViewport.addEventListener('resize', editViewportHandler);
+      window.visualViewport.addEventListener('scroll', editViewportHandler);
+    }
+    function detachEditViewportListeners() {
+      if (!editViewportHandler || !window.visualViewport) {
+        editViewportHandler = null;
+        return;
+      }
+      window.visualViewport.removeEventListener('resize', editViewportHandler);
+      window.visualViewport.removeEventListener('scroll', editViewportHandler);
+      editViewportHandler = null;
+    }
+
     function syncSendButtonState() {
       if (!els.sendBtn) {
         return;
@@ -3884,7 +3945,18 @@
         editInput.value = message.content || '';
         editInput.dataset.editInput = 'true';
         editInput.dataset.index = String(index);
-        editInput.addEventListener('input', () => autoResizeTextarea(editInput));
+        editInput.addEventListener('input', () => {
+          autoResizeTextarea(editInput);
+          fitEditInputToViewport(editInput);
+          scrollEditBlockIntoView(editInput);
+        });
+        editInput.addEventListener('focus', () => {
+          attachEditViewportListeners(editInput);
+          requestAnimationFrame(() => {
+            fitEditInputToViewport(editInput);
+            scrollEditBlockIntoView(editInput);
+          });
+        });
 
         const editActions = document.createElement('div');
         editActions.className = 'message-edit-actions';
@@ -4054,8 +4126,13 @@
         const activeEditor = els.messages.querySelector('textarea[data-edit-input]');
         if (activeEditor) {
           autoResizeTextarea(activeEditor);
+          fitEditInputToViewport(activeEditor);
           activeEditor.focus();
           activeEditor.setSelectionRange(activeEditor.value.length, activeEditor.value.length);
+          attachEditViewportListeners(activeEditor);
+          requestAnimationFrame(() => scrollEditBlockIntoView(activeEditor));
+        } else {
+          detachEditViewportListeners();
         }
       });
     }
@@ -4731,6 +4808,7 @@
       if (state.editingMessageIndex === null) {
         return;
       }
+      detachEditViewportListeners();
       const index = state.editingMessageIndex;
       const message = getCurrentConversation()?.messages?.[index];
       if (message && state.editingMessageDraft && state.editingMessageDraft.index === index) {
@@ -4998,6 +5076,7 @@
         updateStatus('error', window.I18N.t('page.chat.main.status.empty_message', '请输入消息或添加文件'), window.I18N.t('page.chat.main.status.empty_message_short', '空消息'));
         return;
       }
+      detachEditViewportListeners();
       message.content = nextContent;
       if (message.role === 'assistant') {
         const savedReasoning = message.reasoning || '';

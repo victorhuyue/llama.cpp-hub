@@ -18,6 +18,7 @@
   --sidebar-bg: #f7f7f7;
   --sidebar-border: #dcdcdc;
   --sidebar-width: 260px;
+  --chat-column-max: 768px;
   --chat-center-offset: 0px;
   --fg-muted: #9ca3af;
   --hover: rgba(0,0,0,0.06);
@@ -630,7 +631,7 @@ button { cursor: pointer; }
 }
 
 .chat-column {
-  width: min(100%, 768px);
+  width: min(100%, var(--chat-column-max));
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -1009,6 +1010,7 @@ button { cursor: pointer; }
   width: 100%;
   min-height: 80px;
   max-height: 60vh;
+  max-height: 45dvh;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1315,7 +1317,7 @@ pre:has(code[data-lang]) .code-copy-btn {
 }
 
 .composer-card {
-  width: min(100%, 768px);
+  width: min(100%, var(--chat-column-max));
   margin: 0 auto;
   display: grid;
   padding: 4px;
@@ -1613,7 +1615,7 @@ pre:has(code[data-lang]) .code-copy-btn {
 }
 
 .composer-hint {
-  width: min(100%, 768px);
+  width: min(100%, var(--chat-column-max));
   margin: 4px auto 0;
   text-align: center;
   color: var(--muted);
@@ -2436,7 +2438,10 @@ body.sidebar-collapsed .sidebar {
 
 @media (min-width: 1081px) {
   body:not(.sidebar-collapsed) {
-    --chat-center-offset: calc(var(--sidebar-width) / -2);
+    --chat-center-offset: max(
+      calc(var(--sidebar-width) / -2),
+      calc((var(--sidebar-width) + var(--chat-column-max) + 24px - 100vw) / 2)
+    );
   }
 }
 

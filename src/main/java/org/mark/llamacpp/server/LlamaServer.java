@@ -1914,21 +1914,29 @@ public class LlamaServer {
 			return;
 		}
 
+		// 根据系统语言选择托盘菜单文本
+		boolean isChinese = "zh".equals(java.util.Locale.getDefault().getLanguage());
+		String btnOpen = isChinese ? "打开首页" : "Open Homepage";
+		String btnRestart = isChinese ? "重启程序" : "Restart";
+		String btnExit = isChinese ? "退出程序" : "Exit";
+		String notifyTitle = isChinese ? "启动成功" : "Started";
+		String notifyMsg = isChinese ? "llama.cpp-hub 已在后台运行" : "llama.cpp-hub is running in background";
+
 		try {
 			WindowsTray tray = WindowsTray.getInstance();
 			String host = "http" + (httpsEnabled ? "s" : "") + "://127.0.0.1:" + webPort;
-			tray.addButton("打开首页", () -> {
+			tray.addButton(btnOpen, () -> {
 				try {
 					java.awt.Desktop.getDesktop().browse(new java.net.URI(host));
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			});
-			tray.addButton("重启程序", () -> {
+			tray.addButton(btnRestart, () -> {
 				LlamaServer.restartApplication();
 			});
 			tray.addSeparator();
-			tray.addButton("退出程序", () -> {
+			tray.addButton(btnExit, () -> {
 				LlamaServerManager.getInstance().shutdownAll();
 				System.exit(0);
 			});
@@ -1943,7 +1951,7 @@ public class LlamaServer {
 			});
 
 			tray.start("llama.cpp-hub");
-			tray.displayInfoMessage("启动成功", "llama.cpp-hub 已在后台运行");
+			tray.displayInfoMessage(notifyTitle, notifyMsg);
 		} catch (Exception e) {
 			e.printStackTrace();
 		}

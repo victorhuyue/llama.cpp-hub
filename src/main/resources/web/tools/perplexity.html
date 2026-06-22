@@ -8,205 +8,174 @@
   <link href="../css/css2.css" rel="stylesheet" />
   <link rel="stylesheet" href="../css/index.css" />
   <style>
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
-    body { background: var(--bg-color); color: var(--text-primary); font-family: "Inter", "Microsoft YaHei", system-ui, sans-serif; font-size: 14px; }
-    .wrap { width: 100%; padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 18px; height: 100vh; box-sizing: border-box; }
-    header { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 14px; padding: 16px 22px; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; box-shadow: 0 8px 24px rgba(0,0,0,0.05); }
-    .brand { display: flex; align-items: center; gap: 14px; }
-    .brand i { color: var(--primary-color); font-size: 24px; }
-    .brand h1 { margin: 0; font-size: 20px; font-weight: 800; }
-    .brand p { margin: 3px 0 0; color: var(--text-secondary); font-size: 13px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-    .status-text { font-size: 13px; color: var(--text-secondary); margin-left: 10px; min-width: 90px; text-align: right; }
-    .main { flex: 1 1 0; display: flex; gap: 20px; min-height: 0; }
-    .left-col { width: 460px; flex-shrink: 0; display: flex; flex-direction: column; gap: 18px; overflow: auto; }
-    .right-col { flex: 1 1 0; display: flex; flex-direction: column; gap: 18px; min-width: 0; min-height: 0; }
-    .card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.05); }
-    .card.grow { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; }
-    .section-title { font-size: 14px; font-weight: 700; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; color: var(--text-primary); }
-    .section-title i { color: var(--primary-color); }
-    .section-title .hint { font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-left: auto; }
-    .field { display: flex; flex-direction: column; gap: 6px; }
-    .field label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
-    .field label.inline { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
-    .field .desc { font-size: 12px; color: var(--text-secondary); font-weight: 400; line-height: 1.4; }
-    .form-control { width: 100%; padding: 9px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--card-bg); color: var(--text-primary); }
-    .form-control:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(129,140,248,0.12); }
-    .form-control:disabled { opacity: .55; cursor: not-allowed; background: var(--disabled-bg, rgba(128,128,128,0.08)); }
-    select.form-control { cursor: pointer; }
-    select[size] { height: auto; min-height: 140px; padding: 6px; }
-    select[size] option { padding: 8px 10px; border-radius: 6px; margin: 2px 0; }
-    select[size] option:hover { background: rgba(129,140,248,0.15); }
-    select[size] option:checked { background: var(--primary-color); color: #fff; font-weight: 600; box-shadow: 0 2px 6px rgba(99,102,241,0.35); }
-    .model-select { height: 220px; margin-top: 8px; }
-    .model-select option { padding: 10px 12px; }
-    .param-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-    .param-grid .full { grid-column: 1 / -1; }
-    .warning-box { background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.35); border-radius: 10px; padding: 12px 14px; font-size: 13px; color: #b45309; display: flex; align-items: flex-start; gap: 10px; }
-    [data-theme="dark"] .warning-box { color: #fbbf24; }
-    .warning-box i { margin-top: 2px; }
-    .meta-line { font-size: 12px; color: var(--text-secondary); min-height: 18px; margin-top: 4px; }
-    .command-card { background: rgba(0,0,0,0.03); border: 1px dashed var(--border-color); border-radius: 10px; padding: 14px; }
-    [data-theme="dark"] .command-card { background: rgba(0,0,0,0.12); }
-    .command-card pre { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; color: var(--text-primary); }
-    .progress-bar { width: 100%; height: 6px; background: var(--border-color); border-radius: 3px; overflow: hidden; margin-bottom: 12px; }
-    .progress-bar .fill { height: 100%; background: var(--primary-color); border-radius: 3px; transition: width .3s ease; }
-    .output-header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
-    .log-area { flex: 1 1 0; max-height: 520px; min-height: 0; overflow: auto; background: #0f111a; border: 1px solid #252a3d; border-radius: 10px; padding: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; line-height: 1.6; color: #d1d5db; }
-    .log-line { margin: 0; padding: 1px 0; }
-    .log-line.error { color: #fca5a5; }
-    .log-line a { color: #93c5fd; text-decoration: underline; }
-    .result-card { display: none; background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.3); border-radius: 12px; padding: 16px; }
-    .result-card.visible { display: block; }
-    .result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
-    .result-item { display: flex; flex-direction: column; gap: 3px; }
-    .result-item .label { font-size: 12px; color: var(--text-secondary); }
-    .result-item .value { font-size: 15px; font-weight: 700; color: var(--primary-color); }
-    .dataset-banner { display: none; align-items: flex-start; gap: 10px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.35); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; color: var(--danger-color); }
-    .dataset-banner.visible { display: flex; }
-    .dataset-banner a { color: inherit; font-weight: 700; text-decoration: underline; }
-    .empty-tip { color: var(--text-secondary); opacity: .7; }
-    .cmd-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .cmd-header .section-title { margin: 0; }
-    .summary-row { display: flex; flex-wrap: wrap; gap: 8px; }
-    .summary-tag { background: rgba(129,140,248,0.10); border: 1px solid rgba(129,140,248,0.25); border-radius: 20px; padding: 4px 10px; font-size: 12px; color: var(--primary-color); }
-    .summary-tag.empty { color: var(--text-secondary); border-style: dashed; background: transparent; }
-    .summary-tag i { margin-right: 4px; }
+    html, body { height:100%; margin:0; overflow:hidden; background:var(--bg-color); color:var(--text-primary); font-family:"Microsoft YaHei","Inter",sans-serif; }
+    .page { position:fixed; inset:0; display:flex; flex-direction:column; overflow:hidden; }
+    .top { display:flex; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid var(--border-color); background:linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0)) var(--sidebar-bg); flex-shrink:0; flex-wrap:wrap; }
+    .top .title { display:flex; align-items:center; gap:10px; font-size:16px; font-weight:800; margin:0; }
+    .content { flex:1 1 0; min-height:0; padding:12px 18px; display:grid; grid-template-columns:300px 1fr; gap:12px; overflow:hidden; }
+    .card { background:var(--card-bg); border:1px solid var(--border-color); border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:8px; box-shadow:0 8px 20px rgba(0,0,0,0.06); min-height:0; }
+    .card.stretch { flex:1 1 0; overflow:hidden; }
+    .card.shrink { flex-shrink:0; }
+    .left-col { display:flex; flex-direction:column; gap:12px; min-height:0; }
+    .right-col { display:flex; flex-direction:column; gap:12px; min-height:0; overflow:hidden; }
+    .row { display:flex; flex-direction:column; gap:4px; }
+    .row label { font-size:11px; color:var(--text-secondary); font-weight:500; }
+    .form-control { width:100%; padding:5px 8px; border:1px solid var(--border-color); border-radius:6px; font-size:12px; font-family:inherit; background:var(--card-bg); color:var(--text-primary); box-sizing:border-box; }
+    .form-control:focus { outline:none; border-color:rgba(99,102,241,0.5); }
+    .form-control:disabled { opacity:0.5; cursor:not-allowed; background:var(--disabled-bg); }
+    .model-menu { display:flex; flex-direction:column; gap:4px; overflow:auto; flex:1 1 0; min-height:0; padding:2px 0; }
+    .model-menu-item { width:100%; display:grid; grid-template-columns:1fr; gap:2px; border:1px solid var(--border-color); border-left:3px solid var(--border-color); border-radius:8px; padding:7px 10px; background:rgba(255,255,255,0.02); color:var(--text-primary); cursor:pointer; text-align:left; font-family:inherit; font-size:12px; transition:all 0.15s; }
+    .model-menu-item:hover { border-color:rgba(99,102,241,0.45); background:rgba(99,102,241,0.08); }
+    .model-menu-item.active { border-color:rgba(99,102,241,0.75); background:rgba(99,102,241,0.14); }
+    .model-menu-item:disabled { opacity:0.5; cursor:not-allowed; }
+    .model-menu-item .name { font-weight:700; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .model-menu-item .meta { font-size:11px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .node-section-header { display:flex; align-items:center; gap:6px; padding:6px 10px 3px; font-size:11px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; flex-shrink:0; user-select:none; }
+    .node-section-header .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+    .actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; flex-shrink:0; }
+    .hint { color:var(--text-secondary); font-size:12px; }
+    .section-title { font-size:13px; font-weight:700; flex-shrink:0; display:flex; align-items:center; gap:6px; }
+    .section-title i { color:var(--primary-color); }
+    .progress-bar { width:100%; height:4px; background:var(--border-color); border-radius:2px; overflow:hidden; flex-shrink:0; }
+    .progress-bar .fill { height:100%; background:var(--primary-color); border-radius:2px; transition:width 0.3s; }
 
-    /* Modal */
-    #perplexityParamsModal .modal-content { max-width: 900px; height: 85vh; min-height: 85vh; max-height: 85vh; }
-    #perplexityParamsModal .modal-body { overflow: hidden; display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    #perplexityParamsModal #paramsForm { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    #perplexityParamsModal .load-model-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; align-items: stretch; flex: 1; min-height: 0; }
-    #perplexityParamsModal #basicParamsContainer, #perplexityParamsModal #dynamicParamsContainer { overflow-y: auto; min-height: 0; }
-    #perplexityParamsModal .param-groups { display: flex; flex-direction: column; gap: 1rem; }
-    #perplexityParamsModal .param-group { border: 1px solid var(--border-color); border-radius: 0.875rem; background-color: var(--card-bg); overflow: hidden; }
-    #perplexityParamsModal .param-group-summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; cursor: pointer; padding: 0.85rem 1rem; background: #f4f8fb; font-size: 0.95rem; font-weight: 600; color: #334e68; }
-    [data-theme="dark"] #perplexityParamsModal .param-group-summary { background: rgba(255,255,255,0.04); }
-    #perplexityParamsModal .param-group-summary::-webkit-details-marker { display: none; }
-    #perplexityParamsModal .param-group-summary::after { content: '▾'; font-size: 0.85rem; color: #7b9bb8; transition: transform 0.2s ease; }
-    #perplexityParamsModal .param-group:not([open]) .param-group-summary::after { transform: rotate(-90deg); }
-    #perplexityParamsModal .param-group-title { flex: 1; min-width: 0; }
-    #perplexityParamsModal .param-group-body { padding: 1rem; }
-    #perplexityParamsModal .param-group-body .form-group:last-child { margin-bottom: 0; }
-    #perplexityParamsModal .device-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 260px; overflow-y: auto; padding: 0.25rem; }
-    #perplexityParamsModal .device-item { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.6rem 0.75rem; border-radius: 0.5rem; border: 1px solid var(--border-color); background: rgba(0,0,0,0.02); cursor: pointer; }
-    [data-theme="dark"] #perplexityParamsModal .device-item { background: rgba(0,0,0,0.12); }
-    #perplexityParamsModal .device-item:hover { border-color: var(--primary-color); }
-    #perplexityParamsModal .device-item input { margin-top: 0.15rem; flex-shrink: 0; }
-    #perplexityParamsModal .device-item span { font-size: 0.85rem; line-height: 1.4; }
-    #perplexityParamsModal .device-placeholder { color: var(--text-secondary); font-size: 0.85rem; padding: 0.5rem 0.25rem; }
+    .warning-box { background:rgba(245,158,11,0.10); border:1px solid rgba(245,158,11,0.35); border-radius:10px; padding:10px 12px; font-size:12px; color:#b45309; display:flex; align-items:flex-start; gap:8px; flex-shrink:0; line-height:1.5; }
+    [data-theme="dark"] .warning-box { color:#fbbf24; }
+    .warning-box i { margin-top:2px; flex-shrink:0; }
+    .command-card { background:rgba(0,0,0,0.03); border:1px dashed var(--border-color); border-radius:10px; padding:12px; }
+    [data-theme="dark"] .command-card { background:rgba(0,0,0,0.12); }
+    .command-card pre { margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; line-height:1.5; white-space:pre-wrap; word-break:break-word; color:var(--text-primary); }
+    .cmd-header { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .cmd-header .section-title { margin:0; }
+    .log-area { flex:0 0 auto; height:160px; overflow:auto; background:#0f111a; border:1px solid #252a3d; border-radius:10px; padding:12px; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; line-height:1.6; color:#d1d5db; }
+    .log-line { margin:0; padding:1px 0; }
+    .log-line.error { color:#fca5a5; }
+    .log-line a { color:#93c5fd; text-decoration:underline; }
+    .empty-tip { color:var(--text-secondary); opacity:.7; }
+    .result-card { display:none; background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.3); border-radius:10px; padding:14px; flex-shrink:0; }
+    .result-card.visible { display:block; }
+    .result-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; }
+    .result-item { display:flex; flex-direction:column; gap:3px; }
+    .result-item .label { font-size:11px; color:var(--text-secondary); }
+    .result-item .value { font-size:14px; font-weight:700; color:var(--primary-color); }
+    .dataset-banner { display:none; align-items:flex-start; gap:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.35); border-radius:8px; padding:10px 12px; color:var(--danger-color); flex-shrink:0; }
+    .dataset-banner.visible { display:flex; }
+    .dataset-banner a { color:inherit; font-weight:700; text-decoration:underline; }
+    .summary-row { display:flex; flex-wrap:wrap; gap:6px; }
+    .summary-tag { background:rgba(129,140,248,0.10); border:1px solid rgba(129,140,248,0.25); border-radius:20px; padding:3px 8px; font-size:11px; color:var(--primary-color); }
+    .summary-tag.empty { color:var(--text-secondary); border-style:dashed; background:transparent; }
+    .summary-tag i { margin-right:4px; }
+    .rec-table-wrap { flex:1 1 0; min-height:0; overflow:auto; }
+    .result-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .result-table th, .result-table td { border:1px solid var(--border-color); padding:5px 8px; text-align:left; white-space:nowrap; }
+    .result-table th { background:var(--sidebar-bg); color:var(--text-secondary); font-weight:600; position:sticky; top:0; z-index:1; }
+    .result-table tbody tr:nth-child(even) { background:rgba(255,255,255,0.02); }
+    .result-table tbody tr:hover { background:rgba(99,102,241,0.08); }
+    .result-table .empty { text-align:center; color:var(--text-secondary); padding:30px; }
+    .ppl-good { color:#10b981; }
+    .ppl-mid { color:#f59e0b; }
+    .ppl-bad { color:#ef4444; }
 
-    @media (max-width: 768px) {
-      #perplexityParamsModal .modal-content { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; }
-      #perplexityParamsModal .load-model-layout { grid-template-columns: 1fr; }
-    }
+    #perplexityParamsModal .modal-content { max-width:900px; height:85vh; min-height:85vh; max-height:85vh; }
+    #perplexityParamsModal .modal-body { overflow:hidden; display:flex; flex-direction:column; flex:1; min-height:0; }
+    #perplexityParamsModal #paramsForm { display:flex; flex-direction:column; flex:1; min-height:0; }
+    #perplexityParamsModal .load-model-layout { display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; align-items:stretch; flex:1; min-height:0; }
+    #perplexityParamsModal #basicParamsContainer, #perplexityParamsModal #dynamicParamsContainer { overflow-y:auto; min-height:0; }
+    #perplexityParamsModal .param-groups { display:flex; flex-direction:column; gap:1rem; }
+    #perplexityParamsModal .param-group { border:1px solid var(--border-color); border-radius:0.875rem; background-color:var(--card-bg); overflow:hidden; }
+    #perplexityParamsModal .param-group-summary { list-style:none; display:flex; align-items:center; justify-content:space-between; gap:0.75rem; cursor:pointer; padding:0.85rem 1rem; background:#f4f8fb; font-size:0.95rem; font-weight:600; color:#334e68; }
+    [data-theme="dark"] #perplexityParamsModal .param-group-summary { background:rgba(255,255,255,0.04); }
+    #perplexityParamsModal .param-group-summary::-webkit-details-marker { display:none; }
+    #perplexityParamsModal .param-group-summary::after { content:'\25BE'; font-size:0.85rem; color:#7b9bb8; transition:transform 0.2s ease; }
+    #perplexityParamsModal .param-group:not([open]) .param-group-summary::after { transform:rotate(-90deg); }
+    #perplexityParamsModal .param-group-title { flex:1; min-width:0; }
+    #perplexityParamsModal .param-group-body { padding:1rem; }
+    #perplexityParamsModal .param-group-body .form-group:last-child { margin-bottom:0; }
+    #perplexityParamsModal .device-list { display:flex; flex-direction:column; gap:0.5rem; max-height:260px; overflow-y:auto; padding:0.25rem; }
+    #perplexityParamsModal .device-item { display:flex; align-items:flex-start; gap:0.5rem; padding:0.6rem 0.75rem; border-radius:0.5rem; border:1px solid var(--border-color); background:rgba(0,0,0,0.02); cursor:pointer; }
+    [data-theme="dark"] #perplexityParamsModal .device-item { background:rgba(0,0,0,0.12); }
+    #perplexityParamsModal .device-item:hover { border-color:var(--primary-color); }
+    #perplexityParamsModal .device-item input { margin-top:0.15rem; flex-shrink:0; }
+    #perplexityParamsModal .device-item span { font-size:0.85rem; line-height:1.4; }
+    #perplexityParamsModal .device-placeholder { color:var(--text-secondary); font-size:0.85rem; padding:0.5rem 0.25rem; }
 
-    @media (max-width: 1000px) {
-      .wrap { height: auto; min-height: 100vh; }
-      .main { flex-direction: column; }
-      .left-col { width: auto; overflow: visible; }
-      .right-col { min-height: 500px; }
-      header { flex-direction: column; align-items: flex-start; }
-      .actions { width: 100%; }
-      .status-text { margin-left: auto; }
-      .modal { max-width: 100%; }
-    }
-    @media (max-width: 720px) {
-      .wrap { padding: 12px; }
-      .left-col { width: auto; }
+    @media (max-width:960px) { .content { grid-template-columns:1fr; } }
+    @media (max-width:768px) {
+      #perplexityParamsModal .modal-content { width:100vw; height:100vh; max-width:none; max-height:none; border-radius:0; }
+      #perplexityParamsModal .load-model-layout { grid-template-columns:1fr; }
     }
   </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div class="brand">
-      <i class="fas fa-wave-square"></i>
-      <div>
-        <h1 data-i18n="page.tools.perplexity.title">困惑度测试</h1>
-        <p data-i18n="sidebar.tools.perplexity_desc">使用 llama-perplexity 在 Wikitext-2 上测试模型困惑度</p>
-      </div>
-    </div>
-    <div class="actions">
+<div class="page">
+  <div class="top">
+    <h1 class="title"><i class="fas fa-wave-square"></i> <span data-i18n="page.tools.perplexity.title">困惑度测试</span></h1>
+    <div class="actions" style="margin-left:auto;">
       <button id="runBtn" class="btn btn-primary" data-i18n="page.tools.perplexity.action.run">开始测试</button>
       <button id="cancelBtn" class="btn btn-danger" disabled data-i18n="page.tools.perplexity.action.cancel">取消测试</button>
-      <button id="clearBtn" class="btn btn-secondary" data-i18n="page.tools.perplexity.action.clear_log">清空日志</button>
-      <button id="copyCmdBtn" class="btn btn-secondary" data-i18n="page.tools.perplexity.action.copy_command">复制命令</button>
-      <span id="statusText" class="status-text" data-i18n="page.tools.perplexity.status.ready">就绪</span>
+      <button id="clearBtn" class="btn" data-i18n="page.tools.perplexity.action.clear_log">清空日志</button>
+      <button id="copyCmdBtn" class="btn" data-i18n="page.tools.perplexity.action.copy_command">复制命令</button>
+      <span id="statusText" class="hint" data-i18n="page.tools.perplexity.status.ready">就绪</span>
     </div>
-  </header>
-
-  <div class="main">
-    <aside class="left-col">
-      <section class="card">
-        <h2 class="section-title"><i class="fas fa-cube"></i> <span data-i18n="page.tools.perplexity.section.models">模型</span> <span class="hint" data-i18n="page.tools.perplexity.hint.select_model">选择要测试的模型</span></h2>
-
-        <div class="form-group">
-          <label class="form-label" for="nodeSelect" data-i18n="page.tools.perplexity.label.node">计算节点</label>
+  </div>
+  <div class="content">
+    <div class="left-col">
+      <div class="card shrink">
+        <div class="row">
+          <label data-i18n="page.tools.perplexity.label.node">计算节点</label>
           <select id="nodeSelect" class="form-control"></select>
         </div>
-
-        <div class="form-group">
-          <label class="form-label" for="llamaBinSelect" data-i18n="page.tools.perplexity.label.llama_bin">llama.cpp 目录</label>
+        <div class="row">
+          <label data-i18n="page.tools.perplexity.label.llama_bin">llama.cpp 目录</label>
           <select id="llamaBinSelect" class="form-control"></select>
         </div>
-
-        <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="modelSearch" data-i18n="page.tools.perplexity.label.model">模型</label>
-          <input id="modelSearch" class="form-control" type="text" placeholder="搜索模型..." data-i18n-attr="placeholder" data-i18n="page.tools.perplexity.placeholder.search" />
-          <select id="modelSelect" class="form-control model-select" size="8"></select>
-          <div id="modelMeta" class="meta-line"></div>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="cmd-header" style="margin-bottom:12px;">
-          <h2 class="section-title" style="margin:0;"><i class="fas fa-sliders-h"></i> <span data-i18n="page.tools.perplexity.section.params">参数</span></h2>
-          <button id="openParamsBtn" class="btn btn-secondary btn-sm" data-i18n="page.tools.perplexity.action.configure_params"><i class="fas fa-cog"></i> 参数配置</button>
+      </div>
+      <div class="card stretch">
+        <div class="section-title"><i class="fas fa-cube"></i> <span data-i18n="page.tools.perplexity.section.models">模型</span></div>
+        <input id="modelSearch" type="text" class="form-control" placeholder="搜索…" data-i18n-attr="placeholder" data-i18n="page.tools.perplexity.placeholder.search" style="flex-shrink:0;" />
+        <div id="modelList" class="model-menu"></div>
+      </div>
+      <div class="card shrink">
+        <div class="cmd-header">
+          <div class="section-title"><i class="fas fa-sliders-h"></i> <span data-i18n="page.tools.perplexity.section.params">参数</span></div>
+          <button id="openParamsBtn" class="btn" style="font-size:11px;" data-i18n="page.tools.perplexity.action.configure_params"><i class="fas fa-cog"></i> 参数配置</button>
         </div>
         <div id="paramsSummary" class="summary-row">
           <span class="summary-tag empty" data-i18n="page.tools.perplexity.empty.params">使用默认参数</span>
         </div>
-      </section>
-
-      <section class="card warning-box" style="padding:14px 16px;">
+      </div>
+      <div class="warning-box">
         <i class="fas fa-exclamation-triangle"></i>
-        <span data-i18n="page.tools.perplexity.hint.resource_warning">困惑度测试会完整加载模型到内存/显存，请确保计算机资源充足。测试过程中关闭页面或点击“取消”会立即终止测试。</span>
-      </section>
-    </aside>
-
+        <span data-i18n="page.tools.perplexity.hint.resource_warning">困惑度测试会完整加载模型到内存/显存，请确保计算机资源充足。测试过程中关闭页面或点击"取消"会立即终止测试。</span>
+      </div>
+    </div>
     <div class="right-col">
-      <section id="commandCard" class="card command-card" style="display:none;">
+      <div id="commandCard" class="card shrink command-card" style="display:none;">
         <div class="cmd-header">
-          <span class="section-title"><i class="fas fa-terminal"></i> <span data-i18n="page.tools.perplexity.label.command">运行命令</span></span>
-          <button id="copyCmdSmallBtn" class="btn btn-secondary btn-sm" data-i18n="page.tools.perplexity.action.copy">复制</button>
+          <div class="section-title"><i class="fas fa-terminal"></i> <span data-i18n="page.tools.perplexity.label.command">运行命令</span></div>
+          <button id="copyCmdSmallBtn" class="btn" style="font-size:11px;" data-i18n="page.tools.perplexity.action.copy">复制</button>
         </div>
         <pre id="commandPre"></pre>
-      </section>
-
-      <section class="card grow">
-        <h2 class="section-title"><i class="fas fa-stream"></i> <span data-i18n="page.tools.perplexity.section.output">输出</span> <span class="hint" data-i18n="page.tools.perplexity.label.auto_scroll">自动滚动</span></h2>
-        <div id="progressWrap" class="progress-bar" style="display:none;"><div id="progressFill" class="fill" style="width:0%"></div></div>
-        <div class="output-header">
-          <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary); cursor:pointer;">
+      </div>
+      <div class="card shrink">
+        <div class="section-title"><i class="fas fa-stream"></i> <span data-i18n="page.tools.perplexity.section.output">输出</span>
+          <label style="margin-left:auto; display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text-secondary); cursor:pointer; font-weight:400;">
             <input id="autoScrollCheckbox" type="checkbox" checked /> <span data-i18n="page.tools.perplexity.label.auto_scroll">自动滚动</span>
           </label>
         </div>
+        <div id="progressWrap" class="progress-bar" style="display:none;"><div id="progressFill" class="fill" style="width:0%"></div></div>
         <div id="datasetBanner" class="dataset-banner">
           <i class="fas fa-cloud-download-alt"></i>
           <div>
             <span data-i18n="page.tools.perplexity.hint.dataset_missing">数据集缺失：</span>
             <span id="datasetMessage"></span>
-            <div style="margin-top:6px;"><a id="datasetLink" href="#" target="_blank" rel="noopener" data-i18n="page.tools.perplexity.action.download_dataset">下载数据集</a></div>
+            <div style="margin-top:4px;"><a id="datasetLink" href="#" target="_blank" rel="noopener" data-i18n="page.tools.perplexity.action.download_dataset">下载数据集</a></div>
           </div>
         </div>
-        <div id="logArea" class="log-area"><div class="log-line empty-tip" data-i18n="page.tools.perplexity.empty.ready">请选择模型并点击“开始测试”</div></div>
-      </section>
-
-      <section id="resultCard" class="result-card">
-        <h2 class="section-title"><i class="fas fa-check-circle"></i> <span data-i18n="page.tools.perplexity.section.result">最终结果</span></h2>
+        <div id="logArea" class="log-area"><div class="log-line empty-tip" data-i18n="page.tools.perplexity.empty.ready">请选择模型并点击"开始测试"</div></div>
+      </div>
+      <div id="resultCard" class="result-card">
+        <div class="section-title" style="margin-bottom:10px;"><i class="fas fa-check-circle"></i> <span data-i18n="page.tools.perplexity.section.result">最终结果</span></div>
         <div class="result-grid">
           <div class="result-item"><span class="label" data-i18n="page.tools.perplexity.result.ppl">PPL</span><span class="value" id="resultPpl">--</span></div>
           <div class="result-item"><span class="label" data-i18n="page.tools.perplexity.result.uncertainty">标准误差</span><span class="value" id="resultUncertainty">--</span></div>
@@ -214,9 +183,33 @@
           <div class="result-item"><span class="label" data-i18n="page.tools.perplexity.result.elapsed">耗时</span><span class="value" id="resultElapsed">--</span></div>
           <div class="result-item"><span class="label" data-i18n="page.tools.perplexity.result.model">模型</span><span class="value" id="resultModel">--</span></div>
           <div class="result-item"><span class="label" data-i18n="page.tools.perplexity.result.node">节点</span><span class="value" id="resultNode">--</span></div>
-          <div class="result-item" style="grid-column:1/-1;"><span class="label" data-i18n="page.tools.perplexity.result.saved_path">保存路径</span><span class="value" id="resultSavedPath" style="font-size:12px; word-break:break-all;">--</span></div>
+          <div class="result-item" style="grid-column:1/-1;"><span class="label" data-i18n="page.tools.perplexity.result.saved_path">保存路径</span><span class="value" id="resultSavedPath" style="font-size:11px; word-break:break-all;">--</span></div>
         </div>
-      </section>
+      </div>
+      <div class="card stretch">
+        <div class="section-title"><i class="fas fa-clock-rotate-left"></i> <span data-i18n="page.tools.perplexity.section.records">测试记录</span>
+          <button id="refreshRecordsBtn" class="btn" style="margin-left:auto; font-size:11px;" data-i18n="page.tools.perplexity.action.refresh_records">刷新</button>
+          <button id="clearRecordsBtn" class="btn" style="font-size:11px;" data-i18n="page.tools.perplexity.action.clear_records">清空</button>
+        </div>
+        <div class="rec-table-wrap">
+          <table class="result-table" id="recordsTable">
+            <thead>
+              <tr>
+                <th data-i18n="page.tools.perplexity.table.time">时间</th>
+                <th data-i18n="page.tools.perplexity.table.model">模型</th>
+                <th data-i18n="page.tools.perplexity.table.node">节点</th>
+                <th data-i18n="page.tools.perplexity.table.ppl">PPL</th>
+                <th data-i18n="page.tools.perplexity.table.uncertainty">误差</th>
+                <th data-i18n="page.tools.perplexity.table.elapsed">耗时</th>
+                <th data-i18n="page.tools.perplexity.table.actions">操作</th>
+              </tr>
+            </thead>
+            <tbody id="recordsBody">
+              <tr><td class="empty" colspan="7" data-i18n="page.tools.perplexity.empty.no_records">暂无测试记录</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -341,8 +334,7 @@
   const els = {
     nodeSelect: document.getElementById('nodeSelect'),
     modelSearch: document.getElementById('modelSearch'),
-    modelSelect: document.getElementById('modelSelect'),
-    modelMeta: document.getElementById('modelMeta'),
+    modelList: document.getElementById('modelList'),
     llamaBinSelect: document.getElementById('llamaBinSelect'),
     ctxSizeInput: document.getElementById('ctxSizeInput'),
     nglInput: document.getElementById('nglInput'),
@@ -381,7 +373,10 @@
     resultSavedPath: document.getElementById('resultSavedPath'),
     datasetBanner: document.getElementById('datasetBanner'),
     datasetMessage: document.getElementById('datasetMessage'),
-    datasetLink: document.getElementById('datasetLink')
+    datasetLink: document.getElementById('datasetLink'),
+    recordsBody: document.getElementById('recordsBody'),
+    refreshRecordsBtn: document.getElementById('refreshRecordsBtn'),
+    clearRecordsBtn: document.getElementById('clearRecordsBtn')
   };
 
   let nodes = [];
@@ -420,6 +415,25 @@
     try { json = JSON.parse(text); } catch (e) { json = { success: false, error: text || '请求失败' }; }
     if (!resp.ok) throw new Error((json && json.error) ? json.error : '请求失败');
     return json;
+  }
+
+  function nodeHue(nodeId) {
+    let h = 0;
+    const id = String(nodeId || '');
+    for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+    return Math.abs(h) % 360;
+  }
+
+  function getNodeLabel(nodeId) {
+    if (!nodeId || nodeId === 'local') return t('page.tools.perplexity.option.local_node', '本机');
+    const n = nodes.find(x => x.nodeId === nodeId);
+    return n ? (n.name || n.nodeId) : nodeId;
+  }
+
+  function getModelDisplayName(m) {
+    const name = m && typeof m.name === 'string' ? m.name.trim() : '';
+    const id = m && typeof m.id === 'string' ? m.id.trim() : '';
+    return name || id;
   }
 
   function nodeStatusText(status) {
@@ -481,63 +495,78 @@
       const data = await fetchJson('/api/models/list?nodeId=' + encodeURIComponent(selectedNodeId), { method: 'GET' });
       const raw = (data && data.success && Array.isArray(data.models)) ? data.models : [];
       allModels = raw.filter(m => m && m.nodeId === selectedNodeId);
-      renderModelSelect();
+      renderModelList();
       if (allModels.length && !selectedModelId) {
         selectModel(allModels[0].id);
       }
     } catch (e) {
       allModels = [];
-      renderModelSelect();
+      renderModelList();
       setStatus(t('page.tools.perplexity.status.models_load_failed', '模型列表加载失败') + ': ' + e.message);
     }
   }
 
-  function renderModelSelect() {
+  function renderModelList() {
     const filter = (els.modelSearch.value || '').toLowerCase();
-    els.modelSelect.innerHTML = '';
-    const models = allModels.filter(m => {
+    els.modelList.innerHTML = '';
+    let models = allModels.filter(m => {
       if (!filter) return true;
       const text = ((m.name || '') + ' ' + (m.id || '') + ' ' + (m.quantization || '')).toLowerCase();
       return text.includes(filter);
     });
     if (!models.length) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = t('page.tools.perplexity.empty.no_models', '暂无可用模型');
-      opt.disabled = true;
-      els.modelSelect.appendChild(opt);
-      els.modelMeta.textContent = '';
+      const d = document.createElement('div');
+      d.className = 'hint';
+      d.style.padding = '8px 10px';
+      d.textContent = allModels.length
+        ? t('page.tools.perplexity.empty.no_match', '无匹配模型')
+        : t('page.tools.perplexity.empty.no_models', '暂无可用模型');
+      els.modelList.appendChild(d);
       return;
     }
-    models.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      const size = formatBytes(m.size);
-      const q = m.quantization || '';
-      opt.textContent = (m.name || m.id) + (q ? ' · ' + q : '') + (size ? ' · ' + size : '');
-      opt.selected = m.id === selectedModelId;
-      els.modelSelect.appendChild(opt);
-    });
-    updateModelMeta();
-  }
+    models.sort((a, b) => getModelDisplayName(a).toLowerCase().localeCompare(getModelDisplayName(b).toLowerCase()));
 
-  function updateModelMeta() {
-    const m = allModels.find(x => x.id === selectedModelId);
-    if (!m) {
-      els.modelMeta.textContent = '';
-      return;
+    const nid = selectedNodeId || 'local';
+    const hue = nodeHue(nid);
+    const label = getNodeLabel(nid);
+    const header = document.createElement('div');
+    header.className = 'node-section-header';
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.background = 'hsl(' + hue + ', 55%, 55%)';
+    header.appendChild(dot);
+    header.appendChild(document.createTextNode(label));
+    els.modelList.appendChild(header);
+
+    for (const m of models) {
+      const id = (m && m.id) ? String(m.id).trim() : '';
+      if (!id) continue;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'model-menu-item';
+      btn.dataset.modelId = id;
+      if (id === selectedModelId) btn.classList.add('active');
+      if (nid !== 'local') btn.style.borderLeftColor = 'hsl(' + hue + ', 55%, 55%)';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'name';
+      nameEl.textContent = getModelDisplayName(m);
+      const metaEl = document.createElement('div');
+      metaEl.className = 'meta';
+      const metaParts = [id];
+      if (m.quantization) metaParts.push(m.quantization);
+      if (m.size != null) metaParts.push(formatBytes(m.size));
+      metaEl.textContent = metaParts.join(' · ');
+      btn.appendChild(nameEl);
+      btn.appendChild(metaEl);
+      els.modelList.appendChild(btn);
     }
-    const parts = [];
-    if (m.quantization) parts.push(m.quantization);
-    if (m.size != null) parts.push(formatBytes(m.size));
-    if (m.path) parts.push(m.path);
-    els.modelMeta.textContent = parts.join(' · ');
   }
 
   function selectModel(id) {
     selectedModelId = id;
-    Array.from(els.modelSelect.options).forEach(opt => { opt.selected = opt.value === id; });
-    updateModelMeta();
+    els.modelList.querySelectorAll('.model-menu-item').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.modelId === id);
+    });
   }
 
   async function loadLlamaCppDirs() {
@@ -698,6 +727,9 @@
     els.statusText.textContent = text || '';
   }
 
+  const PROGRESS_LINE_RE = /^\[\d+\/\d+\]/;
+  let progressTotal = 600;
+
   function clearLog() {
     els.logArea.innerHTML = '';
     els.resultCard.classList.remove('visible');
@@ -706,12 +738,26 @@
     els.datasetBanner.classList.remove('visible');
     els.commandCard.style.display = 'none';
     lastCommand = [];
+    progressTotal = 600;
   }
 
   function appendLog(text, type) {
     if (!text && text !== '') return;
+    const empty = els.logArea.querySelector('.empty-tip');
+    if (empty) empty.remove();
+    const isProgress = type !== 'error' && PROGRESS_LINE_RE.test(text);
+    if (isProgress) {
+      const prev = els.logArea.querySelector('.log-line.is-progress:last-of-type');
+      if (prev) {
+        prev.textContent = text;
+        if (els.autoScrollCheckbox.checked) {
+          els.logArea.scrollTop = els.logArea.scrollHeight;
+        }
+        return;
+      }
+    }
     const line = document.createElement('div');
-    line.className = 'log-line' + (type === 'error' ? ' error' : '');
+    line.className = 'log-line' + (type === 'error' ? ' error' : '') + (isProgress ? ' is-progress' : '');
     const urlRegex = /https?:\/\/[^\s<>"']+/g;
     if (type === 'error' && urlRegex.test(text)) {
       const html = escapeHtml(text).replace(urlRegex, url => '<a href="' + escapeHtml(url) + '" target="_blank" rel="noopener">' + escapeHtml(url) + '</a>');
@@ -719,8 +765,6 @@
     } else {
       line.textContent = text;
     }
-    const empty = els.logArea.querySelector('.empty-tip');
-    if (empty) empty.remove();
     els.logArea.appendChild(line);
     if (els.autoScrollCheckbox.checked) {
       els.logArea.scrollTop = els.logArea.scrollHeight;
@@ -728,10 +772,19 @@
   }
 
   function updateProgress(text) {
+    const fullMatch = text.match(/\[(\d+)\/(\d+)\]/);
+    if (fullMatch) {
+      const n = parseInt(fullMatch[1], 10);
+      const total = parseInt(fullMatch[2], 10);
+      if (Number.isFinite(total) && total > 0) progressTotal = total;
+      const pct = Math.min(100, Math.round((n / progressTotal) * 100));
+      els.progressFill.style.width = pct + '%';
+      return;
+    }
     const chunkMatch = text.match(/\[(\d+)\]/);
     if (chunkMatch) {
       const n = parseInt(chunkMatch[1], 10);
-      const pct = Math.min(100, Math.round((n / 600) * 100));
+      const pct = Math.min(100, Math.round((n / progressTotal) * 100));
       els.progressFill.style.width = pct + '%';
     }
   }
@@ -768,9 +821,10 @@
   }
 
   function setInputsDisabled(disabled) {
-    [els.nodeSelect, els.modelSearch, els.modelSelect, els.llamaBinSelect, els.ctxSizeInput,
+    [els.nodeSelect, els.modelSearch, els.llamaBinSelect, els.ctxSizeInput,
       els.nglInput, els.pplStrideInput, els.cacheTypeK, els.cacheTypeV, els.splitModeSelect,
       els.extraParamsInput, els.openParamsBtn].forEach(el => { if (el) el.disabled = disabled; });
+    els.modelList.querySelectorAll('button.model-menu-item').forEach(btn => { btn.disabled = disabled; });
     const deviceChecks = els.devicesList.querySelectorAll('input[type=checkbox]');
     deviceChecks.forEach(chk => chk.disabled = disabled);
   }
@@ -891,6 +945,7 @@
     const node = nodes.find(n => n.nodeId === selectedNodeId);
     els.resultNode.textContent = node ? node.name : selectedNodeId;
     els.resultSavedPath.textContent = data.savedPath || '--';
+    loadRecords();
   }
 
   function cancelTest() {
@@ -908,10 +963,162 @@
     }
   }
 
+  function pplClass(ppl) {
+    if (ppl == null) return '';
+    const n = Number(ppl);
+    if (!Number.isFinite(n)) return '';
+    if (n < 10) return 'ppl-good';
+    if (n < 50) return 'ppl-mid';
+    return 'ppl-bad';
+  }
+
+  function formatElapsed(ms) {
+    if (ms == null) return '-';
+    const s = ms / 1000;
+    if (s < 60) return s.toFixed(1) + 's';
+    return Math.floor(s / 60) + 'm' + Math.round(s % 60) + 's';
+  }
+
+  async function loadRecords() {
+    try {
+      const resp = await fetch('/api/perplexity/records', { method: 'GET' });
+      const data = await resp.json();
+      if (!data || !data.success) return;
+      const records = (data.data && Array.isArray(data.data.records)) ? data.data.records : [];
+      renderRecords(records);
+    } catch (e) {
+      // 静默失败，不打扰用户
+    }
+  }
+
+  function renderRecords(records) {
+    els.recordsBody.innerHTML = '';
+    if (!records.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.className = 'empty';
+      td.colSpan = 7;
+      td.textContent = t('page.tools.perplexity.empty.no_records', '暂无测试记录');
+      tr.appendChild(td);
+      els.recordsBody.appendChild(tr);
+      return;
+    }
+    for (const r of records) {
+      const tr = document.createElement('tr');
+      const cells = [
+        r.timestamp || '-',
+        r.modelId || '-',
+        r.nodeId || 'local',
+        r.ppl != null ? Number(r.ppl).toFixed(4) : '-',
+        r.uncertainty != null ? Number(r.uncertainty).toFixed(5) : '-',
+        formatElapsed(r.elapsedMs)
+      ];
+      cells.forEach((v, ci) => {
+        const td = document.createElement('td');
+        td.textContent = v;
+        if (ci === 3 && r.ppl != null) td.className = pplClass(r.ppl);
+        tr.appendChild(td);
+      });
+      const tdAct = document.createElement('td');
+      const btnView = document.createElement('button');
+      btnView.type = 'button';
+      btnView.className = 'btn';
+      btnView.style.cssText = 'padding:2px 6px; font-size:11px; margin-right:4px;';
+      btnView.textContent = t('page.tools.perplexity.action.view', '查看');
+      btnView.addEventListener('click', () => viewRecord(r.fileName));
+      tdAct.appendChild(btnView);
+      const btnDel = document.createElement('button');
+      btnDel.type = 'button';
+      btnDel.className = 'btn';
+      btnDel.style.cssText = 'padding:2px 6px; font-size:11px;';
+      btnDel.textContent = t('page.tools.perplexity.action.delete', '删除');
+      btnDel.addEventListener('click', () => deleteRecord(r.fileName));
+      tdAct.appendChild(btnDel);
+      tr.appendChild(tdAct);
+      els.recordsBody.appendChild(tr);
+    }
+  }
+
+  async function viewRecord(fileName) {
+    try {
+      const resp = await fetch('/api/perplexity/records/' + encodeURIComponent(fileName), { method: 'GET' });
+      const data = await resp.json();
+      if (!data || !data.success) {
+        setStatus(data && data.error ? data.error : t('page.tools.perplexity.status.load_failed', '加载失败'));
+        return;
+      }
+      const r = data.data;
+      els.resultCard.classList.add('visible');
+      els.resultPpl.textContent = r.ppl != null ? Number(r.ppl).toFixed(4) : '--';
+      els.resultUncertainty.textContent = r.uncertainty != null ? Number(r.uncertainty).toFixed(5) : '--';
+      els.resultExitCode.textContent = r.exitCode != null ? String(r.exitCode) : '--';
+      els.resultElapsed.textContent = formatElapsed(r.elapsedMs) || '--';
+      els.resultModel.textContent = r.modelId || '--';
+      els.resultNode.textContent = r.nodeId || '--';
+      els.resultSavedPath.textContent = r.txtFileName || '--';
+
+      if (r.command && Array.isArray(r.command)) {
+        lastCommand = r.command;
+        els.commandPre.textContent = r.command.join(' ');
+        els.commandCard.style.display = 'block';
+      }
+      if (r.rawOutput) {
+        els.logArea.innerHTML = '';
+        const lines = String(r.rawOutput).split('\n');
+        for (const line of lines) {
+          const div = document.createElement('div');
+          div.className = 'log-line';
+          div.textContent = line;
+          els.logArea.appendChild(div);
+        }
+        els.logArea.scrollTop = els.logArea.scrollHeight;
+      }
+      setStatus(t('page.tools.perplexity.status.restored', '已还原记录') + ': ' + (r.timestamp || ''));
+    } catch (e) {
+      setStatus(t('page.tools.perplexity.status.load_failed', '加载失败') + ': ' + e.message);
+    }
+  }
+
+  async function deleteRecord(fileName) {
+    try {
+      const resp = await fetch('/api/perplexity/records/' + encodeURIComponent(fileName), { method: 'DELETE' });
+      const data = await resp.json();
+      if (data && data.success) {
+        loadRecords();
+      } else {
+        setStatus(data && data.error ? data.error : t('page.tools.perplexity.status.delete_failed', '删除失败'));
+      }
+    } catch (e) {
+      setStatus(t('page.tools.perplexity.status.delete_failed', '删除失败') + ': ' + e.message);
+    }
+  }
+
+  async function clearAllRecords() {
+    if (!window.confirm(t('page.tools.perplexity.confirm.clear_records', '确定清空所有测试记录？'))) return;
+    try {
+      const resp = await fetch('/api/perplexity/records', { method: 'GET' });
+      const data = await resp.json();
+      if (data && data.success && data.data && Array.isArray(data.data.records)) {
+        for (const r of data.data.records) {
+          try {
+            await fetch('/api/perplexity/records/' + encodeURIComponent(r.fileName), { method: 'DELETE' });
+          } catch (e) {}
+        }
+        loadRecords();
+      }
+    } catch (e) {
+      setStatus(t('page.tools.perplexity.status.delete_failed', '删除失败') + ': ' + e.message);
+    }
+  }
+
   function initEvents() {
     els.nodeSelect.addEventListener('change', onNodeChange);
-    els.modelSearch.addEventListener('input', renderModelSelect);
-    els.modelSelect.addEventListener('change', () => selectModel(els.modelSelect.value));
+    els.modelSearch.addEventListener('input', renderModelList);
+    els.modelList.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-model-id]');
+      if (!btn || btn.disabled) return;
+      selectModel(btn.dataset.modelId);
+    });
     els.llamaBinSelect.addEventListener('change', loadDevices);
     els.runBtn.addEventListener('click', runTest);
     els.cancelBtn.addEventListener('click', cancelTest);
@@ -926,6 +1133,8 @@
     els.paramsModal.addEventListener('click', (e) => {
       if (e.target === els.paramsModal) closeParamsModal();
     });
+    els.refreshRecordsBtn.addEventListener('click', loadRecords);
+    els.clearRecordsBtn.addEventListener('click', clearAllRecords);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && els.paramsModal.classList.contains('show')) {
         closeParamsModal();
@@ -936,6 +1145,7 @@
   function init() {
     initEvents();
     loadNodes();
+    loadRecords();
     updateParamsSummary();
     setStatus(t('page.tools.perplexity.status.ready', '就绪'));
   }

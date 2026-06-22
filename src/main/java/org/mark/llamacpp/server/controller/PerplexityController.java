@@ -1,7 +1,17 @@
 package org.mark.llamacpp.server.controller;
 
+import java.io.File;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.mark.llamacpp.server.LlamaServer;
@@ -44,8 +54,22 @@ public class PerplexityController implements BaseController {
 
 	@Override
 	public boolean handleRequest(String uri, ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
-		if ("/api/perplexity/run".equals(uri)) {
+		String path = uri;
+		int q = uri.indexOf('?');
+		if (q >= 0) {
+			path = uri.substring(0, q);
+		}
+		if ("/api/perplexity/run".equals(path)) {
 			handleRun(ctx, request);
+			return true;
+		}
+		if ("/api/perplexity/records".equals(path)) {
+			handleListRecords(ctx, request);
+			return true;
+		}
+		if (path.startsWith("/api/perplexity/records/")) {
+			String fileName = path.substring("/api/perplexity/records/".length());
+			handleRecordByFilename(ctx, request, fileName);
 			return true;
 		}
 		return false;
@@ -151,6 +175,121 @@ public class PerplexityController implements BaseController {
 				}
 			}
 		});
+	}
+
+	private void handleListRecords(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+		try {
+			File dir = new File("benchmarks");
+			List<Map<String, Object>> records = new ArrayList<>();
+			if (dir.exists() && dir.isDirectory()) {
+				File[] all = dir.listFiles();
+				if (all != null) {
+					Arrays.sort(all, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+					SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+					for (File f : all) {
+						String name = f.getName();
+						if (!f.isFile() || !name.startsWith("PPL_") || !name.endsWith(".json")) {
+							continue;
+						}
+						try {
+							String content = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+							JsonObject obj = JsonUtil.fromJson(content, JsonObject.class);
+							if (obj == null) {
+								continue;
+							}
+							Map<String, Object> info = new HashMap<>();
+							info.put("fileName", name);
+							info.put("modelId", obj.has("modelId") ? obj.get("modelId").getAsString() : "");
+							info.put("nodeId", obj.has("nodeId") ? obj.get("nodeId").getAsString() : "local");
+							info.put("timestamp", obj.has("timestamp") ? obj.get("timestamp").getAsString() : fmt.format(new Date(f.lastModified())));
+							if (obj.has("ppl") && !obj.get("ppl").isJsonNull()) {
+								info.put("ppl", obj.get("ppl").getAsDouble());
+							}
+							if (obj.has("uncertainty") && !obj.get("uncertainty").isJsonNull()) {
+								info.put("uncertainty", obj.get("uncertainty").getAsDouble());
+							}
+							info.put("exitCode", obj.has("exitCode") ? obj.get("exitCode").getAsInt() : -1);
+							info.put("elapsedMs", obj.has("elapsedMs") ? obj.get("elapsedMs").getAsLong() : 0);
+							records.add(info);
+						} catch (Exception e) {
+							logger.debug("解析困惑度记录失败: {}", name, e);
+						}
+					}
+				}
+			}
+			Map<String, Object> data = new HashMap<>();
+			data.put("records", records);
+			data.put("count", records.size());
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+		} catch (Exception e) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取困惑度测试记录列表失败: " + e.getMessage()));
+		}
+	}
+
+	private void handleRecordByFilename(ChannelHandlerContext ctx, FullHttpRequest request, String fileName)
+			throws RequestMethodException {
+		if (fileName == null || fileName.isEmpty()) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少文件名"));
+			return;
+		}
+		if (!fileName.matches("[a-zA-Z0-9._\\-]+") || !fileName.startsWith("PPL_") || !fileName.endsWith(".json")) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("文件名不合法"));
+			return;
+		}
+		if (request.method() == HttpMethod.GET) {
+			handleGetRecord(ctx, fileName);
+		} else if (request.method() == HttpMethod.DELETE) {
+			handleDeleteRecord(ctx, fileName);
+		} else {
+			this.assertRequestMethod(true, "只支持GET或DELETE请求");
+		}
+	}
+
+	private void handleGetRecord(ChannelHandlerContext ctx, String fileName) {
+		try {
+			File dir = new File("benchmarks");
+			File target = new File(dir, fileName);
+			if (!target.exists() || !target.isFile()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("文件不存在"));
+				return;
+			}
+			String content = new String(Files.readAllBytes(target.toPath()), StandardCharsets.UTF_8);
+			JsonObject obj = JsonUtil.fromJson(content, JsonObject.class);
+			if (obj == null) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("记录解析失败"));
+				return;
+			}
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(obj));
+		} catch (Exception e) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("读取困惑度测试记录失败: " + e.getMessage()));
+		}
+	}
+
+	private void handleDeleteRecord(ChannelHandlerContext ctx, String fileName) {
+		try {
+			File dir = new File("benchmarks");
+			File jsonFile = new File(dir, fileName);
+			if (!jsonFile.exists() || !jsonFile.isFile()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("文件不存在"));
+				return;
+			}
+			Files.delete(jsonFile.toPath());
+			String txtName = fileName.substring(0, fileName.length() - ".json".length()) + ".txt";
+			File txtFile = new File(dir, txtName);
+			if (txtFile.isFile()) {
+				try {
+					Files.delete(txtFile.toPath());
+				} catch (Exception ignored) {
+				}
+			}
+			Map<String, Object> data = new HashMap<>();
+			data.put("fileName", fileName);
+			data.put("deleted", true);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+		} catch (Exception e) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("删除困惑度测试记录失败: " + e.getMessage()));
+		}
 	}
 
 	private void sendErrorAndClose(ChannelHandlerContext ctx, String message) {

@@ -16,6 +16,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -85,6 +86,10 @@ public class PerplexityService {
 			ConcurrentHashMap<ChannelHandlerContext, Process> activeProcesses) throws Exception {
 		String modelId = requireString(json, "modelId");
 		String llamaBinPath = requireString(json, "llamaBinPath");
+		String nodeId = JsonUtil.getJsonString(json, "nodeId", "local").trim();
+		if (nodeId.isEmpty()) {
+			nodeId = "local";
+		}
 		int ctxSize = JsonUtil.getJsonInt(json, "ctxSize", 512);
 		int ngl = JsonUtil.getJsonInt(json, "ngl", 0);
 		int pplStride = JsonUtil.getJsonInt(json, "pplStride", 0);
@@ -142,8 +147,9 @@ public class PerplexityService {
 		StringBuilder rawOutput = new StringBuilder();
 		long startTime = System.currentTimeMillis();
 		try {
-			List<String> command = buildCommand(perplexityExe, modelPath, testFile, ctxSize, ngl, pplStride,
+			List<String> rawCommand = buildCommand(perplexityExe, modelPath, testFile, ctxSize, ngl, pplStride,
 					cacheTypeK, cacheTypeV, splitMode, devices, extraParams);
+			List<String> command = wrapWithLineBuffer(rawCommand);
 			sendJsonLine(ctx, "started", Map.of("command", command));
 
 			ProcessBuilder pb = new ProcessBuilder(command);
@@ -173,7 +179,7 @@ public class PerplexityService {
 			});
 
 			int exitCode = process.waitFor();
-			reader.join(2000);
+			reader.join(15000);
 
 			String outputText = rawOutput.toString().trim();
 			Matcher matcher = FINAL_PPL_PATTERN.matcher(outputText);
@@ -188,8 +194,9 @@ public class PerplexityService {
 			}
 
 			String savedPath = null;
+			long elapsedMs = System.currentTimeMillis() - startTime;
 			try {
-				File outFile = saveResult(modelId, outputText, command);
+				File outFile = saveResult(modelId, nodeId, outputText, command, ppl, uncertainty, exitCode, elapsedMs);
 				savedPath = outFile.getAbsolutePath();
 			} catch (Exception ex) {
 				logger.info("保存困惑度测试结果失败", ex);
@@ -201,7 +208,7 @@ public class PerplexityService {
 			if (ppl != null) finalObj.addProperty("ppl", ppl);
 			if (uncertainty != null) finalObj.addProperty("uncertainty", uncertainty);
 			if (savedPath != null) finalObj.addProperty("savedPath", savedPath);
-			finalObj.addProperty("elapsedMs", System.currentTimeMillis() - startTime);
+			finalObj.addProperty("elapsedMs", elapsedMs);
 			finalObj.addProperty("rawOutput", outputText);
 			sendLine(ctx, JsonUtil.toJson(finalObj));
 		} catch (InterruptedException e) {
@@ -389,22 +396,72 @@ public class PerplexityService {
 		return command;
 	}
 
-	private File saveResult(String modelId, String outputText, List<String> command) throws IOException {
+	/**
+	 * 在支持的平台用 stdbuf 包装命令，强制子进程 stdout/stderr 行缓冲，
+	 * 避免 llama-perplexity 在管道模式下块缓冲导致进度行延迟到缓冲满才 flush。
+	 * <p>
+	 * 仅 Linux 下 /usr/bin/stdbuf 可用时包装；Windows 无等价机制，原样返回。
+	 */
+	private List<String> wrapWithLineBuffer(List<String> command) {
+		if (command == null || command.isEmpty()) {
+			return command;
+		}
+		String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+		if (os.contains("win") || os.contains("mac") || os.contains("darwin")) {
+			return command;
+		}
+		File stdbuf = new File("/usr/bin/stdbuf");
+		if (!stdbuf.isFile()) {
+			return command;
+		}
+		List<String> wrapped = new ArrayList<>(command.size() + 3);
+		wrapped.add("/usr/bin/stdbuf");
+		wrapped.add("-oL");
+		wrapped.add("-eL");
+		wrapped.addAll(command);
+		return wrapped;
+	}
+
+	private File saveResult(String modelId, String nodeId, String outputText, List<String> command,
+			Double ppl, Double uncertainty, int exitCode, long elapsedMs) throws IOException {
 		String safeModelId = (modelId == null ? "unknown" : modelId).replaceAll("[^a-zA-Z0-9-_\\.]", "_");
 		String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
 		File dir = new File("benchmarks");
 		if (!dir.exists()) {
 			dir.mkdirs();
 		}
-		File outFile = new File(dir, "PPL_" + safeModelId + "_" + timestamp + ".txt");
+		String baseName = "PPL_" + safeModelId + "_" + timestamp;
+
+		File txtFile = new File(dir, baseName + ".txt");
 		StringBuilder content = new StringBuilder();
 		content.append("command: ").append(String.join(" ", command)).append(System.lineSeparator())
 				.append(System.lineSeparator())
 				.append(outputText);
-		try (FileOutputStream fos = new FileOutputStream(outFile)) {
+		try (FileOutputStream fos = new FileOutputStream(txtFile)) {
 			fos.write(content.toString().getBytes(StandardCharsets.UTF_8));
 		}
-		return outFile;
+
+		File jsonFile = new File(dir, baseName + ".json");
+		JsonObject record = new JsonObject();
+		record.addProperty("fileName", jsonFile.getName());
+		record.addProperty("modelId", modelId != null ? modelId : "unknown");
+		record.addProperty("nodeId", nodeId != null ? nodeId : "local");
+		record.addProperty("timestamp", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()));
+		if (ppl != null) record.addProperty("ppl", ppl);
+		if (uncertainty != null) record.addProperty("uncertainty", uncertainty);
+		record.addProperty("exitCode", exitCode);
+		record.addProperty("elapsedMs", elapsedMs);
+		record.addProperty("txtFileName", txtFile.getName());
+		JsonArray cmdArr = new JsonArray();
+		for (String c : command) {
+			cmdArr.add(c);
+		}
+		record.add("command", cmdArr);
+		record.addProperty("rawOutput", outputText);
+		try (FileOutputStream fos = new FileOutputStream(jsonFile)) {
+			fos.write(JsonUtil.toJson(record).getBytes(StandardCharsets.UTF_8));
+		}
+		return jsonFile;
 	}
 
 	private void sendJsonLine(ChannelHandlerContext ctx, String type, Map<String, Object> fields) {

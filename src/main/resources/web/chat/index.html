@@ -56,6 +56,18 @@
               <path d="M10 9.5h4"/>
             </svg>
           </button>
+          <div id="hwStatWrap" class="menu-wrap hw-stat-wrap">
+            <button id="hwStatBtn" class="ghost-button toolbar-icon-button" type="button" aria-label="硬件状态" aria-haspopup="dialog" aria-expanded="false" title="硬件状态" data-i18n-attr="aria-label,title" data-i18n="page.chat.main.topbar.hardware">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="14" x2="22" y2="14"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="14" x2="4" y2="14"/></svg>
+            </button>
+            <div id="hwStatPanel" class="hw-stat-panel" role="dialog" aria-hidden="true" aria-label="硬件状态" data-i18n-attr="aria-label" data-i18n="page.chat.main.topbar.hardware">
+              <div class="hw-stat-head">
+                <select id="hwStatNodeSelect" class="hw-stat-node-select" aria-label="选择节点" data-i18n-attr="aria-label" data-i18n="page.chat.main.topbar.hardware_node_select"></select>
+                <span id="hwStatTimestamp" class="hw-stat-timestamp"></span>
+              </div>
+              <div id="hwStatContent" class="hw-stat-content"></div>
+            </div>
+          </div>
           <div id="exportMenuWrap" class="menu-wrap">
             <button id="exportBtn" class="ghost-button toolbar-icon-button" type="button" aria-label="导出对话" aria-haspopup="menu" aria-expanded="false" title="导出对话" data-i18n-attr="aria-label,title" data-i18n="page.chat.main.topbar.export">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -535,6 +547,9 @@
     const EASY_CHAT_DELETE_ENDPOINT = '/api/chat/delete';
     const EASY_CHAT_MESSAGE_UPDATE_ENDPOINT = '/api/chat/message/update';
     const EASY_CHAT_GENERATE_TITLE_ENDPOINT = '/api/chat/generate-title';
+    const NODE_LIST_ENDPOINT = '/api/node/list';
+    const SYSINFO_ENDPOINT = '/api/sys/sysinfo';
+    const HW_REFRESH_INTERVAL_MS = 1000;
     const STATE_REVISION_CONFLICT_CODE = 'STATE_REVISION_CONFLICT';
     const STATE_REVISION_TIMEOUT_MS = 2000;
     const STATE_LOAD_TIMEOUT_MS = 30000;
@@ -600,6 +615,11 @@
     let modelNodeIdMap = {};
     let modelOptions = [];
     let modelSearchTerm = '';
+    let hwNodes = [{ nodeId: '', name: '本机', status: 'ONLINE' }];
+    let hwSelectedNodeId = '';
+    let hwRefreshTimer = 0;
+    let hwFetching = false;
+    let hwNodesLoaded = false;
 
     function stripModelNodeSuffix(modelValue) {
       const rawModel = typeof modelValue === 'string' ? modelValue.trim() : '';
@@ -662,6 +682,12 @@
       modelSelectMenu: document.getElementById('modelSelectMenu'),
       modelMenuList: document.getElementById('modelMenuList'),
       modelSearchInput: document.getElementById('modelSearchInput'),
+      hwStatWrap: document.getElementById('hwStatWrap'),
+      hwStatBtn: document.getElementById('hwStatBtn'),
+      hwStatPanel: document.getElementById('hwStatPanel'),
+      hwStatNodeSelect: document.getElementById('hwStatNodeSelect'),
+      hwStatTimestamp: document.getElementById('hwStatTimestamp'),
+      hwStatContent: document.getElementById('hwStatContent'),
       exportBtn: document.getElementById('exportBtn'),
       clearBtn: document.getElementById('clearBtn'),
       sendBtn: document.getElementById('sendBtn'),
@@ -1552,6 +1578,31 @@
         return (bytes / 1024).toFixed(1).replace(/\.0$/, '') + window.I18N.t('page.chat.main.misc.kilobytes', ' KB');
       }
       return (bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '') + window.I18N.t('page.chat.main.misc.megabytes', ' MB');
+    }
+
+    function formatBytes(bytes) {
+      const b = Number(bytes || 0);
+      if (!b || b <= 0) return '--';
+      if (b >= 1073741824) return (b / 1073741824).toFixed(1) + ' GB';
+      if (b >= 1048576) return (b / 1048576).toFixed(0) + ' MB';
+      return (b / 1024).toFixed(0) + ' KB';
+    }
+
+    function hwBarClass(pct) {
+      if (pct >= 90) return 'danger';
+      if (pct >= 75) return 'warn';
+      return '';
+    }
+
+    function hwTempClass(tempC) {
+      if (tempC == null) return '';
+      if (tempC >= 80) return 'danger';
+      if (tempC >= 65) return 'warn';
+      return '';
+    }
+
+    function escapeHwText(value) {
+      return escapeHtml(value == null ? '--' : String(value));
     }
 
     function createMessageTextFileCard(file) {
@@ -3449,6 +3500,364 @@
       if (state.model !== previous) {
         persistState();
       }
+    }
+
+    async function loadHwNodes() {
+      try {
+        const json = await fetchJson(NODE_LIST_ENDPOINT, { method: 'GET', headers: getHeaders() });
+        const remote = json && json.success && Array.isArray(json.data) ? json.data : [];
+        const nodes = [{ nodeId: '', name: window.I18N.t('page.chat.main.hardware.node_local', '本机'), status: 'ONLINE' }];
+        for (const n of remote) {
+          if (!n || !n.nodeId || n.nodeId === 'local') continue;
+          if (n.status !== 'ONLINE') continue;
+          nodes.push({ nodeId: n.nodeId, name: n.name || n.nodeId, status: n.status });
+        }
+        hwNodes = nodes;
+      } catch (e) {
+        hwNodes = [{ nodeId: '', name: window.I18N.t('page.chat.main.hardware.node_local', '本机'), status: 'ONLINE' }];
+        showToast('error', window.I18N.t('page.chat.main.hardware.nodes_load_failed', '节点列表加载失败'));
+      }
+      hwNodesLoaded = true;
+      renderHwNodeSelect();
+    }
+
+    function renderHwNodeSelect() {
+      if (!els.hwStatNodeSelect) return;
+      const prev = hwSelectedNodeId;
+      els.hwStatNodeSelect.innerHTML = '';
+      for (const n of hwNodes) {
+        const opt = document.createElement('option');
+        opt.value = n.nodeId;
+        opt.textContent = n.name;
+        els.hwStatNodeSelect.appendChild(opt);
+      }
+      const stillExists = hwNodes.some(n => n.nodeId === prev);
+      hwSelectedNodeId = stillExists ? prev : (hwNodes[0] ? hwNodes[0].nodeId : '');
+      els.hwStatNodeSelect.value = hwSelectedNodeId;
+    }
+
+    async function openHwStatPanel() {
+      if (!els.hwStatPanel || !els.hwStatBtn) return;
+      closeThinkingMenu();
+      closeExportMenu();
+      closeModelMenu();
+      els.hwStatPanel.classList.add('open');
+      els.hwStatPanel.setAttribute('aria-hidden', 'false');
+      els.hwStatBtn.setAttribute('aria-expanded', 'true');
+      renderHwLoading();
+      if (!hwNodesLoaded) {
+        await loadHwNodes();
+      } else {
+        renderHwNodeSelect();
+      }
+      void fetchHwStat();
+      startHwRefreshTimer();
+    }
+
+    function closeHwStatPanel() {
+      if (!els.hwStatPanel || !els.hwStatBtn) return;
+      stopHwRefreshTimer();
+      const active = document.activeElement;
+      if (active && els.hwStatPanel.contains(active)) {
+        els.hwStatBtn.focus();
+      }
+      els.hwStatPanel.classList.remove('open');
+      els.hwStatPanel.setAttribute('aria-hidden', 'true');
+      els.hwStatBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleHwStatPanel() {
+      if (!els.hwStatPanel?.classList.contains('open')) {
+        openHwStatPanel();
+      } else {
+        closeHwStatPanel();
+      }
+    }
+
+    function startHwRefreshTimer() {
+      stopHwRefreshTimer();
+      hwRefreshTimer = window.setInterval(() => { void fetchHwStat(); }, HW_REFRESH_INTERVAL_MS);
+    }
+
+    function stopHwRefreshTimer() {
+      if (hwRefreshTimer) {
+        clearInterval(hwRefreshTimer);
+        hwRefreshTimer = 0;
+      }
+    }
+
+    function onHwNodeChange() {
+      hwSelectedNodeId = els.hwStatNodeSelect ? els.hwStatNodeSelect.value : '';
+      renderHwLoading();
+      void fetchHwStat();
+    }
+
+    async function fetchHwStat() {
+      if (hwFetching) return;
+      hwFetching = true;
+      try {
+        const nodeId = hwSelectedNodeId || '';
+        const url = SYSINFO_ENDPOINT + (nodeId ? '?nodeId=' + encodeURIComponent(nodeId) : '');
+        const json = await fetchJson(url, { headers: getHeaders() });
+        renderHwStat(json);
+      } catch (e) {
+        renderHwError(e && e.message ? e.message : window.I18N.t('page.chat.main.hardware.status_load_failed', '加载失败'));
+      } finally {
+        hwFetching = false;
+      }
+    }
+
+    function renderHwLoading() {
+      if (!els.hwStatContent) return;
+      els.hwStatContent.innerHTML = '';
+      const el = document.createElement('div');
+      el.className = 'hw-stat-empty';
+      el.textContent = window.I18N.t('page.chat.main.hardware.status_loading', '加载中…');
+      els.hwStatContent.appendChild(el);
+      if (els.hwStatTimestamp) els.hwStatTimestamp.textContent = '';
+    }
+
+    function renderHwError(msg) {
+      if (!els.hwStatContent) return;
+      els.hwStatContent.innerHTML = '';
+      const el = document.createElement('div');
+      el.className = 'hw-stat-error';
+      el.textContent = msg || window.I18N.t('page.chat.main.hardware.status_load_failed', '加载失败');
+      els.hwStatContent.appendChild(el);
+      if (els.hwStatTimestamp) els.hwStatTimestamp.textContent = '';
+    }
+
+    function buildHwRow(label, valueText, valueClass) {
+      const row = document.createElement('div');
+      row.className = 'hw-stat-row';
+      const labelEl = document.createElement('span');
+      labelEl.className = 'hw-stat-label';
+      labelEl.textContent = label;
+      const valueEl = document.createElement('span');
+      valueEl.className = 'hw-stat-value' + (valueClass ? ' ' + valueClass : '');
+      valueEl.textContent = valueText;
+      row.appendChild(labelEl);
+      row.appendChild(valueEl);
+      return row;
+    }
+
+    function buildHwBar(usedBytes, totalBytes) {
+      const used = Math.max(0, Number(usedBytes || 0));
+      const total = Math.max(0, Number(totalBytes || 0));
+      const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+      const wrap = document.createElement('div');
+      const bar = document.createElement('div');
+      bar.className = 'hw-stat-bar';
+      const fill = document.createElement('div');
+      fill.className = 'hw-stat-bar-fill ' + hwBarClass(pct);
+      fill.style.width = pct + '%';
+      bar.appendChild(fill);
+      wrap.appendChild(bar);
+      const meta = document.createElement('div');
+      meta.className = 'hw-stat-bar-row';
+      const left = document.createElement('span');
+      left.textContent = formatBytes(used) + ' / ' + formatBytes(total);
+      const right = document.createElement('span');
+      right.textContent = Math.round(pct) + '%';
+      meta.appendChild(left);
+      meta.appendChild(right);
+      wrap.appendChild(meta);
+      return wrap;
+    }
+
+    function renderMemorySection(mem) {
+      const section = document.createElement('div');
+      section.className = 'hw-stat-section';
+      const title = document.createElement('div');
+      title.className = 'hw-stat-section-title';
+      title.textContent = window.I18N.t('page.chat.main.hardware.section_memory', '内存');
+      section.appendChild(title);
+      const total = Number(mem?.total_bytes || 0);
+      const used = Number(mem?.used_bytes || 0);
+      section.appendChild(buildHwBar(used, total));
+      const swapTotal = Number(mem?.swap_total_bytes || 0);
+      const swapUsed = Number(mem?.swap_used_bytes || 0);
+      if (swapTotal > 0) {
+        section.appendChild(buildHwRow(
+          window.I18N.t('page.chat.main.hardware.row_swap', '交换分区'),
+          formatBytes(swapUsed) + ' / ' + formatBytes(swapTotal)
+        ));
+      }
+      return section;
+    }
+
+    function renderCpuSection(cpu) {
+      if (!cpu) return null;
+      const section = document.createElement('div');
+      section.className = 'hw-stat-section';
+      const title = document.createElement('div');
+      title.className = 'hw-stat-section-title';
+      title.textContent = window.I18N.t('page.chat.main.hardware.section_cpu', 'CPU');
+      section.appendChild(title);
+      const name = cpu.name || '--';
+      section.appendChild(buildHwRow(
+        window.I18N.t('page.chat.main.hardware.row_model', '型号'),
+        name
+      ));
+      const cores = cpu.cores != null ? String(cpu.cores) : '--';
+      const threads = cpu.threads != null ? String(cpu.threads) : '--';
+      section.appendChild(buildHwRow(
+        window.I18N.t('page.chat.main.hardware.row_cores_threads', '核心 / 线程'),
+        cores + ' / ' + threads
+      ));
+      const freqMax = Number(cpu.freq_max_mhz || 0);
+      if (freqMax > 0) {
+        section.appendChild(buildHwRow(
+          window.I18N.t('page.chat.main.hardware.row_freq_max', '最大频率'),
+          (freqMax / 1000).toFixed(2) + ' GHz'
+        ));
+      }
+      return section;
+    }
+
+    function renderGpuSection(devices) {
+      const section = document.createElement('div');
+      section.className = 'hw-stat-section';
+      const title = document.createElement('div');
+      title.className = 'hw-stat-section-title';
+      title.textContent = window.I18N.t('page.chat.main.hardware.section_gpu', 'GPU');
+      section.appendChild(title);
+      const list = Array.isArray(devices) ? devices : [];
+      if (!list.length) {
+        const empty = document.createElement('div');
+        empty.className = 'hw-stat-empty';
+        empty.textContent = window.I18N.t('page.chat.main.hardware.status_no_gpu', '未检测到 GPU');
+        section.appendChild(empty);
+        return section;
+      }
+      for (const gpu of list) {
+        const card = document.createElement('div');
+        card.className = 'hw-stat-gpu';
+        const head = document.createElement('div');
+        head.className = 'hw-stat-gpu-head';
+        const name = document.createElement('span');
+        name.className = 'hw-stat-gpu-name';
+        name.textContent = gpu?.name || '--';
+        head.appendChild(name);
+        if (gpu?.type) {
+          const typeTag = document.createElement('span');
+          typeTag.className = 'hw-stat-tag';
+          typeTag.textContent = gpu.type;
+          head.appendChild(typeTag);
+        }
+        if (gpu?.vendor) {
+          const vendorTag = document.createElement('span');
+          vendorTag.className = 'hw-stat-tag';
+          vendorTag.textContent = gpu.vendor;
+          head.appendChild(vendorTag);
+        }
+        card.appendChild(head);
+
+        const sensors = gpu?.sensors || {};
+        const tempC = sensors.temperature_celsius;
+        if (tempC != null) {
+          card.appendChild(buildHwRow(
+            window.I18N.t('page.chat.main.hardware.row_temp', '温度'),
+            tempC + ' °C',
+            hwTempClass(tempC)
+          ));
+        }
+        const util = sensors.utilization_gpu_pct;
+        if (util != null) {
+          card.appendChild(buildHwRow(
+            window.I18N.t('page.chat.main.hardware.row_util', '利用率'),
+            util + ' %'
+          ));
+        }
+        if (sensors.core_clock_mhz != null && sensors.core_clock_mhz > 0) {
+          card.appendChild(buildHwRow(
+            window.I18N.t('page.chat.main.hardware.row_core_clock', '核心频率'),
+            sensors.core_clock_mhz + ' MHz'
+          ));
+        }
+        if (sensors.memory_clock_mhz != null && sensors.memory_clock_mhz > 0) {
+          card.appendChild(buildHwRow(
+            window.I18N.t('page.chat.main.hardware.row_mem_clock', '显存频率'),
+            sensors.memory_clock_mhz + ' MHz'
+          ));
+        }
+        const vramUsed = sensors.memory_used_bytes;
+        const vramTotal = sensors.memory_total_bytes;
+        const dedicatedVram = gpu?.memory?.dedicated_vram_bytes;
+        if (vramTotal != null && vramTotal > 0) {
+          const vramLabel = document.createElement('div');
+          vramLabel.className = 'hw-stat-label';
+          vramLabel.style.fontSize = '11px';
+          vramLabel.style.marginTop = '2px';
+          vramLabel.textContent = window.I18N.t('page.chat.main.hardware.row_vram', '显存');
+          card.appendChild(vramLabel);
+          card.appendChild(buildHwBar(vramUsed || 0, vramTotal));
+        } else if (dedicatedVram != null && dedicatedVram > 0) {
+          card.appendChild(buildHwRow(
+            window.I18N.t('page.chat.main.hardware.row_vram', '显存'),
+            formatBytes(dedicatedVram)
+          ));
+        }
+        section.appendChild(card);
+      }
+      return section;
+    }
+
+    function renderJvmSection(jvm) {
+      if (!jvm) return null;
+      const section = document.createElement('div');
+      section.className = 'hw-stat-section';
+      const title = document.createElement('div');
+      title.className = 'hw-stat-section-title';
+      title.textContent = window.I18N.t('page.chat.main.hardware.section_jvm', 'JVM');
+      section.appendChild(title);
+      const name = jvm.name || jvm.javaVersion || '--';
+      section.appendChild(buildHwRow('JVM', name));
+      const usedMB = Number(jvm.usedMemoryMB || 0);
+      const maxMB = Number(jvm.maxMemoryMB || 0);
+      if (maxMB > 0) {
+        section.appendChild(buildHwRow(
+          window.I18N.t('page.chat.main.hardware.row_jvm_used', 'JVM 内存'),
+          usedMB + ' / ' + maxMB + ' MB'
+        ));
+      }
+      return section;
+    }
+
+    function renderHwStat(json) {
+      if (!els.hwStatContent) return;
+      const top = json && json.data ? json.data : null;
+      if (!json || !json.success || !top) {
+        renderHwError((json && json.error) || window.I18N.t('page.chat.main.hardware.status_load_failed', '加载失败'));
+        return;
+      }
+      if (top.available === false || top.error) {
+        renderHwError(top.error || window.I18N.t('page.chat.main.hardware.status_load_failed', '加载失败'));
+        return;
+      }
+      const inner = top.data || {};
+      const system = inner.system || {};
+      const mem = system.memory || {};
+      const cpu = system.cpu || null;
+      const devices = inner.devices || [];
+      const jvm = top.jvm || null;
+
+      els.hwStatContent.innerHTML = '';
+      els.hwStatContent.appendChild(renderMemorySection(mem));
+      const cpuSection = renderCpuSection(cpu);
+      if (cpuSection) els.hwStatContent.appendChild(cpuSection);
+      els.hwStatContent.appendChild(renderGpuSection(devices));
+      const jvmSection = renderJvmSection(jvm);
+      if (jvmSection) els.hwStatContent.appendChild(jvmSection);
+
+      if (els.hwStatTimestamp) {
+        const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        els.hwStatTimestamp.textContent = ts;
+      }
+    }
+
+    function cleanupHwStat() {
+      stopHwRefreshTimer();
     }
 
     async function setEnableThinking(value) {
@@ -7502,6 +7911,7 @@
           closeThinkingMenu();
           closeExportMenu();
           closeModelMenu();
+          closeHwStatPanel();
           closeSettings();
         }
       });
@@ -7917,6 +8327,16 @@ function confirmAudioRecording() {
       els.autoReplyBtn.addEventListener('click', () => {
         void generateAutoReply();
       });
+      if (els.hwStatBtn) {
+        els.hwStatBtn.addEventListener('click', () => {
+          toggleHwStatPanel();
+        });
+      }
+      if (els.hwStatNodeSelect) {
+        els.hwStatNodeSelect.addEventListener('change', () => {
+          onHwNodeChange();
+        });
+      }
       els.modelSelectBtn.addEventListener('click', () => {
         toggleModelMenu();
       });
@@ -8121,6 +8541,9 @@ function confirmAudioRecording() {
         if (!event.target.closest('#modelSelectWrap')) {
           closeModelMenu();
         }
+        if (!event.target.closest('#hwStatWrap')) {
+          closeHwStatPanel();
+        }
         const hint = event.target.closest('.empty-hint[data-hint]');
         if (hint) {
           els.promptInput.value = hint.dataset.hint;
@@ -8172,6 +8595,7 @@ function confirmAudioRecording() {
         if (pendingStatePayload && !stateSaveInFlight) {
           void flushStateSave({ keepalive: true, showErrorToast: false });
         }
+        cleanupHwStat();
       });
       window.addEventListener('online', () => {
         if (!stateLoadedFromServer) {

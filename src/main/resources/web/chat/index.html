@@ -103,7 +103,15 @@
           <div class="composer-bar">
             <div class="composer-left">
               <select id="conversationAssistantSelect" class="model-select composer-assistant-select" aria-label="当前会话使用的助手" data-i18n-attr="aria-label" data-i18n="page.chat.main.composer.assistant_select"></select>
-              <select id="modelSelect" class="model-select" aria-label="选择模型" data-i18n-attr="aria-label" data-i18n="page.chat.main.composer.model_select"></select>
+              <div id="modelSelectWrap" class="menu-wrap model-select-wrap">
+                <button id="modelSelectBtn" class="model-select" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="选择模型" data-i18n-attr="aria-label" data-i18n="page.chat.main.composer.model_select"></button>
+                <div id="modelSelectMenu" class="model-menu" role="listbox" aria-hidden="true">
+                  <div class="model-menu-search">
+                    <input id="modelSearchInput" type="text" placeholder="搜索模型…" data-i18n-attr="placeholder" data-i18n="page.chat.main.composer.model_search">
+                  </div>
+                  <div id="modelMenuList" class="model-menu-list"></div>
+                </div>
+              </div>
             </div>
             <div class="composer-right">
               <button id="refreshModelsBtn" class="icon-button" type="button" aria-label="刷新模型" title="刷新模型" data-i18n-attr="aria-label,title" data-i18n="page.chat.main.composer.refresh">↻</button>
@@ -590,6 +598,8 @@
 
     let modelCapabilitiesMap = {};
     let modelNodeIdMap = {};
+    let modelOptions = [];
+    let modelSearchTerm = '';
 
     function stripModelNodeSuffix(modelValue) {
       const rawModel = typeof modelValue === 'string' ? modelValue.trim() : '';
@@ -647,7 +657,11 @@
       messages: document.getElementById('messages'),
       promptInput: document.getElementById('promptInput'),
       draftImageList: document.getElementById('draftImageList'),
-      modelSelect: document.getElementById('modelSelect'),
+      modelSelectWrap: document.getElementById('modelSelectWrap'),
+      modelSelectBtn: document.getElementById('modelSelectBtn'),
+      modelSelectMenu: document.getElementById('modelSelectMenu'),
+      modelMenuList: document.getElementById('modelMenuList'),
+      modelSearchInput: document.getElementById('modelSearchInput'),
       exportBtn: document.getElementById('exportBtn'),
       clearBtn: document.getElementById('clearBtn'),
       sendBtn: document.getElementById('sendBtn'),
@@ -2440,18 +2454,81 @@
 
     function syncModelSelectControl() {
       const value = typeof state.model === 'string' ? state.model : '';
-      const tempOption = els.modelSelect.querySelector('option[data-temp-model="true"]');
-      if (tempOption) {
-        tempOption.remove();
+      if (els.modelSelectBtn) {
+        els.modelSelectBtn.innerHTML = '';
+        const opt = findModelOption(value);
+        const label = document.createElement('span');
+        label.className = 'model-select-label';
+        if (opt && !opt.isEmpty) {
+          label.textContent = opt.label;
+        } else if (value) {
+          label.textContent = value + window.I18N.t('page.chat.main.misc.current_model', ' (当前模型)');
+        } else {
+          label.textContent = window.I18N.t('page.chat.main.composer.model_select', '选择模型');
+        }
+        const dot = document.createElement('span');
+        dot.className = 'model-status-dot' + (opt && opt.statusLoaded ? ' loaded' : '');
+        const caret = document.createElement('span');
+        caret.className = 'model-select-caret';
+        caret.textContent = '▾';
+        els.modelSelectBtn.appendChild(label);
+        els.modelSelectBtn.appendChild(dot);
+        els.modelSelectBtn.appendChild(caret);
       }
-      if (value && !Array.from(els.modelSelect.options).some(option => option.value === value)) {
-        const option = document.createElement('option');
-        option.value = value;
-        option.textContent = value + window.I18N.t('page.chat.main.misc.current_model', ' (当前模型)');
-        option.dataset.tempModel = 'true';
-        els.modelSelect.insertBefore(option, els.modelSelect.firstChild);
+      const activeItems = els.modelMenuList ? els.modelMenuList.querySelectorAll('.model-menu-item') : [];
+      activeItems.forEach(item => {
+        const isActive = item.dataset.value === value;
+        item.classList.toggle('active', isActive);
+        item.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+      populateSettingsModelSelects();
+    }
+
+    function populateSettingsModelSelects() {
+      if (els.titleGenModelSelect) {
+        const currentVal = state.titleGenModel || '';
+        els.titleGenModelSelect.innerHTML = '';
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = window.I18N.t('page.chat.main.settings.templates.title_gen_model_default', '使用当前对话模型');
+        els.titleGenModelSelect.appendChild(defaultOpt);
+        for (const opt of modelOptions) {
+          if (opt.isEmpty) continue;
+          const clone = document.createElement('option');
+          clone.value = opt.value;
+          clone.textContent = opt.label;
+          els.titleGenModelSelect.appendChild(clone);
+        }
+        if (currentVal && !Array.from(els.titleGenModelSelect.options).some(o => o.value === currentVal)) {
+          const opt = document.createElement('option');
+          opt.value = currentVal;
+          opt.textContent = currentVal;
+          els.titleGenModelSelect.insertBefore(opt, els.titleGenModelSelect.firstChild.nextSibling);
+        }
+        els.titleGenModelSelect.value = currentVal;
       }
-      els.modelSelect.value = value;
+      if (els.autoReplyModelSelect) {
+        const autoReplyVal = state.autoReplyModel || '';
+        els.autoReplyModelSelect.innerHTML = '';
+        const autoReplyDefaultOpt = document.createElement('option');
+        autoReplyDefaultOpt.value = '';
+        autoReplyDefaultOpt.textContent = window.I18N.t('page.chat.main.settings.templates.auto_reply_model_default', '使用当前对话模型');
+        els.autoReplyModelSelect.appendChild(autoReplyDefaultOpt);
+        for (const opt of modelOptions) {
+          if (opt.isEmpty) continue;
+          const clone = document.createElement('option');
+          clone.value = opt.value;
+          clone.textContent = opt.label;
+          els.autoReplyModelSelect.appendChild(clone);
+        }
+        if (autoReplyVal && !Array.from(els.autoReplyModelSelect.options).some(o => o.value === autoReplyVal)) {
+          const opt = document.createElement('option');
+          opt.value = autoReplyVal;
+          opt.textContent = autoReplyVal;
+          els.autoReplyModelSelect.insertBefore(opt, els.autoReplyModelSelect.firstChild.nextSibling);
+        }
+        els.autoReplyModelSelect.value = autoReplyVal;
+      }
     }
 
     function syncRuntimeStateFromCurrentAssistant() {
@@ -3083,49 +3160,8 @@
       els.streamRenderToggle.checked = !!state.streamRender;
       if (els.timestampToggle) els.timestampToggle.checked = !!state.enableTimestamp;
       if (els.titleGenToggle) els.titleGenToggle.checked = !!state.enableTitleGen;
-      if (els.titleGenModelSelect) {
-        const currentVal = state.titleGenModel || '';
-        els.titleGenModelSelect.innerHTML = '';
-        const defaultOpt = document.createElement('option');
-        defaultOpt.value = '';
-        defaultOpt.textContent = window.I18N.t('page.chat.main.settings.templates.title_gen_model_default', '使用当前对话模型');
-        els.titleGenModelSelect.appendChild(defaultOpt);
-        for (const opt of els.modelSelect.options) {
-          const clone = document.createElement('option');
-          clone.value = opt.value;
-          clone.textContent = opt.textContent;
-          els.titleGenModelSelect.appendChild(clone);
-        }
-        if (currentVal && !Array.from(els.titleGenModelSelect.options).some(o => o.value === currentVal)) {
-          const opt = document.createElement('option');
-          opt.value = currentVal;
-          opt.textContent = currentVal;
-          els.titleGenModelSelect.insertBefore(opt, els.titleGenModelSelect.firstChild.nextSibling);
-        }
-        els.titleGenModelSelect.value = currentVal;
-      }
+      populateSettingsModelSelects();
       if (els.autoReplyToggle) els.autoReplyToggle.checked = !!state.enableAutoReply;
-      if (els.autoReplyModelSelect) {
-        const autoReplyVal = state.autoReplyModel || '';
-        els.autoReplyModelSelect.innerHTML = '';
-        const autoReplyDefaultOpt = document.createElement('option');
-        autoReplyDefaultOpt.value = '';
-        autoReplyDefaultOpt.textContent = window.I18N.t('page.chat.main.settings.templates.auto_reply_model_default', '使用当前对话模型');
-        els.autoReplyModelSelect.appendChild(autoReplyDefaultOpt);
-        for (const opt of els.modelSelect.options) {
-          const clone = document.createElement('option');
-          clone.value = opt.value;
-          clone.textContent = opt.textContent;
-          els.autoReplyModelSelect.appendChild(clone);
-        }
-        if (autoReplyVal && !Array.from(els.autoReplyModelSelect.options).some(o => o.value === autoReplyVal)) {
-          const opt = document.createElement('option');
-          opt.value = autoReplyVal;
-          opt.textContent = autoReplyVal;
-          els.autoReplyModelSelect.insertBefore(opt, els.autoReplyModelSelect.firstChild.nextSibling);
-        }
-        els.autoReplyModelSelect.value = autoReplyVal;
-      }
       els.systemPromptInput.value = state.systemPrompt;
       resizeSystemPromptInput();
       els.searchInput.value = state.search;
@@ -3227,6 +3263,192 @@
         return;
       }
       closeThinkingMenu();
+    }
+
+    function findModelOption(value) {
+      if (!value) return null;
+      return modelOptions.find(opt => opt.value === value) || null;
+    }
+
+    function getFilteredModelOptions() {
+      const term = modelSearchTerm.trim().toLowerCase();
+      if (!term) return modelOptions;
+      return modelOptions.filter(opt => {
+        if (opt.isEmpty) return false;
+        const id = String(opt.id || '').toLowerCase();
+        const node = String(opt.nodeName || '').toLowerCase();
+        const label = String(opt.label || '').toLowerCase();
+        return id.includes(term) || node.includes(term) || label.includes(term);
+      });
+    }
+
+    function createModelMenuItem(opt, isCurrent, isTemp) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'model-menu-item';
+      item.setAttribute('role', 'option');
+      item.dataset.value = opt.value;
+      if (isCurrent) {
+        item.classList.add('active');
+        item.setAttribute('aria-selected', 'true');
+      } else {
+        item.setAttribute('aria-selected', 'false');
+      }
+      if (opt.isEmpty || isTemp) {
+        item.disabled = !!opt.isEmpty;
+      }
+
+      const left = document.createElement('span');
+      left.className = 'model-menu-item-left';
+
+      const name = document.createElement('span');
+      name.className = 'model-menu-name';
+      name.textContent = isTemp
+        ? opt.label + window.I18N.t('page.chat.main.misc.current_model', ' (当前模型)')
+        : opt.label;
+
+      left.appendChild(name);
+      if (!isTemp && !opt.isEmpty && opt.nodeName) {
+        const node = document.createElement('span');
+        node.className = 'model-menu-node';
+        node.textContent = opt.nodeName;
+        left.appendChild(node);
+      }
+
+      const right = document.createElement('span');
+      right.className = 'model-menu-item-right';
+
+      const dot = document.createElement('span');
+      dot.className = 'model-status-dot' + (opt.statusLoaded ? ' loaded' : '');
+      right.appendChild(dot);
+
+      const check = document.createElement('span');
+      check.className = 'model-menu-check';
+      check.textContent = '✓';
+      check.setAttribute('aria-hidden', 'true');
+      right.appendChild(check);
+
+      item.appendChild(left);
+      item.appendChild(right);
+      return item;
+    }
+
+    function renderModelMenu() {
+      if (!els.modelMenuList) return;
+      els.modelMenuList.innerHTML = '';
+
+      const filtered = getFilteredModelOptions();
+      const term = modelSearchTerm.trim().toLowerCase();
+
+      if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'model-menu-empty';
+        empty.textContent = window.I18N.t('page.chat.main.status.no_models', '当前未发现可用模型');
+        els.modelMenuList.appendChild(empty);
+        return;
+      }
+
+      if (filtered.length === 1 && filtered[0].isEmpty) {
+        const item = createModelMenuItem(filtered[0], false, false);
+        els.modelMenuList.appendChild(item);
+        return;
+      }
+
+      const current = state.model;
+      const hasCurrentInList = modelOptions.some(opt => opt.value === current);
+      const showTempCurrent = current && !hasCurrentInList && !term;
+
+      if (showTempCurrent) {
+        const tempOpt = {
+          value: current,
+          id: current,
+          nodeId: '',
+          nodeName: '',
+          label: current,
+          statusLoaded: false
+        };
+        const tempItem = createModelMenuItem(tempOpt, true, true);
+        els.modelMenuList.appendChild(tempItem);
+      }
+
+      if (term) {
+        for (const opt of filtered) {
+          if (opt.isEmpty) continue;
+          const isCurrent = opt.value === current;
+          els.modelMenuList.appendChild(createModelMenuItem(opt, isCurrent, false));
+        }
+        return;
+      }
+
+      const loaded = filtered.filter(opt => !opt.isEmpty && opt.statusLoaded);
+      const unloaded = filtered.filter(opt => !opt.isEmpty && !opt.statusLoaded);
+
+      if (loaded.length) {
+        const label = document.createElement('div');
+        label.className = 'model-menu-group';
+        label.textContent = window.I18N.t('page.chat.main.composer.model_group_loaded', '已加载');
+        els.modelMenuList.appendChild(label);
+        for (const opt of loaded) {
+          els.modelMenuList.appendChild(createModelMenuItem(opt, opt.value === current, false));
+        }
+      }
+      if (unloaded.length) {
+        const label = document.createElement('div');
+        label.className = 'model-menu-group';
+        label.textContent = window.I18N.t('page.chat.main.composer.model_group_unloaded', '未加载');
+        els.modelMenuList.appendChild(label);
+        for (const opt of unloaded) {
+          els.modelMenuList.appendChild(createModelMenuItem(opt, opt.value === current, false));
+        }
+      }
+    }
+
+    function openModelMenu() {
+      if (!els.modelSelectMenu || !els.modelSelectBtn) return;
+      closeThinkingMenu();
+      closeExportMenu();
+      renderModelMenu();
+      els.modelSelectMenu.classList.add('open');
+      els.modelSelectMenu.setAttribute('aria-hidden', 'false');
+      els.modelSelectBtn.setAttribute('aria-expanded', 'true');
+      if (els.modelSearchInput) {
+        els.modelSearchInput.value = modelSearchTerm;
+        requestAnimationFrame(() => els.modelSearchInput.focus());
+      }
+    }
+
+    function closeModelMenu() {
+      if (!els.modelSelectMenu || !els.modelSelectBtn) return;
+      const active = document.activeElement;
+      if (active && els.modelSelectMenu.contains(active)) {
+        els.modelSelectBtn.focus();
+      }
+      els.modelSelectMenu.classList.remove('open');
+      els.modelSelectMenu.setAttribute('aria-hidden', 'true');
+      els.modelSelectBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleModelMenu() {
+      if (!els.modelSelectMenu?.classList.contains('open')) {
+        openModelMenu();
+        return;
+      }
+      closeModelMenu();
+    }
+
+    function selectModel(value) {
+      const previous = state.model;
+      const opt = findModelOption(value);
+      if (!opt || opt.isEmpty) return;
+      state.model = opt.value;
+      syncCurrentAssistantFromRuntimeState();
+      syncSettingsInputs();
+      syncModelSelectControl();
+      syncMicRecorderButton();
+      closeModelMenu();
+      if (state.model !== previous) {
+        persistState();
+      }
     }
 
     async function setEnableThinking(value) {
@@ -6618,12 +6840,17 @@
         const models = Array.isArray(json?.data) ? json.data : [];
         modelCapabilitiesMap = {};
         modelNodeIdMap = {};
-        els.modelSelect.innerHTML = '';
+        modelOptions = [];
         if (!models.length) {
-          const option = document.createElement('option');
-          option.value = '';
-          option.textContent = window.I18N.t('page.chat.main.status.no_models', '当前未发现可用模型');
-          els.modelSelect.appendChild(option);
+          modelOptions = [{
+            value: '',
+            id: '',
+            nodeId: '',
+            nodeName: '',
+            label: window.I18N.t('page.chat.main.status.no_models', '当前未发现可用模型'),
+            statusLoaded: false,
+            isEmpty: true
+          }];
           state.model = '';
         } else {
           for (const item of models) {
@@ -6634,10 +6861,16 @@
             const nodeId = typeof item?.nodeId === 'string' && item.nodeId !== 'local' ? item.nodeId : '';
             const nodeName = nodeId && typeof item?.nodeName === 'string' && item.nodeName ? item.nodeName : nodeId;
             const compositeKey = nodeId ? id + '::' + nodeId : id;
-            const option = document.createElement('option');
-            option.value = compositeKey;
-            option.textContent = nodeId ? '[' + nodeName + '] ' + id : id;
-            els.modelSelect.appendChild(option);
+            const statusValue = String(item?.status?.value || '').toLowerCase();
+            const statusLoaded = statusValue === 'loaded';
+            modelOptions.push({
+              value: compositeKey,
+              id,
+              nodeId,
+              nodeName,
+              label: nodeId ? '[' + nodeName + '] ' + id : id,
+              statusLoaded
+            });
             if (nodeId) {
               modelNodeIdMap[compositeKey] = nodeId;
             }
@@ -6646,28 +6879,36 @@
               modelCapabilitiesMap[id] = caps;
             }
           }
+          modelOptions.sort((a, b) => {
+            if (a.statusLoaded !== b.statusLoaded) {
+              return a.statusLoaded ? -1 : 1;
+            }
+            return String(a.id).localeCompare(String(b.id), undefined, { numeric: true, sensitivity: 'base' });
+          });
           if (state.model) {
-            const exactMatch = Array.from(els.modelSelect.options).some(opt => opt.value === state.model);
+            const exactMatch = modelOptions.find(opt => opt.value === state.model);
             if (exactMatch) {
-              els.modelSelect.value = state.model;
+              // keep state.model
             } else {
               const sep2 = state.model.lastIndexOf('::');
               const bareStored = sep2 >= 0 ? state.model.substring(0, sep2) : state.model;
-              const fallback = Array.from(els.modelSelect.options).find(
+              const fallback = modelOptions.find(
                 opt => opt.value === bareStored || opt.value.startsWith(bareStored + '::')
               );
               if (fallback) {
-                els.modelSelect.value = fallback.value;
                 state.model = fallback.value;
               } else {
-                state.model = els.modelSelect.value || '';
+                const firstLoaded = modelOptions.find(opt => opt.statusLoaded);
+                state.model = (firstLoaded || modelOptions[0]).value;
               }
             }
           } else {
-            state.model = els.modelSelect.value || '';
+            const firstLoaded = modelOptions.find(opt => opt.statusLoaded);
+            state.model = (firstLoaded || modelOptions[0]).value;
           }
         }
         syncCurrentAssistantFromRuntimeState();
+        renderModelMenu();
         syncModelSelectControl();
         syncMicRecorderButton();
         if (state.model !== previousModel) {
@@ -7260,6 +7501,7 @@
           setSidebarOpen(false);
           closeThinkingMenu();
           closeExportMenu();
+          closeModelMenu();
           closeSettings();
         }
       });
@@ -7675,13 +7917,28 @@ function confirmAudioRecording() {
       els.autoReplyBtn.addEventListener('click', () => {
         void generateAutoReply();
       });
-      els.modelSelect.addEventListener('change', () => {
-        state.model = els.modelSelect.value;
-        syncCurrentAssistantFromRuntimeState();
-        syncSettingsInputs();
-        syncMicRecorderButton();
-        persistState();
+      els.modelSelectBtn.addEventListener('click', () => {
+        toggleModelMenu();
       });
+      if (els.modelSearchInput) {
+        els.modelSearchInput.addEventListener('input', () => {
+          modelSearchTerm = els.modelSearchInput.value || '';
+          renderModelMenu();
+        });
+        els.modelSearchInput.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeModelMenu();
+          }
+        });
+      }
+      if (els.modelMenuList) {
+        els.modelMenuList.addEventListener('click', (event) => {
+          const item = event.target.closest('.model-menu-item[data-value]');
+          if (!item || item.disabled) return;
+          selectModel(item.dataset.value);
+        });
+      }
       els.systemPromptInput.addEventListener('input', () => {
         resizeSystemPromptInput();
       });
@@ -7860,6 +8117,9 @@ function confirmAudioRecording() {
         }
         if (!event.target.closest('#exportMenuWrap')) {
           closeExportMenu();
+        }
+        if (!event.target.closest('#modelSelectWrap')) {
+          closeModelMenu();
         }
         const hint = event.target.closest('.empty-hint[data-hint]');
         if (hint) {

@@ -20,6 +20,8 @@
   --sidebar-width: 260px;
   --chat-column-max: 768px;
   --chat-center-offset: 0px;
+  --model-status-loaded: #10b981;
+  --model-status-unloaded: var(--muted);
   --fg-muted: #9ca3af;
   --hover: rgba(0,0,0,0.06);
   --panel: #f9fafb;
@@ -587,6 +589,196 @@ button { cursor: pointer; }
 .thinking-menu-item.active::after {
   content: "✓";
   font-size: 12px;
+}
+
+/* ── Model select popup ── */
+.model-select-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+#modelSelectBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+#modelSelectBtn .model-select-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#modelSelectBtn .model-select-caret {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+#modelSelectBtn .model-status-dot {
+  flex: 0 0 auto;
+}
+
+.model-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: min(440px, 92vw);
+  max-height: min(50vh, 420px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--bg);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+  display: none;
+  flex-direction: column;
+  z-index: 30;
+  overflow: hidden;
+}
+
+.model-menu.open {
+  display: flex;
+}
+
+.model-menu-search {
+  flex: 0 0 auto;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.model-menu-search input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg);
+  outline: none;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.model-menu-search input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring);
+}
+
+.model-menu-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 60px;
+}
+
+.model-menu-group {
+  padding: 6px 12px 2px;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+  user-select: none;
+}
+
+.model-menu-item {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--fg);
+}
+
+.model-menu-item:hover:not(:disabled) {
+  background: var(--secondary);
+}
+
+.model-menu-item.active {
+  background: var(--secondary);
+  font-weight: 600;
+}
+
+.model-menu-item:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.model-menu-item-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-menu-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-menu-node {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--muted-bg);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.model-menu-item-right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--model-status-unloaded);
+  flex: 0 0 auto;
+}
+
+.model-status-dot.loaded {
+  background: var(--model-status-loaded);
+}
+
+.model-menu-check {
+  font-size: 12px;
+  color: var(--fg);
+  visibility: hidden;
+}
+
+.model-menu-item.active .model-menu-check {
+  visibility: visible;
+}
+
+.model-menu-empty {
+  padding: 14px 12px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
 }
 
 #exportMenu {
@@ -2745,6 +2937,14 @@ body.sidebar-collapsed .sidebar {
     font-size: 11px;
     line-height: 24px;
     border-radius: 8px;
+  }
+
+  #modelSelectBtn {
+    line-height: 1;
+  }
+
+  .model-menu {
+    width: min(360px, 94vw);
   }
 
   .composer-hint {

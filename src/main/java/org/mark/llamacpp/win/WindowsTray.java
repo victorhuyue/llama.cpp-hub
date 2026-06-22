@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.imageio.ImageIO;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JDialog;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
@@ -70,7 +71,7 @@ public class WindowsTray {
         if (!SystemTray.isSupported()) {
             throw new IllegalStateException("System tray is not supported");
         }
-        runOnEdt(() -> startInternal(tooltip));
+        runOnEdt(() -> this.startInternal(tooltip));
     }
 
     public void stop() {
@@ -83,7 +84,7 @@ public class WindowsTray {
 
     public String addButton(String text, Runnable onClick) {
         String id = UUID.randomUUID().toString();
-        addButton(id, text, onClick);
+        this.addButton(id, text, onClick);
         return id;
     }
 
@@ -91,12 +92,35 @@ public class WindowsTray {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(text, "text");
         Objects.requireNonNull(onClick, "onClick");
-        runOnEdt(() -> addButtonInternal(id, text, onClick));
+        runOnEdt(() -> this.addButtonInternal(id, text, onClick));
+    }
+
+    public String addCheckBoxButton(String text, boolean selected, Runnable onToggle) {
+        String id = UUID.randomUUID().toString();
+        this.addCheckBoxButton(id, text, selected, onToggle);
+        return id;
+    }
+
+    public void addCheckBoxButton(String id, String text, boolean selected, Runnable onToggle) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(text, "text");
+        Objects.requireNonNull(onToggle, "onToggle");
+        runOnEdt(() -> this.addCheckBoxButtonInternal(id, text, selected, onToggle));
+    }
+
+    public void setCheckBoxSelected(String id, boolean selected) {
+        Objects.requireNonNull(id, "id");
+        runOnEdt(() -> {
+            JMenuItem item = menuItems.get(id);
+            if (item instanceof JCheckBoxMenuItem) {
+                ((JCheckBoxMenuItem) item).setState(selected);
+            }
+        });
     }
 
     public void removeButton(String id) {
         Objects.requireNonNull(id, "id");
-        runOnEdt(() -> removeButtonInternal(id));
+        runOnEdt(() -> this.removeButtonInternal(id));
     }
 
     public void clearButtons() {
@@ -105,8 +129,8 @@ public class WindowsTray {
 
     public void addSeparator() {
         runOnEdt(() -> {
-            ensureInitialized();
-            popupMenu.addSeparator();
+        	this.ensureInitialized();
+            this.popupMenu.addSeparator();
         });
     }
 
@@ -121,42 +145,68 @@ public class WindowsTray {
     }
 
     private void addButtonInternal(String id, String text, Runnable onClick) {
-        ensureInitialized();
+    	this.ensureInitialized();
         JMenuItem item = new JMenuItem(text);
-        item.addActionListener(e -> onClick.run());
+        item.addActionListener(e -> {
+        	this.hidePopup();
+            onClick.run();
+        });
         JMenuItem previous = menuItems.put(id, item);
         if (previous != null) {
-            popupMenu.remove(previous);
+        	this.popupMenu.remove(previous);
         }
-        popupMenu.add(item);
+        this.popupMenu.add(item);
+    }
+
+    private void addCheckBoxButtonInternal(String id, String text, boolean selected, Runnable onToggle) {
+    	this.ensureInitialized();
+        JCheckBoxMenuItem item = new JCheckBoxMenuItem(text, selected);
+        item.addActionListener(e -> {
+        	this.hidePopup();
+            boolean newState = item.getState();
+            item.setState(newState);
+            onToggle.run();
+        });
+        JMenuItem previous = this.menuItems.put(id, item);
+        if (previous != null) {
+        	this.popupMenu.remove(previous);
+        }
+        this.popupMenu.add(item);
+    }
+
+    private void hidePopup() {
+        JDialog host = this.popupHost;
+        if (host != null && host.isVisible()) {
+            host.setVisible(false);
+        }
     }
 
     private void removeButtonInternal(String id) {
         ensureInitialized();
-        JMenuItem item = menuItems.remove(id);
+        JMenuItem item = this.menuItems.remove(id);
         if (item == null) {
             return;
         }
-        popupMenu.remove(item);
+        this.popupMenu.remove(item);
     }
 
     private void clearButtonsInternal() {
-        ensureInitialized();
-        popupMenu.removeAll();
-        menuItems.clear();
+    	this.ensureInitialized();
+        this.popupMenu.removeAll();
+        this.menuItems.clear();
     }
 
     private void startInternal(String tooltip) {
-        if (!started.compareAndSet(false, true)) {
+        if (!this.started.compareAndSet(false, true)) {
             return;
         }
-        ensureInitialized();
+        this.ensureInitialized();
 
         Image iconImage;
         try {
             iconImage = loadTrayImage("/icon/icon.png");
         } catch (IOException e) {
-            started.set(false);
+        	this.started.set(false);
             throw new IllegalStateException("Failed to load tray icon: /icon/icon.png", e);
         }
 
@@ -192,7 +242,7 @@ public class WindowsTray {
             SystemTray.getSystemTray().add(newTrayIcon);
             this.trayIcon = newTrayIcon;
         } catch (AWTException e) {
-            started.set(false);
+        	this.started.set(false);
             throw new RuntimeException(e);
         }
     }
@@ -216,10 +266,10 @@ public class WindowsTray {
     }
 
     private void ensureInitialized() {
-        if (popupMenu != null && popupHost != null) {
+        if (this.popupMenu != null && this.popupHost != null) {
             return;
         }
-        popupMenu = new JPopupMenu();
+        this.popupMenu = new JPopupMenu();
 
         JDialog host = new JDialog();
         host.setUndecorated(true);

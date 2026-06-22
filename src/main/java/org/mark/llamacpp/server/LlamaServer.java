@@ -1,5 +1,6 @@
 package org.mark.llamacpp.server;
 
+import java.awt.Desktop;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -8,6 +9,7 @@ import java.io.PrintStream;
 import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +20,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import javax.net.ssl.KeyManagerFactory;
@@ -43,6 +46,7 @@ import org.mark.llamacpp.server.tools.ParamTool;
 import org.mark.llamacpp.server.websocket.WebSocketManager;
 import org.mark.test.mcp.DefaultMcpServiceImpl;
 import org.mark.llamacpp.win.WindowsTray;
+import org.mark.llamacpp.win.AutoStartManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1915,9 +1919,10 @@ public class LlamaServer {
 		}
 
 		// 根据系统语言选择托盘菜单文本
-		boolean isChinese = "zh".equals(java.util.Locale.getDefault().getLanguage());
+		boolean isChinese = "zh".equals(Locale.getDefault().getLanguage());
 		String btnOpen = isChinese ? "打开首页" : "Open Homepage";
 		String btnRestart = isChinese ? "重启程序" : "Restart";
+		String btnAutoStart = isChinese ? "开机自启" : "Auto Start";
 		String btnExit = isChinese ? "退出程序" : "Exit";
 		String notifyTitle = isChinese ? "启动成功" : "Started";
 		String notifyMsg = isChinese ? "llama.cpp-hub 已在后台运行" : "llama.cpp-hub is running in background";
@@ -1927,13 +1932,21 @@ public class LlamaServer {
 			String host = "http" + (httpsEnabled ? "s" : "") + "://127.0.0.1:" + webPort;
 			tray.addButton(btnOpen, () -> {
 				try {
-					java.awt.Desktop.getDesktop().browse(new java.net.URI(host));
+					Desktop.getDesktop().browse(new URI(host));
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			});
 			tray.addButton(btnRestart, () -> {
 				LlamaServer.restartApplication();
+			});
+			tray.addCheckBoxButton(btnAutoStart, AutoStartManager.isAutoStartEnabled(), () -> {
+				boolean current = AutoStartManager.isAutoStartEnabled();
+				if (current) {
+					AutoStartManager.disableAutoStart();
+				} else {
+					AutoStartManager.enableAutoStart();
+				}
 			});
 			tray.addSeparator();
 			tray.addButton(btnExit, () -> {
@@ -1944,7 +1957,7 @@ public class LlamaServer {
 			tray.setDefaultAction(() -> {
 				// 双击托盘图标触发，暂时没东西
 				try {
-					java.awt.Desktop.getDesktop().browse(new java.net.URI(host));
+					Desktop.getDesktop().browse(new URI(host));
 				} catch (Exception e) {
 					e.printStackTrace();
 				}

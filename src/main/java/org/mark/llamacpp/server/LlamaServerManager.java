@@ -1734,6 +1734,8 @@ public class LlamaServerManager {
 				}
 				this.loadedModelInfos.remove(id);
 				this.modelLastUsedTime.remove(id);
+				// 重建自动加载缓存，使刚卸载的模型重新出现在 /v1/models 的未加载列表中
+				this.buildAutoLoadModelCache();
 			}
 			return stopped;
 		}
@@ -1929,13 +1931,16 @@ public class LlamaServerManager {
 				} else {
 					if (info.unexpected) {
 						logger.warn("已加载的模型进程意外崩溃 (exitCode={}): {}", info.exitCode, modelId);
+						boolean wasLoaded;
 						synchronized (this.processLock) {
-							boolean wasLoaded = this.loadedProcesses.containsKey(modelId);
+							wasLoaded = this.loadedProcesses.containsKey(modelId);
 							this.loadedProcesses.remove(modelId);
 							this.modelPorts.remove(modelId);
-							if (wasLoaded) {
-								LlamaServer.sendModelStopEvent(modelId, false, "模型进程意外崩溃 (exitCode=" + info.exitCode + ")");
-							}
+						}
+						if (wasLoaded) {
+							LlamaServer.sendModelStopEvent(modelId, false, "模型进程意外崩溃 (exitCode=" + info.exitCode + ")");
+							// 进程意外退出后重建缓存，使模型重新出现在列表中
+							this.buildAutoLoadModelCache();
 						}
 					}
 				}

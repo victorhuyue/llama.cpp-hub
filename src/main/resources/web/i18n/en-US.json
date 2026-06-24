@@ -1846,6 +1846,7 @@
   "page.chat.main.auto_reply.failed": "Generation failed: {error}",
   "page.chat.main.composer.auto_reply": "AI Auto-Reply",
   "sidebar.tools.perplexity_desc": "Run llama-perplexity on Wikitext-2 to evaluate model perplexity",
+  "sidebar.tools.build_desc": "Build llama.cpp executables online",
   "page.tools.perplexity.title": "Perplexity Test",
   "page.tools.perplexity.section.params": "Parameters",
   "page.tools.perplexity.section.models": "Models",

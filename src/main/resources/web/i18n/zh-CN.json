@@ -1846,6 +1846,7 @@
   "page.chat.main.auto_reply.empty": "AI 未生成有效内容",
   "page.chat.main.auto_reply.failed": "生成失败：{error}",
   "sidebar.tools.perplexity_desc": "使用 llama-perplexity 在 Wikitext-2 上测试模型困惑度",
+  "sidebar.tools.build_desc": "在线编译 llama.cpp 可执行文件",
   "page.tools.perplexity.title": "困惑度测试",
   "page.tools.perplexity.section.params": "参数",
   "page.tools.perplexity.section.models": "模型",

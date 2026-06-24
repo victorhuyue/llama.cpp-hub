@@ -23,6 +23,7 @@ import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.controller.BaseController;
 import org.mark.llamacpp.server.controller.AutoLoadPolicyController;
+import org.mark.llamacpp.server.controller.BuildController;
 import org.mark.llamacpp.server.controller.ChatStateController;
 import org.mark.llamacpp.server.controller.EasyChatController;
 import org.mark.llamacpp.server.controller.HuggingFaceController;
@@ -90,6 +91,7 @@ public class BasicRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		pipeline.add(new UsageReportController());
 		pipeline.add(new AutoLoadPolicyController());
 		pipeline.add(new CertController());
+		pipeline.add(new BuildController());
 	}
 	
 	

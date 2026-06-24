@@ -17,6 +17,7 @@ import org.mark.llamacpp.server.LlamaServer;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.util.AttributeKey;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
@@ -28,6 +29,10 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
     static final AttributeKey<Boolean> UPLOADING = AttributeKey.newInstance("uploading");
     static final AttributeKey<RandomAccessFile> UPLOAD_RAF = AttributeKey.newInstance("uploadRaf");
     static final AttributeKey<Path> UPLOAD_PATH = AttributeKey.newInstance("uploadPath");
+    static final AttributeKey<HttpResponseStatus> UPLOAD_ERROR_STATUS = AttributeKey.newInstance("uploadErrorStatus");
+    static final AttributeKey<String> UPLOAD_ERROR_MSG = AttributeKey.newInstance("uploadErrorMsg");
+
+    private static final String UPLOAD_DIR = "llama.cpp-sources";
 
     private static final ConcurrentHashMap<String, ReentrantLock> uploadLocks = new ConcurrentHashMap<>();
 
@@ -55,19 +60,34 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
 
                 String fileName = getQueryParam(query, "name");
                 if (fileName == null || fileName.trim().isEmpty()) {
-                    LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "缺少name参数");
+                    if (request instanceof LastHttpContent) {
+                        LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "缺少name参数");
+                        ReferenceCountUtil.release(request);
+                    } else {
+                        setUploadError(ctx, HttpResponseStatus.BAD_REQUEST, "缺少name参数");
+                    }
                     return;
                 }
                 fileName = sanitizeFileName(fileName.trim());
                 if (fileName == null || fileName.isEmpty()) {
-                    LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "文件名不合法");
+                    if (request instanceof LastHttpContent) {
+                        LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "文件名不合法");
+                        ReferenceCountUtil.release(request);
+                    } else {
+                        setUploadError(ctx, HttpResponseStatus.BAD_REQUEST, "文件名不合法");
+                    }
                     return;
                 }
 
-                Path cacheDir = LlamaServer.getCachePath().toAbsolutePath().normalize();
-                Path targetFile = cacheDir.resolve(fileName).toAbsolutePath().normalize();
-                if (!targetFile.startsWith(cacheDir)) {
-                    LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "文件名不合法");
+                Path uploadDir = getUploadDir();
+                Path targetFile = uploadDir.resolve(fileName).toAbsolutePath().normalize();
+                if (!targetFile.startsWith(uploadDir)) {
+                    if (request instanceof LastHttpContent) {
+                        LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "文件名不合法");
+                        ReferenceCountUtil.release(request);
+                    } else {
+                        setUploadError(ctx, HttpResponseStatus.BAD_REQUEST, "文件名不合法");
+                    }
                     return;
                 }
 
@@ -75,10 +95,7 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
                 ReentrantLock lock = uploadLocks.computeIfAbsent(lockKey, k -> new ReentrantLock());
                 lock.lock();
                 try {
-                    if (Files.exists(targetFile)) {
-                        LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.CONFLICT, "文件已存在: " + fileName);
-                        return;
-                    }
+                    targetFile = resolveUniqueFileName(uploadDir, fileName);
 
                     Files.createDirectories(targetFile.getParent());
                     RandomAccessFile raf = new RandomAccessFile(targetFile.toFile(), "rw");
@@ -86,7 +103,12 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
                     ctx.channel().attr(UPLOAD_RAF).set(raf);
                     ctx.channel().attr(UPLOAD_PATH).set(targetFile);
                 } catch (Exception e) {
-                    LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "创建文件失败: " + e.getMessage());
+                    if (request instanceof LastHttpContent) {
+                        LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "创建文件失败: " + e.getMessage());
+                        ReferenceCountUtil.release(request);
+                    } else {
+                        setUploadError(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "创建文件失败: " + e.getMessage());
+                    }
                 } finally {
                     lock.unlock();
                     uploadLocks.remove(lockKey, lock);
@@ -95,7 +117,12 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
             }
 
             if (uri.startsWith("/api/uploads/list") && method == HttpMethod.GET) {
-                handleListFiles(ctx);
+                String query = null;
+                int qIdx = uri.indexOf('?');
+                if (qIdx >= 0) {
+                    query = uri.substring(qIdx + 1);
+                }
+                handleListFiles(ctx, query);
                 return;
             }
 
@@ -111,9 +138,20 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
 
             ctx.fireChannelRead(msg);
         } else if (msg instanceof HttpContent) {
+            HttpContent content = (HttpContent) msg;
+            HttpResponseStatus errorStatus = ctx.channel().attr(UPLOAD_ERROR_STATUS).get();
+            String errorMsg = ctx.channel().attr(UPLOAD_ERROR_MSG).get();
+            if (errorStatus != null) {
+                if (content instanceof LastHttpContent) {
+                    LlamaServer.sendJsonErrorResponse(ctx, errorStatus, errorMsg);
+                    clearUploadAttributes(ctx);
+                }
+                content.release();
+                return;
+            }
+
             Boolean uploading = ctx.channel().attr(UPLOADING).get();
             if (Boolean.TRUE.equals(uploading)) {
-                HttpContent content = (HttpContent) msg;
                 RandomAccessFile raf = ctx.channel().attr(UPLOAD_RAF).get();
                 if (raf != null) {
                     writeChunkToRaf(raf, content.content());
@@ -147,6 +185,7 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
                     LlamaServer.sendJsonResponse(ctx, resp);
                     ctx.channel().attr(UPLOADING).set(false);
                 }
+                content.release();
                 return;
             }
             ctx.fireChannelRead(msg);
@@ -173,11 +212,22 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
                 } catch (Exception ignore) {
                 }
             }
-            ctx.channel().attr(UPLOADING).set(false);
-            ctx.channel().attr(UPLOAD_RAF).set(null);
-            ctx.channel().attr(UPLOAD_PATH).set(null);
         }
+        clearUploadAttributes(ctx);
         super.channelInactive(ctx);
+    }
+
+    private static void setUploadError(ChannelHandlerContext ctx, HttpResponseStatus status, String msg) {
+        ctx.channel().attr(UPLOAD_ERROR_STATUS).set(status);
+        ctx.channel().attr(UPLOAD_ERROR_MSG).set(msg);
+    }
+
+    private static void clearUploadAttributes(ChannelHandlerContext ctx) {
+        ctx.channel().attr(UPLOADING).set(false);
+        ctx.channel().attr(UPLOAD_RAF).set(null);
+        ctx.channel().attr(UPLOAD_PATH).set(null);
+        ctx.channel().attr(UPLOAD_ERROR_STATUS).set(null);
+        ctx.channel().attr(UPLOAD_ERROR_MSG).set(null);
     }
 
     private static void writeChunkToRaf(RandomAccessFile raf, io.netty.buffer.ByteBuf buf) throws Exception {
@@ -194,13 +244,22 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
         }
     }
 
-    private void handleListFiles(ChannelHandlerContext ctx) {
+    private void handleListFiles(ChannelHandlerContext ctx, String query) {
         try {
-            Path cacheDir = LlamaServer.getCachePath();
+            Path uploadDir = getUploadDir();
+            String extFilter = getQueryParam(query, "ext");
+            if (extFilter != null) {
+                extFilter = extFilter.trim().toLowerCase();
+                if (!extFilter.startsWith(".")) {
+                    extFilter = "." + extFilter;
+                }
+            }
+            final String finalExt = extFilter;
+
             List<Map<String, Object>> files = new ArrayList<>();
-            if (Files.exists(cacheDir)) {
-                try (Stream<Path> stream = Files.list(cacheDir)) {
-                    stream.filter(Files::isRegularFile).forEach(p -> {
+            if (Files.exists(uploadDir)) {
+                try (Stream<Path> stream = Files.list(uploadDir)) {
+                    stream.filter(p -> Files.isRegularFile(p) && (finalExt == null || p.toString().toLowerCase().endsWith(finalExt))).forEach(p -> {
                         try {
                             Map<String, Object> entry = new HashMap<>();
                             entry.put("name", p.getFileName().toString());
@@ -234,9 +293,9 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
                 return;
             }
 
-            Path cacheDir = LlamaServer.getCachePath().toAbsolutePath().normalize();
-            Path targetFile = cacheDir.resolve(fileName).toAbsolutePath().normalize();
-            if (!targetFile.startsWith(cacheDir)) {
+            Path uploadDir = getUploadDir();
+            Path targetFile = uploadDir.resolve(fileName).toAbsolutePath().normalize();
+            if (!targetFile.startsWith(uploadDir)) {
                 LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "文件名不合法");
                 return;
             }
@@ -252,6 +311,34 @@ public class FileUploadRouterHandler extends ChannelInboundHandlerAdapter {
             LlamaServer.sendJsonResponse(ctx, resp);
         } catch (Exception e) {
             LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "删除文件失败: " + e.getMessage());
+        }
+    }
+
+    private static Path getUploadDir() {
+        return LlamaServer.getCachePath().resolve(UPLOAD_DIR).toAbsolutePath().normalize();
+    }
+
+    private static Path resolveUniqueFileName(Path dir, String fileName) {
+        Path target = dir.resolve(fileName).toAbsolutePath().normalize();
+        if (!Files.exists(target)) {
+            return target;
+        }
+
+        int dotIndex = fileName.lastIndexOf('.');
+        String base = dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+        String ext = dotIndex > 0 ? fileName.substring(dotIndex) : "";
+
+        int index = 1;
+        while (true) {
+            String candidate = base + "-" + index + ext;
+            target = dir.resolve(candidate).toAbsolutePath().normalize();
+            if (!Files.exists(target)) {
+                return target;
+            }
+            index++;
+            if (index > 10000) {
+                return dir.resolve(base + "-" + System.currentTimeMillis() + ext).toAbsolutePath().normalize();
+            }
         }
     }
 

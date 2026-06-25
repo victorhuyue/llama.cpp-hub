@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.mark.llamacpp.gguf.GGUFModel;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.NodeManager;
@@ -432,7 +433,9 @@ public class EasyChatService {
 							if (accumulator.hasContent()) {
 								JsonObject aiMsg = buildAiMessage(accumulator);
 								byte[] aiBytes = JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8);
+								int newVariantIndex = computeNextVariantIndex(finalConvDir, aiSeq, finalIsRegenerate);
 								boolean wroteNewAssistantFragment = persistAssistantFragment(finalConvDir, aiSeq, aiBytes, finalIsRegenerate, indexPath);
+								recordModelForVariant(finalConvDir, aiSeq, newVariantIndex, finalModelId, conversationId);
 								if (!finalIsRegenerate) {
 									updateStateMessageCount(conversationId, 2);
 								} else if (wroteNewAssistantFragment) {
@@ -472,7 +475,9 @@ public class EasyChatService {
 								if (accumulator.hasContent()) {
 									JsonObject aiMsg = buildAiMessage(accumulator);
 									byte[] aiBytes = JsonUtil.toJson(aiMsg).getBytes(StandardCharsets.UTF_8);
+									int newVariantIndex = computeNextVariantIndex(finalConvDir, aiSeq, finalIsRegenerate);
 									boolean wroteNewAssistantFragment = persistAssistantFragment(finalConvDir, aiSeq, aiBytes, finalIsRegenerate, indexPath);
+									recordModelForVariant(finalConvDir, aiSeq, newVariantIndex, finalModelId, conversationId);
 									if (finalIsRegenerate && wroteNewAssistantFragment) {
 										updateStateMessageCount(conversationId, 1);
 									}
@@ -553,9 +558,11 @@ public class EasyChatService {
 		long recordCount = 0;
 		long totalSize = 0;
 		long variantCount = 0;
+		long nextSeq = 0;
 		try {
 			synchronized (convLock) {
 				long endExclusive = storage.readNextSeq(convDir);
+				nextSeq = endExclusive;
 				for (long seq = 0; seq < endExclusive; seq++) {
 					EasyChatStorage.FragmentHeader header = storage.readFragmentHeader(convDir, seq);
 					if (header == null) {
@@ -581,7 +588,8 @@ public class EasyChatService {
 
 		// Phase 2: build JSON prefix
 		String prefix = "{\"message\":\"success\",\"totalSize\":" + totalSize
-			+ ",\"recordCount\":" + recordCount + ",\"variantCount\":" + variantCount + ",\"data\":[";
+			+ ",\"recordCount\":" + recordCount + ",\"variantCount\":" + variantCount
+			+ ",\"nextSeq\":" + nextSeq + ",\"data\":[";
 
 		// Start chunked response
 		HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
@@ -599,9 +607,12 @@ public class EasyChatService {
 		byte[] dataSuffix = "]}".getBytes(StandardCharsets.UTF_8);
 		try {
 			long endExclusive;
+			Map<Long, Map<Integer, String>> modelIndex;
 			synchronized (convLock) {
 				endExclusive = storage.readNextSeq(convDir);
+				modelIndex = storage.readModelIndex(convDir);
 			}
+			Map<String, String> modelNameCache = new HashMap<>();
 			boolean first = true;
 			for (long seq = 0; seq < endExclusive; seq++) {
 				EasyChatStorage.FragmentHeader header;
@@ -631,9 +642,43 @@ public class EasyChatService {
 					}
 					first = false;
 
-					// {"seq":N,"role":"R","activeVariant":N,"variants":[
-					String msgPrefix = "{\"seq\":" + seq + ",\"role\":\"" + escapeJsonString(role)
-						+ "\",\"activeVariant\":" + activeVariant + ",\"variants\":[";
+					// {"seq":N,"role":"R","model":"M","modelName":"N","variantModels\":[...],"variantModelNames\":[...],"activeVariant":N,"variants":[
+					Map<Integer, String> seqModels = (header.seq % 2 == 1) ? modelIndex.get(seq) : null;
+					String model = (seqModels != null) ? seqModels.get(activeVariant) : null;
+					String modelField = (model != null)
+						? ",\"model\":\"" + escapeJsonString(model) + "\""
+						: "";
+					String modelNameField = "";
+					if (model != null) {
+						String modelName = modelNameCache.computeIfAbsent(model, this::resolveModelName);
+						if (modelName != null && !modelName.equals(model)) {
+							modelNameField = ",\"modelName\":\"" + escapeJsonString(modelName) + "\"";
+						}
+					}
+					String variantModelsField = "";
+					String variantModelNamesField = "";
+					if (header.seq % 2 == 1 && seqModels != null && !seqModels.isEmpty()) {
+						StringBuilder variantModels = new StringBuilder();
+						StringBuilder variantModelNames = new StringBuilder();
+						for (int v = 0; v < msgVariantCount; v++) {
+							if (v > 0) {
+								variantModels.append(',');
+								variantModelNames.append(',');
+							}
+							String vmodel = seqModels.getOrDefault(v, "");
+							variantModels.append("\"").append(escapeJsonString(vmodel)).append("\"");
+							String vmodelName = vmodel.isBlank() ? "" : modelNameCache.computeIfAbsent(vmodel, this::resolveModelName);
+							variantModelNames.append("\"").append(escapeJsonString(vmodelName)).append("\"");
+						}
+						variantModelsField = ",\"variantModels\":[" + variantModels + "]";
+						variantModelNamesField = ",\"variantModelNames\":[" + variantModelNames + "]";
+					}
+					String msgPrefix = "{\"seq\":" + seq + ",\"role\":\"" + escapeJsonString(role) + "\""
+						+ modelField
+						+ modelNameField
+						+ variantModelsField
+						+ variantModelNamesField
+						+ ",\"activeVariant\":" + activeVariant + ",\"variants\":[";
 					ctx.writeAndFlush(Unpooled.wrappedBuffer(msgPrefix.getBytes(StandardCharsets.UTF_8)));
 
 					// All variants — ChunkedFile (works with HTTPS, unlike DefaultFileRegion)
@@ -1087,13 +1132,19 @@ public class EasyChatService {
 			return false;
 		}
 		EasyChatStorage.FragmentHeader existingHeader = storage.readFragmentHeader(convDir, aiSeq);
-		if (isRegenerate && existingHeader != null) {
-			if (storage.isDeleted(existingHeader)) {
-				storage.clearDeletedFlag(convDir, aiSeq);
-			}
+
+		// Regenerate on a live (non-deleted) fragment: append a new variant.
+		if (isRegenerate && existingHeader != null && !storage.isDeleted(existingHeader)) {
 			storage.appendVariant(convDir, aiSeq, aiBytes);
 			return false;
 		}
+
+		// Fresh write covers three cases:
+		// 1. Non-regenerate new assistant message.
+		// 2. Regenerate target fragment does not exist (degraded path).
+		// 3. Regenerate target fragment was deleted — MUST overwrite it instead of
+		//    clearing the deleted flag and appending, otherwise the old deleted
+		//    variant resurrects after a page refresh.
 		if (isRegenerate && existingHeader == null) {
 			logger.warn("[EasyChat] regenerate目标碎片不存在，降级为新写入 seq={}", aiSeq);
 		}
@@ -1107,6 +1158,56 @@ public class EasyChatService {
 			}
 		}
 		return true;
+	}
+
+	private int computeNextVariantIndex(Path convDir, long seq, boolean isRegenerate) {
+		if (!isRegenerate) {
+			return 0;
+		}
+		try {
+			EasyChatStorage.FragmentHeader existingHeader = storage.readFragmentHeader(convDir, seq);
+			// A deleted fragment will be overwritten, so the new content becomes variant 0.
+			if (existingHeader == null || storage.isDeleted(existingHeader)) {
+				return 0;
+			}
+			return existingHeader.variantCount;
+		} catch (IOException e) {
+			return 0;
+		}
+	}
+
+	private void recordModelForVariant(Path convDir, long seq, int variantIndex, String modelId, String conversationId) {
+		if (convDir == null || seq < 0 || seq % 2 != 1 || variantIndex < 0 || modelId == null || modelId.isBlank()) {
+			return;
+		}
+		try {
+			storage.setModelForVariant(convDir, seq, variantIndex, modelId);
+		} catch (IOException e) {
+			logger.warn("[EasyChat] 写入model_index失败 seq={} variant={} conversation={}", seq, variantIndex, conversationId, e);
+		}
+	}
+
+	private String resolveModelName(String modelId) {
+		if (modelId == null || modelId.isBlank()) {
+			return modelId;
+		}
+		try {
+			LlamaServerManager manager = LlamaServerManager.getInstance();
+			GGUFModel model = manager.findModelById(modelId);
+			if (model != null) {
+				String alias = model.getAlias();
+				if (alias != null && !alias.isBlank()) {
+					return alias;
+				}
+				String name = model.getName();
+				if (name != null && !name.isBlank()) {
+					return name;
+				}
+			}
+		} catch (Exception e) {
+			logger.warn("[EasyChat] 解析模型名称失败 modelId={}", modelId, e);
+		}
+		return modelId;
 	}
 
 	private String escapeJsonString(String s) {

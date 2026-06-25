@@ -163,7 +163,7 @@ button { cursor: pointer; }
 .brand-mark {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius);
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1064,6 +1064,189 @@ button { cursor: pointer; }
   min-width: 0;
   transform: translateX(var(--chat-center-offset));
   transition: transform 0.2s ease;
+}
+
+/* ── Message rail (right-side quick navigation) ── */
+.main {
+  position: relative;
+}
+
+.message-rail {
+  position: absolute;
+  top: 50%;
+  right: 18px;
+  transform: translateY(-50%);
+  width: 14px;
+  height: min(60vh, 420px);
+  max-height: 420px;
+  z-index: 10;
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+  transition: width 0.22s var(--ease-out), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  pointer-events: auto;
+}
+
+.message-rail.expanded {
+  width: 220px;
+  border-color: var(--border);
+  background: var(--bg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.message-rail-track {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.message-rail-track::-webkit-scrollbar {
+  display: none;
+}
+
+.message-rail-marker {
+  width: 8px;
+  height: 2px;
+  border: none;
+  border-radius: 999px;
+  background: var(--muted);
+  opacity: 0.35;
+  flex-shrink: 0;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.message-rail-marker.user { background: var(--fg); opacity: 0.5; }
+.message-rail-marker.assistant { background: var(--primary); opacity: 0.55; }
+.message-rail-marker.tool { background: var(--accent); opacity: 0.45; }
+
+.message-rail.expanded .message-rail-marker,
+.message-rail-marker:hover {
+  opacity: 0.85;
+}
+
+.message-rail-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 220px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateX(12px);
+  transition: opacity 0.2s ease, transform 0.2s var(--ease-out);
+  pointer-events: none;
+}
+
+.message-rail.expanded .message-rail-panel {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.message-rail-header {
+  flex: 0 0 auto;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-rail-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.message-rail-item {
+  width: 100%;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  padding: 7px 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.message-rail-item:hover {
+  background: var(--secondary);
+}
+
+.message-rail-item-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: 0 0 auto;
+  margin-top: 5px;
+  opacity: 0.55;
+}
+
+.message-rail-item.user .message-rail-item-dot { background: var(--fg); opacity: 0.8; }
+.message-rail-item.assistant .message-rail-item-dot { background: var(--primary); opacity: 0.85; }
+.message-rail-item.tool .message-rail-item-dot { background: var(--accent); opacity: 0.7; }
+
+.message-rail-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message-rail-item:hover .message-rail-item-text {
+  color: var(--fg);
+}
+
+.message-rail-highlight {
+  animation: messageRailPulse 1.2s ease both;
+}
+
+@keyframes messageRailPulse {
+  0% { background: transparent; }
+  15% { background: color-mix(in srgb, var(--primary) 14%, transparent); }
+  100% { background: transparent; }
+}
+
+[data-theme="dark"] .message-rail.expanded,
+[data-theme="dark"] .message-rail.expanded .message-rail-panel {
+  background: var(--panel);
+}
+
+@media (max-width: 760px) {
+  .message-rail {
+    display: none;
+  }
 }
 
 /* ── Empty state ── */

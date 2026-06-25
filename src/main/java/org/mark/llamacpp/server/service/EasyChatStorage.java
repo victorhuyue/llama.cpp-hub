@@ -10,13 +10,23 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.mark.llamacpp.server.LlamaServer;
+import org.mark.llamacpp.server.tools.JsonUtil;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 final class EasyChatStorage {
 
 	static final String INDEX_FILE = "index.bin";
 	static final String TOOLS_FILE = "tools.bin";
+	static final String MODEL_INDEX_FILE = "model_index.json";
 
 	private static final int IDX_HEADER = 16;
 	private static final int IDX_CONV_NAME_LEN = 4;
@@ -329,6 +339,131 @@ final class EasyChatStorage {
 		Path temp = target.resolveSibling(target.getFileName().toString() + ".tmp");
 		Files.write(temp, data);
 		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+	}
+
+	/* ---- Model index (per-variant modelId tracking) ---- */
+
+	/**
+	 * Read model_index.json. Returns map of seq -> (variantIndex -> modelId).
+	 * Backward compatible with old format {"seq":"modelId"} which is treated as variant 0.
+	 */
+	Map<Long, Map<Integer, String>> readModelIndex(Path convDir) {
+		Path file = convDir.resolve(MODEL_INDEX_FILE);
+		if (!Files.isRegularFile(file)) {
+			return new HashMap<>();
+		}
+		try {
+			byte[] bytes = Files.readAllBytes(file);
+			if (bytes == null || bytes.length == 0) {
+				return new HashMap<>();
+			}
+			JsonObject obj = JsonUtil.fromJson(new String(bytes, StandardCharsets.UTF_8), JsonObject.class);
+			if (obj == null) {
+				return new HashMap<>();
+			}
+			Map<Long, Map<Integer, String>> result = new HashMap<>();
+			for (String seqKey : obj.keySet()) {
+				long seq;
+				try {
+					seq = Long.parseLong(seqKey);
+				} catch (NumberFormatException ignore) {
+					continue;
+				}
+				JsonElement seqEl = obj.get(seqKey);
+				Map<Integer, String> variants = new HashMap<>();
+				if (seqEl != null && seqEl.isJsonObject()) {
+					JsonObject variantObj = seqEl.getAsJsonObject();
+					for (String variantKey : variantObj.keySet()) {
+						try {
+							int variantIndex = Integer.parseInt(variantKey);
+							JsonElement modelEl = variantObj.get(variantKey);
+							if (modelEl != null && !modelEl.isJsonNull() && modelEl.isJsonPrimitive()) {
+								variants.put(variantIndex, modelEl.getAsString());
+							}
+						} catch (NumberFormatException ignore) {
+							// skip invalid variant keys
+						}
+					}
+				} else if (seqEl != null && !seqEl.isJsonNull() && seqEl.isJsonPrimitive()) {
+					// old format: seq -> modelId, treat as variant 0
+					try {
+						variants.put(0, seqEl.getAsString());
+					} catch (Exception ignore) {
+					}
+				}
+				if (!variants.isEmpty()) {
+					result.put(seq, variants);
+				}
+			}
+			return result;
+		} catch (Exception e) {
+			// treat corrupted model_index as empty
+			return new HashMap<>();
+		}
+	}
+
+	private void writeModelIndex(Path convDir, Map<Long, Map<Integer, String>> index) throws IOException {
+		Path file = convDir.resolve(MODEL_INDEX_FILE);
+		JsonObject obj = new JsonObject();
+		List<Long> sortedSeqs = new ArrayList<>(index.keySet());
+		Collections.sort(sortedSeqs);
+		for (long seq : sortedSeqs) {
+			Map<Integer, String> variants = index.get(seq);
+			if (variants == null || variants.isEmpty()) {
+				continue;
+			}
+			JsonObject variantObj = new JsonObject();
+			List<Integer> sortedVariants = new ArrayList<>(variants.keySet());
+			Collections.sort(sortedVariants);
+			for (int variantIndex : sortedVariants) {
+				String modelId = variants.get(variantIndex);
+				if (modelId != null && !modelId.isBlank()) {
+					variantObj.addProperty(String.valueOf(variantIndex), modelId);
+				}
+			}
+			if (variantObj.size() > 0) {
+				obj.add(String.valueOf(seq), variantObj);
+			}
+		}
+		byte[] bytes = JsonUtil.toJson(obj).getBytes(StandardCharsets.UTF_8);
+		Path temp = file.resolveSibling(file.getFileName().toString() + ".tmp");
+		Files.write(temp, bytes);
+		Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+	}
+
+	void setModelForVariant(Path convDir, long seq, int variantIndex, String modelId) throws IOException {
+		Map<Long, Map<Integer, String>> index = readModelIndex(convDir);
+		Map<Integer, String> variants = index.computeIfAbsent(seq, k -> new HashMap<>());
+		if (modelId == null || modelId.isBlank()) {
+			variants.remove(variantIndex);
+		} else {
+			variants.put(variantIndex, modelId);
+		}
+		if (variants.isEmpty()) {
+			index.remove(seq);
+		}
+		if (index.isEmpty()) {
+			Path file = convDir.resolve(MODEL_INDEX_FILE);
+			Files.deleteIfExists(file);
+		} else {
+			writeModelIndex(convDir, index);
+		}
+	}
+
+	String getModelForVariant(Path convDir, long seq, int variantIndex) {
+		Map<Integer, String> variants = readModelIndex(convDir).get(seq);
+		if (variants == null) {
+			return null;
+		}
+		return variants.get(variantIndex);
+	}
+
+	Map<Integer, String> getModelsForSeq(Path convDir, long seq) {
+		Map<Integer, String> variants = readModelIndex(convDir).get(seq);
+		if (variants == null) {
+			return new HashMap<>();
+		}
+		return new HashMap<>(variants);
 	}
 
 	private FragmentHeader readFragmentHeader(Path file) throws IOException {

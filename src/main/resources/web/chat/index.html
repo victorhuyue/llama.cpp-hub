@@ -100,6 +100,13 @@
           <div id="messages"></div>
         </div>
       </section>
+      <aside id="messageRail" class="message-rail hidden" aria-label="消息列表" data-i18n-attr="aria-label" data-i18n="page.chat.main.message_rail.title">
+        <div id="messageRailTrack" class="message-rail-track" aria-hidden="true"></div>
+        <div class="message-rail-panel">
+          <div class="message-rail-header" data-i18n="page.chat.main.message_rail.title">消息列表</div>
+          <div id="messageRailList" class="message-rail-list"></div>
+        </div>
+      </aside>
 
       <section class="composer-shell">
         <div class="composer-card">
@@ -562,6 +569,7 @@
     const TEXT_FILE_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'json', 'js', 'ts', 'tsx', 'jsx', 'java', 'py', 'go', 'rs', 'c', 'cpp', 'h', 'hpp', 'cs', 'sh', 'bat', 'ps1', 'yaml', 'yml', 'xml', 'html', 'css', 'sql', 'log']);
     let stateSaveTimer = 0;
     let stateSaveRetryTimer = 0;
+    let messageRailLeaveTimer = 0;
     let stateSaveInFlight = false;
     let pendingStatePayload = null;
     let stateRevision = '';
@@ -748,7 +756,10 @@
       titleGenModelSelect: document.getElementById('titleGenModelSelect'),
       autoReplyBtn: document.getElementById('autoReplyBtn'),
       autoReplyToggle: document.getElementById('autoReplyToggle'),
-      autoReplyModelSelect: document.getElementById('autoReplyModelSelect')
+      autoReplyModelSelect: document.getElementById('autoReplyModelSelect'),
+      messageRail: document.getElementById('messageRail'),
+      messageRailTrack: document.getElementById('messageRailTrack'),
+      messageRailList: document.getElementById('messageRailList')
     };
 
     let mcpModule = null;
@@ -2713,13 +2724,26 @@
     }
 
     function getAssistantDisplayName(message, fallbackModel) {
-      const modelName = stripModelNodeSuffix(
-        typeof message?.model === 'string' && message.model.trim()
-          ? message.model
-          : typeof fallbackModel === 'string' && fallbackModel.trim()
-            ? fallbackModel
-            : state.model
-      ) || window.I18N.t('page.chat.main.message.model', '模型');
+      const responseCount = message?.responses?.length || message?.variantModelNames?.length || 1;
+      const activeIndex = Math.min(
+        Math.max(Number.isInteger(message?.activeResponseIndex) ? message.activeResponseIndex : 0, 0),
+        Math.max(responseCount - 1, 0)
+      );
+      const raw = typeof message?.variantModelNames?.[activeIndex] === 'string' && message.variantModelNames[activeIndex].trim()
+        ? message.variantModelNames[activeIndex]
+        : typeof message?.variantModels?.[activeIndex] === 'string' && message.variantModels[activeIndex].trim()
+          ? message.variantModels[activeIndex]
+          : (() => {
+              const responses = message?.responses;
+              const resp = Array.isArray(responses) && responses[activeIndex] ? responses[activeIndex] : null;
+              if (typeof resp?.modelName === 'string' && resp.modelName.trim()) return resp.modelName;
+              if (typeof resp?.model === 'string' && resp.model.trim()) return resp.model;
+              if (typeof message?.modelName === 'string' && message.modelName.trim()) return message.modelName;
+              if (typeof message?.model === 'string' && message.model.trim()) return message.model;
+              if (typeof fallbackModel === 'string' && fallbackModel.trim()) return fallbackModel;
+              return state.model;
+            })();
+      const modelName = stripModelNodeSuffix(raw) || window.I18N.t('page.chat.main.message.model', '模型');
       return modelName;
     }
 
@@ -2983,6 +3007,12 @@
         reasoningCollapsed: activeResponse.reasoningCollapsed,
         toolCalls: normalizeMcpToolCalls(activeResponse.toolCalls)
       };
+    }
+
+    function getMessageFragmentSeq(message) {
+      const raw = message?.fragmentSeq != null ? message.fragmentSeq : message?.order;
+      const seq = Number(raw);
+      return Number.isFinite(seq) && seq >= 0 ? seq : null;
     }
 
     function getActiveAssistantResponse(message) {
@@ -4324,8 +4354,11 @@
             }
             setConversationLoadedMessages(conversation, messages);
             conversation.messageCount = messages.length;
-            if (messages.length > 0) {
-              const maxSeq = Math.max(...messages.map(m => m.order != null ? m.order : 0));
+            const serverNextSeq = Number(historyJson.nextSeq);
+            if (Number.isFinite(serverNextSeq) && serverNextSeq >= 0) {
+              conversation.nextFragmentSeq = serverNextSeq;
+            } else if (messages.length > 0) {
+              const maxSeq = Math.max(...messages.map(m => getMessageFragmentSeq(m) ?? 0));
               conversation.nextFragmentSeq = maxSeq + 1;
             } else {
               conversation.nextFragmentSeq = 0;
@@ -4940,6 +4973,7 @@
 
       syncConversationMeta();
       updateMessageActionStates();
+      renderMessageRail();
 
       scrollChatToBottom();
       requestAnimationFrame(() => {
@@ -4993,6 +5027,77 @@
       syncConversationMeta();
       updateMessageActionStates();
       scrollChatToBottom();
+      renderMessageRail();
+    }
+
+    function buildMessageRailPreview(message) {
+      const text = String(message?.content || '').trim();
+      if (text) {
+        return text.replace(/\s+/g, ' ').slice(0, 60);
+      }
+      if (message?.role === 'assistant') {
+        if (message?.reasoning) {
+          return window.I18N.t('page.chat.main.message.thinking', '思维链');
+        }
+        return window.I18N.t('page.chat.main.message_rail.assistant_preview', 'AI 消息');
+      }
+      if (message?.role === 'tool') {
+        return message?.toolName
+          ? window.I18N.t('page.chat.main.message.tool_role', '工具 · {name}').replace('{name}', message.toolName)
+          : window.I18N.t('page.chat.main.message.tool_role_simple', '工具');
+      }
+      return window.I18N.t('page.chat.main.message.user_role', '用户');
+    }
+
+    function renderMessageRail() {
+      if (!els.messageRail || !els.messageRailTrack || !els.messageRailList) {
+        return;
+      }
+      const conversation = getCurrentConversation();
+      const messages = conversation && isConversationLoaded(conversation) ? conversation.messages : [];
+      els.messageRailTrack.innerHTML = '';
+      els.messageRailList.innerHTML = '';
+
+      if (!messages.length) {
+        els.messageRail.classList.add('hidden');
+        return;
+      }
+      els.messageRail.classList.remove('hidden');
+
+      for (let i = 0; i < messages.length; i += 1) {
+        const message = messages[i];
+        const roleClass = message.role === 'user' ? 'user' : (message.role === 'tool' ? 'tool' : 'assistant');
+
+        const marker = document.createElement('button');
+        marker.type = 'button';
+        marker.className = 'message-rail-marker ' + roleClass;
+        marker.dataset.index = String(i);
+        marker.title = window.I18N.t('page.chat.main.message_rail.goto', '跳转到消息 {n}').replace('{n}', String(i + 1));
+        els.messageRailTrack.appendChild(marker);
+
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'message-rail-item ' + roleClass;
+        item.dataset.index = String(i);
+        item.title = window.I18N.t('page.chat.main.message_rail.goto', '跳转到消息 {n}').replace('{n}', String(i + 1));
+        item.innerHTML = '<span class="message-rail-item-dot"></span>' +
+          '<span class="message-rail-item-text">' + escapeHtml(buildMessageRailPreview(message)) + '</span>';
+        els.messageRailList.appendChild(item);
+      }
+    }
+
+    function scrollToMessageByIndex(index) {
+      const target = els.messages.querySelector('.message[data-index="' + index + '"]');
+      if (!target) {
+        return;
+      }
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      target.classList.remove('message-rail-highlight');
+      void target.offsetWidth;
+      target.classList.add('message-rail-highlight');
+      window.setTimeout(() => {
+        target.classList.remove('message-rail-highlight');
+      }, 1200);
     }
 
     function createMessageActionButton(action, index, label, iconMarkup) {
@@ -5919,9 +6024,7 @@
       renderMessages();
       persistState();
       // Sync fragment file
-      const seq = message.fragmentSeq != null
-        ? message.fragmentSeq
-        : (message.order != null ? message.order : null);
+      const seq = getMessageFragmentSeq(message);
       if (seq != null) {
         const variantIndex = message.role === 'assistant'
           ? (message.activeResponseIndex != null ? message.activeResponseIndex : 0)
@@ -6014,7 +6117,7 @@
           const variantPairs = [];
           for (const msg of (conversation?.messages || [])) {
             if (msg.role === 'assistant' && msg.responses && msg.responses.length > 1) {
-              const msgSeq = msg.fragmentSeq != null ? msg.fragmentSeq : msg.order;
+              const msgSeq = getMessageFragmentSeq(msg);
               const msgIdx = msg.activeResponseIndex != null ? msg.activeResponseIndex : 0;
               if (msgSeq != null) {
                 variantPairs.push(msgSeq + ':' + msgIdx);
@@ -6075,7 +6178,7 @@
                 const aiMsg = conv?.messages?.[currentAssistantIndex];
                 if (aiMsg && aiMsg.fragmentSeq == null) {
                   const lastUser = conv?.messages?.findLast(m => m.role === 'user');
-                  const lastUserSeq = lastUser?.fragmentSeq != null ? lastUser.fragmentSeq : (lastUser?.order != null ? lastUser.order : null);
+                  const lastUserSeq = getMessageFragmentSeq(lastUser);
                   aiMsg.fragmentSeq = lastUserSeq != null ? lastUserSeq + 1 : (conv?.nextFragmentSeq != null ? conv.nextFragmentSeq - 1 : null);
                 }
               }
@@ -6122,7 +6225,7 @@
                 const aiMsg = conv?.messages?.[currentAssistantIndex];
                 if (aiMsg && aiMsg.fragmentSeq == null) {
                   const lastUser = conv?.messages?.findLast(m => m.role === 'user');
-                  const lastUserSeq = lastUser?.fragmentSeq != null ? lastUser.fragmentSeq : (lastUser?.order != null ? lastUser.order : null);
+                  const lastUserSeq = getMessageFragmentSeq(lastUser);
                   aiMsg.fragmentSeq = lastUserSeq != null ? lastUserSeq + 1 : (conv?.nextFragmentSeq != null ? conv.nextFragmentSeq - 1 : null);
                 }
               }
@@ -6225,21 +6328,42 @@
         return;
       }
       let userMessageIndex = index;
+      let targetRegenerateSeq = null;
 
       if (message.role === 'assistant') {
-        // Walk backwards, skipping tool and intermediate assistant messages, to find the triggering user message
-        let searchIdx = index - 1;
-        while (searchIdx >= 0) {
-          const prev = conversation.messages[searchIdx];
-          if (prev.role === 'tool' || prev.role === 'assistant') {
-            searchIdx -= 1;
-            continue;
+        const assistantSeq = getMessageFragmentSeq(message);
+        if (assistantSeq != null) {
+          const expectedContextSeq = assistantSeq - 1;
+          const expectedContextIndex = conversation.messages.findIndex(item => getMessageFragmentSeq(item) === expectedContextSeq);
+          if (expectedContextSeq < 0 || expectedContextIndex < 0 || !hasMessageBody(conversation.messages[expectedContextIndex])) {
+            showToast('info', window.I18N.t('page.chat.main.status.orphan_assistant_regenerate', '该回复依赖的上一条消息已删除，无法重新生成'));
+            return;
           }
-          if (prev.role === 'user') {
-            userMessageIndex = searchIdx;
+          targetRegenerateSeq = assistantSeq;
+          let searchIdx = index - 1;
+          while (searchIdx >= 0) {
+            const prev = conversation.messages[searchIdx];
+            if (prev.role === 'user') {
+              userMessageIndex = searchIdx;
+              break;
+            }
+            searchIdx -= 1;
+          }
+        } else {
+          // Walk backwards, skipping tool and intermediate assistant messages, to find the triggering user message.
+          let searchIdx = index - 1;
+          while (searchIdx >= 0) {
+            const prev = conversation.messages[searchIdx];
+            if (prev.role === 'tool' || prev.role === 'assistant') {
+              searchIdx -= 1;
+              continue;
+            }
+            if (prev.role === 'user') {
+              userMessageIndex = searchIdx;
+              break;
+            }
             break;
           }
-          break;
         }
         if (userMessageIndex === index || !conversation.messages[userMessageIndex] || conversation.messages[userMessageIndex].role !== 'user') {
           showToast('info', window.I18N.t('page.chat.main.status.no_user_message', '未找到对应的用户消息'));
@@ -6293,19 +6417,19 @@
           truncateEndIndex = assistantMessageIndex + 1;
         } else {
           createdNewAssistant = true;
-          pushMessage('assistant', '', {
+          const userMsg = conversation.messages[userMessageIndex];
+          const userSeq = getMessageFragmentSeq(userMsg);
+          const assistantDraft = normalizeConversationMessage({
+            role: 'assistant',
+            content: '',
             model: state.model,
             isStreaming: true,
-            time: nowTime()
-          }, { incremental: true, persist: false });
-          assistantMessageIndex = conversation.messages.length - 1;
-          // Assign fragmentSeq so the AI message can be deleted
-          const aiMsg = conversation.messages[assistantMessageIndex];
-          if (aiMsg && aiMsg.fragmentSeq == null) {
-            const userMsg = conversation.messages[userMessageIndex];
-            const userSeq = userMsg?.fragmentSeq != null ? userMsg.fragmentSeq : (userMsg?.order != null ? userMsg.order : null);
-            aiMsg.fragmentSeq = userSeq != null ? userSeq + 1 : null;
-          }
+            time: nowTime(),
+            fragmentSeq: userSeq != null ? userSeq + 1 : null
+          });
+          conversation.messages.splice(userMessageIndex + 1, 0, assistantDraft);
+          conversation.messageCount = conversation.messages.length;
+          assistantMessageIndex = userMessageIndex + 1;
           truncateEndIndex = assistantMessageIndex + 1;
         }
       }
@@ -6319,10 +6443,10 @@
       renderConversationList();
       renderMessages();
       persistState();
-      // Calculate regenerateSeq: AI seq = user fragmentSeq + 1
+      // Calculate regenerateSeq: assistant seq is the write target for the new variant.
       const userMsg = conversation.messages[userMessageIndex];
-      const userSeq = userMsg?.fragmentSeq != null ? userMsg.fragmentSeq : (userMsg?.order != null ? userMsg.order : null);
-      const regenerateSeq = userSeq != null ? userSeq + 1 : null;
+      const userSeq = getMessageFragmentSeq(userMsg);
+      const regenerateSeq = targetRegenerateSeq != null ? targetRegenerateSeq : (userSeq != null ? userSeq + 1 : null);
       const success = await requestAssistantResponse({
         targetAssistantIndex: assistantMessageIndex,
         regenerateSeq
@@ -6334,8 +6458,8 @@
       // Rollback the draft response if the request failed
       if (!success) {
         if (createdNewAssistant) {
-          if (conversation.messages[conversation.messages.length - 1]?.role === 'assistant') {
-            conversation.messages.pop();
+          if (conversation.messages[assistantMessageIndex]?.role === 'assistant') {
+            conversation.messages.splice(assistantMessageIndex, 1);
           }
         } else {
           const assistantMessage = conversation.messages[assistantMessageIndex];
@@ -6364,7 +6488,7 @@
       }
       if (message.role === 'assistant' && Array.isArray(message.responses) && message.responses.length > 1) {
         // AI variant deletion: clear the active variant on backend
-        const seq = message?.fragmentSeq != null ? message.fragmentSeq : (message?.order != null ? message.order : null);
+        const seq = getMessageFragmentSeq(message);
         const deleteIndex = Math.min(
           Math.max(Number(message.activeResponseIndex || 0), 0),
           message.responses.length - 1
@@ -6399,7 +6523,7 @@
         return;
       }
       // User message deletion: clear the fragment on backend
-      const seq = message?.fragmentSeq != null ? message.fragmentSeq : (message?.order != null ? message.order : null);
+      const seq = getMessageFragmentSeq(message);
       if (seq != null) {
         try {
           await fetchJson(EASY_CHAT_DELETE_ENDPOINT, {
@@ -6886,6 +7010,18 @@
         order: msg.seq,
         fragmentSeq: msg.seq
       };
+      if (typeof msg.model === 'string' && msg.model.trim()) {
+        out.model = msg.model;
+      }
+      if (typeof msg.modelName === 'string' && msg.modelName.trim()) {
+        out.modelName = msg.modelName;
+      }
+      if (Array.isArray(msg.variantModels)) {
+        out.variantModels = msg.variantModels;
+      }
+      if (Array.isArray(msg.variantModelNames)) {
+        out.variantModelNames = msg.variantModelNames;
+      }
       if (role === 'assistant') {
         if (payload.reasoning_content) {
           out.reasoning = payload.reasoning_content;
@@ -8070,6 +8206,25 @@
     }
 
     function bindEvents() {
+      if (els.messageRail) {
+        els.messageRail.addEventListener('mouseenter', () => {
+          clearTimeout(messageRailLeaveTimer);
+          els.messageRail.classList.add('expanded');
+        });
+        els.messageRail.addEventListener('mouseleave', () => {
+          messageRailLeaveTimer = window.setTimeout(() => {
+            els.messageRail.classList.remove('expanded');
+          }, 200);
+        });
+        els.messageRail.addEventListener('click', event => {
+          const marker = event.target.closest('.message-rail-marker, .message-rail-item');
+          if (!marker) {
+            return;
+          }
+          const index = Number(marker.dataset.index);
+          scrollToMessageByIndex(index);
+        });
+      }
       els.settingsBtn.addEventListener('click', openSettings);
       els.closeSettingsBtn.addEventListener('click', closeSettings);
       els.thinkingToggleBtn.addEventListener('click', event => {

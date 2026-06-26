@@ -7232,7 +7232,7 @@
       });
     }
 
-    async function generateTitleViaApi(prompt, signal) {
+    async function generateTitleViaApi(prompt, signal, systemPrompt) {
       const conversationId = typeof state.currentConversationId === 'string' ? state.currentConversationId.trim() : '';
       if (!conversationId) {
         return '';
@@ -7251,6 +7251,9 @@
       };
       if (nodeId) {
         body.nodeId = nodeId;
+      }
+      if (systemPrompt && typeof systemPrompt === 'string' && systemPrompt.trim()) {
+        body.systemPrompt = systemPrompt.trim();
       }
       const response = await fetch(EASY_CHAT_GENERATE_TITLE_ENDPOINT, {
         method: 'POST',
@@ -7691,13 +7694,15 @@
       const shouldGenerateTitle = state.enableTitleGen && !hasFirstUserMessage;
       if (shouldGenerateTitle) {
         const titleConvId = state.currentConversationId;
+        const assistant = getCurrentAssistant();
+        const systemPrompt = assistant?.systemPrompt || '';
         state.isGeneratingTitle = true;
         state.abortController = new AbortController();
         syncSendButtonState();
         updateStatus('ready', window.I18N.t('page.chat.main.status.generating_title', '正在生成标题…'), window.I18N.t('page.chat.main.status.generating_title_short', '生成标题'));
         let titleAborted = false;
         try {
-          const title = await generateTitleViaApi(prompt, state.abortController.signal);
+          const title = await generateTitleViaApi(prompt, state.abortController.signal, systemPrompt);
           if (title) {
             const titleConv = state.conversations.find(c => c.id === titleConvId);
             if (titleConv) {

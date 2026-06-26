@@ -861,6 +861,10 @@ public class EasyChatService {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少prompt"));
 			return;
 		}
+		String systemPrompt = JsonUtil.getJsonString(body, "systemPrompt", "");
+		if (systemPrompt != null) {
+			systemPrompt = systemPrompt.trim();
+		}
 
 		// Resolve model target (alias resolution + auto-load + remote node routing)
 		ModelTarget modelTarget = resolveModelTarget(modelId, nodeId);
@@ -874,6 +878,7 @@ public class EasyChatService {
 		final String finalNodeId = modelTarget.nodeId;
 		final boolean finalIsRemoteNode = modelTarget.isRemoteNode;
 		final String finalPrompt = prompt;
+		final String finalSystemPrompt = (systemPrompt != null && !systemPrompt.isBlank()) ? systemPrompt : null;
 		final String finalConversationId = conversationId;
 
 		worker.execute(() -> {
@@ -883,8 +888,8 @@ public class EasyChatService {
 					return;
 				}
 				String title = finalIsRemoteNode
-					? requestTitleFromRemoteNode(finalNodeId, finalModelId, finalPrompt)
-					: requestTitleFromLocal(finalModelId, finalModelPort, finalPrompt);
+					? requestTitleFromRemoteNode(finalNodeId, finalModelId, finalPrompt, finalSystemPrompt)
+					: requestTitleFromLocal(finalModelId, finalModelPort, finalPrompt, finalSystemPrompt);
 				if (!ctx.channel().isActive()) {
 					logger.info("[EasyChat][TitleGen] channel在响应前已关闭，丢弃标题");
 					return;
@@ -905,7 +910,7 @@ public class EasyChatService {
 		});
 	}
 
-	private JsonObject buildTitleRequestJson(String modelId, String userPrompt) {
+	private JsonObject buildTitleRequestJson(String modelId, String userPrompt, String systemPrompt) {
 		String titlePrompt = "你是一个对话标题生成助手。\n"
 			+ "请根据下面的用户首条消息，生成一个简短准确的会话标题。\n"
 			+ "要求：\n"
@@ -915,10 +920,16 @@ public class EasyChatService {
 			+ "\n"
 			+ "[用户首条消息]\n"
 			+ userPrompt;
+		JsonArray messages = new JsonArray();
+		if (systemPrompt != null && !systemPrompt.isBlank()) {
+			JsonObject systemMessage = new JsonObject();
+			systemMessage.addProperty("role", "system");
+			systemMessage.addProperty("content", systemPrompt);
+			messages.add(systemMessage);
+		}
 		JsonObject userMessage = new JsonObject();
 		userMessage.addProperty("role", "user");
 		userMessage.addProperty("content", titlePrompt);
-		JsonArray messages = new JsonArray();
 		messages.add(userMessage);
 
 		JsonObject requestBody = new JsonObject();
@@ -933,7 +944,7 @@ public class EasyChatService {
 		return requestBody;
 	}
 
-	private String requestTitleFromLocal(String modelId, int port, String userPrompt) throws IOException {
+	private String requestTitleFromLocal(String modelId, int port, String userPrompt, String systemPrompt) throws IOException {
 		String targetUrl = String.format("http://localhost:%d/v1/chat/completions", port);
 		HttpURLConnection connection = (HttpURLConnection) URI.create(targetUrl).toURL().openConnection();
 		try {
@@ -942,7 +953,7 @@ public class EasyChatService {
 			connection.setConnectTimeout(TITLE_GEN_TIMEOUT_MS);
 			connection.setReadTimeout(TITLE_GEN_TIMEOUT_MS);
 			connection.setDoOutput(true);
-			byte[] requestBody = JsonUtil.toJson(buildTitleRequestJson(modelId, userPrompt)).getBytes(StandardCharsets.UTF_8);
+			byte[] requestBody = JsonUtil.toJson(buildTitleRequestJson(modelId, userPrompt, systemPrompt)).getBytes(StandardCharsets.UTF_8);
 			try (OutputStream os = connection.getOutputStream()) {
 				os.write(requestBody);
 				os.flush();
@@ -961,8 +972,8 @@ public class EasyChatService {
 		}
 	}
 
-	private String requestTitleFromRemoteNode(String nodeId, String modelId, String userPrompt) {
-		JsonObject requestBody = buildTitleRequestJson(modelId, userPrompt);
+	private String requestTitleFromRemoteNode(String nodeId, String modelId, String userPrompt, String systemPrompt) {
+		JsonObject requestBody = buildTitleRequestJson(modelId, userPrompt, systemPrompt);
 		NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
 			nodeId, "POST", "v1/chat/completions", requestBody, TITLE_GEN_TIMEOUT_MS, TITLE_GEN_TIMEOUT_MS);
 		if (!result.isSuccess()) {

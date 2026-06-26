@@ -1603,6 +1603,8 @@
   "page.chat.main.message.file": "文件",
   "page.chat.main.message.audio": "音频",
   "page.chat.main.message.thinking": "思维链",
+  "page.chat.main.message.html_preview": "HTML 片段",
+  "page.chat.main.message.lines": "行",
   "page.chat.main.message.tool_calls": "工具调用",
   "page.chat.main.message.tool_result": "工具结果",
   "page.chat.main.message.unnamed_tool": "未命名工具",

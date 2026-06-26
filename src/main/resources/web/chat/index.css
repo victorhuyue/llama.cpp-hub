@@ -1856,7 +1856,8 @@ button { cursor: pointer; }
 }
 
 .bubble pre:hover .code-copy-btn,
-.reasoning-body pre:hover .code-copy-btn {
+.reasoning-body pre:hover .code-copy-btn,
+.html-preview-body pre:hover .code-copy-btn {
   opacity: 1;
 }
 
@@ -1889,6 +1890,79 @@ pre:has(code[data-lang]) .code-copy-btn {
   margin: 12px 0;
   border: none;
   border-top: 1px solid var(--border);
+}
+
+/* ── HTML preview ── */
+.html-preview-box {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--muted-bg);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.html-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+  pointer-events: auto;
+}
+
+.html-preview-head:hover {
+  color: var(--fg);
+}
+
+.html-preview-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.html-preview-label { font-weight: 600; }
+
+.html-preview-meta-info {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.html-preview-caret {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+  transition: transform 0.18s ease;
+  pointer-events: none;
+}
+
+.html-preview-box.is-open .html-preview-caret {
+  transform: rotate(90deg);
+}
+
+.html-preview-body {
+  display: none;
+  margin-top: 6px;
+}
+
+.html-preview-box.is-open .html-preview-body {
+  display: block;
+}
+
+.html-preview-body pre {
+  margin: 0;
+  position: relative;
 }
 
 .math-inline,

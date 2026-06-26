@@ -1602,6 +1602,8 @@
   "page.chat.main.message.file": "File",
   "page.chat.main.message.audio": "Audio",
   "page.chat.main.message.thinking": "Thinking",
+  "page.chat.main.message.html_preview": "HTML snippet",
+  "page.chat.main.message.lines": "lines",
   "page.chat.main.message.tool_calls": "Tool calls",
   "page.chat.main.message.tool_result": "Tool result",
   "page.chat.main.message.unnamed_tool": "Unnamed tool",

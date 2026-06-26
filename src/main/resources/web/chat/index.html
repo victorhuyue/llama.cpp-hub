@@ -1203,16 +1203,332 @@
       return restoreMathTokens(rendered, protectedMath.math);
     }
 
+    function wrapHtmlCodeBlocks(target, collapsed) {
+      if (!target) {
+        console.log('[HTMLPreview] wrapHtmlCodeBlocks: no target');
+        return;
+      }
+      const shouldCollapse = typeof collapsed === 'boolean' ? collapsed : true;
+      console.log('[HTMLPreview] wrapHtmlCodeBlocks: running, collapsed=', shouldCollapse);
+      const pres = target.querySelectorAll('pre');
+      let wrappedCount = 0;
+      for (const pre of pres) {
+        if (pre.closest('.html-preview-box')) {
+          continue;
+        }
+        const code = pre.querySelector('code');
+        if (!code) {
+          continue;
+        }
+        const classes = (pre.className || '') + ' ' + (code.className || '');
+        if (!/(?:^|\s)(lang|language)-html(?:\s|$)/i.test(classes)) {
+          continue;
+        }
+        const text = code.textContent || '';
+        const lineCount = text.split(/\r?\n/).length;
+        const box = document.createElement('div');
+        box.className = 'html-preview-box';
+
+        const summary = document.createElement('button');
+        summary.type = 'button';
+        summary.className = 'html-preview-head';
+
+        const meta = document.createElement('div');
+        meta.className = 'html-preview-meta';
+        meta.innerHTML =
+          '<span class="html-preview-label">' + escapeHtml(window.I18N.t('page.chat.main.message.html_preview', 'HTML 片段')) + '</span>' +
+          '<span class="html-preview-meta-info">' + lineCount + ' ' + window.I18N.t('page.chat.main.message.lines', '行') + '</span>';
+
+        const caret = document.createElement('span');
+        caret.className = 'html-preview-caret';
+        caret.setAttribute('aria-hidden', 'true');
+        caret.textContent = '›';
+
+        const body = document.createElement('div');
+        body.className = 'html-preview-body';
+
+        summary.appendChild(meta);
+        summary.appendChild(caret);
+        box.appendChild(summary);
+        box.appendChild(body);
+
+        const parent = pre.parentNode;
+        if (!parent) {
+          continue;
+        }
+        parent.replaceChild(box, pre);
+        body.appendChild(pre);
+        applyHtmlPreviewExpanded(box, !shouldCollapse);
+
+        wrappedCount += 1;
+      }
+      console.log('[HTMLPreview] wrapHtmlCodeBlocks: wrapped', wrappedCount, 'blocks');
+    }
+
+    function buildStreamingHtmlPreviewBox(htmlBlock, collapsed) {
+      const shouldCollapse = typeof collapsed === 'boolean' ? collapsed : true;
+      console.log('[HTMLPreview] buildStreamingHtmlPreviewBox:', htmlBlock.slice(0, 40).replace(/\n/g, '\\n'), 'collapsed=', shouldCollapse);
+      const lineCount = htmlBlock.split(/\r?\n/).length;
+      const box = document.createElement('div');
+      box.className = 'html-preview-box';
+
+      const summary = document.createElement('button');
+      summary.type = 'button';
+      summary.className = 'html-preview-head';
+
+      const meta = document.createElement('div');
+      meta.className = 'html-preview-meta';
+      meta.innerHTML =
+        '<span class="html-preview-label">' + escapeHtml(window.I18N.t('page.chat.main.message.html_preview', 'HTML 片段')) + '</span>' +
+        '<span class="html-preview-meta-info">' + lineCount + ' ' + window.I18N.t('page.chat.main.message.lines', '行') + '</span>';
+
+      const caret = document.createElement('span');
+      caret.className = 'html-preview-caret';
+      caret.setAttribute('aria-hidden', 'true');
+      caret.textContent = '›';
+
+      const body = document.createElement('div');
+      body.className = 'html-preview-body';
+      body.innerHTML = escapeHtml(htmlBlock).replace(/\n/g, '<br>');
+
+      summary.appendChild(meta);
+      summary.appendChild(caret);
+      box.appendChild(summary);
+      box.appendChild(body);
+      applyHtmlPreviewExpanded(box, !shouldCollapse);
+
+      return box;
+    }
+
+    function findHtmlFenceBlocks(source, includeUnclosed = true) {
+      const text = String(source ?? '');
+      const blocks = [];
+      const openPattern = /^ {0,3}(`{3,}|~{3,})[ \t]*([^\r\n]*)(?:\r?\n|$)/gm;
+      let openMatch;
+      while ((openMatch = openPattern.exec(text)) !== null) {
+        const marker = openMatch[1];
+        const info = String(openMatch[2] || '').trim();
+        if (!/^html\b/i.test(info)) {
+          continue;
+        }
+        const contentStart = openPattern.lastIndex;
+        const markerChar = marker.charAt(0) === '~' ? '~' : '`';
+        const closePattern = new RegExp('^ {0,3}' + markerChar + '{' + marker.length + ',}[ \\t]*(?:\\r?\\n|$)', 'gm');
+        closePattern.lastIndex = contentStart;
+        const closeMatch = closePattern.exec(text);
+        if (closeMatch) {
+          blocks.push({
+            start: openMatch.index,
+            end: closePattern.lastIndex,
+            content: text.slice(contentStart, closeMatch.index)
+          });
+          openPattern.lastIndex = closePattern.lastIndex;
+        } else if (includeUnclosed) {
+          blocks.push({
+            start: openMatch.index,
+            end: text.length,
+            content: text.slice(contentStart)
+          });
+          break;
+        }
+      }
+      return blocks;
+    }
+
+    function buildHtmlCodePreviewBox(htmlCode, collapsed) {
+      const shouldCollapse = typeof collapsed === 'boolean' ? collapsed : true;
+      const codeText = String(htmlCode ?? '');
+      const lineCount = codeText.split(/\r?\n/).length;
+      const box = document.createElement('div');
+      box.className = 'html-preview-box';
+
+      const head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'html-preview-head';
+
+      const meta = document.createElement('div');
+      meta.className = 'html-preview-meta';
+      meta.innerHTML =
+        '<span class="html-preview-label">' + escapeHtml(window.I18N.t('page.chat.main.message.html_preview', 'HTML 片段')) + '</span>' +
+        '<span class="html-preview-meta-info">' + lineCount + ' ' + window.I18N.t('page.chat.main.message.lines', '行') + '</span>';
+
+      const caret = document.createElement('span');
+      caret.className = 'html-preview-caret';
+      caret.setAttribute('aria-hidden', 'true');
+      caret.textContent = '›';
+
+      const body = document.createElement('div');
+      body.className = 'html-preview-body';
+
+      const pre = document.createElement('pre');
+      const code = document.createElement('code');
+      code.className = 'lang-html';
+      code.textContent = codeText;
+      pre.appendChild(code);
+      body.appendChild(pre);
+
+      head.appendChild(meta);
+      head.appendChild(caret);
+      box.appendChild(head);
+      box.appendChild(body);
+      applyHtmlPreviewExpanded(box, !shouldCollapse);
+      return box;
+    }
+
+    function appendRenderedMarkdownFragment(target, markdown) {
+      const text = String(markdown ?? '');
+      if (!text) {
+        return;
+      }
+      const template = document.createElement('template');
+      template.innerHTML = renderMarkdown(text);
+      target.appendChild(template.content);
+    }
+
+    function renderMarkdownWithHtmlPreviews(target, source, collapsed) {
+      if (!target) {
+        return false;
+      }
+      const text = String(source ?? '');
+      const blocks = findHtmlFenceBlocks(text, true);
+      if (!blocks.length) {
+        return false;
+      }
+      const existingExpanded = Array.from(target.querySelectorAll('.html-preview-box')).map(isHtmlPreviewExpanded);
+      const shouldCollapse = typeof collapsed === 'boolean' ? collapsed : true;
+      target.innerHTML = '';
+      let cursor = 0;
+      blocks.forEach((block, index) => {
+        appendRenderedMarkdownFragment(target, text.slice(cursor, block.start));
+        const box = buildHtmlCodePreviewBox(block.content, shouldCollapse);
+        applyHtmlPreviewExpanded(box, existingExpanded[index] ?? !shouldCollapse);
+        target.appendChild(box);
+        cursor = block.end;
+      });
+      appendRenderedMarkdownFragment(target, text.slice(cursor));
+      return true;
+    }
+
+    function wrapStreamingHtmlCodeBlocksInPlainText(target, source, collapsed) {
+      if (!target || !source) {
+        console.log('[HTMLPreview] wrapStreamingHtmlCodeBlocksInPlainText: no target/source');
+        return;
+      }
+      const shouldCollapse = typeof collapsed === 'boolean' ? collapsed : true;
+      console.log('[HTMLPreview] wrapStreamingHtmlCodeBlocksInPlainText: source length', source.length, 'collapsed=', shouldCollapse);
+      const htmlFences = Array.from(source.matchAll(/(^|\n)```\s*(html|HTML|Html)\b/g));
+      let unclosedFence = null;
+      if (htmlFences.length) {
+        const lastFence = htmlFences[htmlFences.length - 1];
+        const afterLast = source.slice(lastFence.index + lastFence[0].length);
+        if (!/\n```(\s|$)/.test(afterLast)) {
+          unclosedFence = lastFence;
+        }
+      }
+      if (!unclosedFence) {
+        return;
+      }
+      const prefix = source.slice(0, unclosedFence.index);
+      const htmlBlock = source.slice(unclosedFence.index);
+      const existingBox = target.querySelector('.html-preview-box');
+      const wasExpanded = existingBox ? isHtmlPreviewExpanded(existingBox) : !shouldCollapse;
+      target.innerHTML = '';
+      if (prefix) {
+        const prefixDiv = document.createElement('div');
+        prefixDiv.innerHTML = escapeHtml(prefix).replace(/\n/g, '<br>');
+        target.appendChild(prefixDiv);
+      }
+      const box = buildStreamingHtmlPreviewBox(htmlBlock, shouldCollapse);
+      applyHtmlPreviewExpanded(box, wasExpanded);
+      target.appendChild(box);
+    }
+
+    function isHtmlPreviewExpanded(box) {
+      if (!box) {
+        return false;
+      }
+      if (box.classList.contains('is-open')) {
+        return true;
+      }
+      return typeof box.open === 'boolean' ? box.open : false;
+    }
+
+    function applyHtmlPreviewExpanded(box, expanded) {
+      if (!box) {
+        return;
+      }
+      const isExpanded = !!expanded;
+      if (typeof box.open === 'boolean') {
+        box.open = isExpanded;
+      }
+      box.classList.toggle('is-open', isExpanded);
+      const summary = box.querySelector(':scope > .html-preview-head');
+      if (summary) {
+        summary.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+      }
+    }
+
+    function persistHtmlPreviewCollapsed(box) {
+      if (!box) {
+        return;
+      }
+      const article = box.closest('article[data-index]');
+      if (!article) return;
+      const index = Number(article.dataset.index);
+      const conversation = getCurrentConversation();
+      const message = conversation?.messages?.[index];
+      if (!message) return;
+      const expanded = isHtmlPreviewExpanded(box);
+      message.htmlPreviewCollapsed = !expanded;
+      const response = getActiveAssistantResponse(message);
+      if (response) {
+        response.htmlPreviewCollapsed = !expanded;
+      }
+      requestAnimationFrame(() => {
+        persistState({ delay: 50, immediate: false });
+      });
+    }
+
+    function toggleHtmlPreviewBox(box) {
+      if (!box) {
+        return false;
+      }
+      applyHtmlPreviewExpanded(box, !isHtmlPreviewExpanded(box));
+      persistHtmlPreviewCollapsed(box);
+      return true;
+    }
+
+    function getHtmlPreviewCollapsedForTarget(target) {
+      if (!target) {
+        return true;
+      }
+      const article = target.closest('article[data-index]');
+      if (!article) {
+        return true;
+      }
+      const index = Number(article.dataset.index);
+      const message = getCurrentConversation()?.messages?.[index];
+      return typeof message?.htmlPreviewCollapsed === 'boolean' ? message.htmlPreviewCollapsed : true;
+    }
+
       function renderRichText(target, text, options = {}) {
         if (!target) {
           return;
         }
         const source = String(text ?? '');
         const isStreaming = !!options.isStreaming;
+        const htmlPreviewCollapsed = typeof options.htmlPreviewCollapsed === 'boolean' ? options.htmlPreviewCollapsed : true;
+        console.log('[HTMLPreview] renderRichText: isStreaming=', isStreaming, 'hasHtmlFence=', /(^|\n)```\s*(html|HTML|Html)\b/.test(source), 'collapsed=', htmlPreviewCollapsed);
        if (isStreaming) {
-          target.innerHTML = escapeHtml(source).replace(/\n/g, '<br>');
+          if (!renderMarkdownWithHtmlPreviews(target, source, htmlPreviewCollapsed)) {
+            target.innerHTML = escapeHtml(source).replace(/\n/g, '<br>');
+            wrapStreamingHtmlCodeBlocksInPlainText(target, source, htmlPreviewCollapsed);
+          }
         } else {
-          target.innerHTML = renderMarkdown(source);
+          if (!renderMarkdownWithHtmlPreviews(target, source, htmlPreviewCollapsed)) {
+            target.innerHTML = renderMarkdown(source);
+            wrapHtmlCodeBlocks(target, htmlPreviewCollapsed);
+          }
         }
         if (!isStreaming && window.hljs && typeof window.hljs.highlightElement === 'function' && (source.includes('```') || source.includes('`'))) {
          const blocks = target.querySelectorAll('pre code');
@@ -1294,8 +1610,45 @@
       if (state.renderedText === state.pendingText) {
         return;
       }
-      target.innerHTML = renderMarkdown(state.pendingText);
-      state.renderedText = state.pendingText;
+      const text = state.pendingText;
+
+      const collapsed = getHtmlPreviewCollapsedForTarget(target);
+      const existingBox = target.querySelector('.html-preview-box');
+      const wasExpanded = existingBox ? isHtmlPreviewExpanded(existingBox) : !collapsed;
+      console.log('[HTMLPreview] flushStreamingMarkdown: collapsed=', collapsed, 'existingBox.open=', existingBox ? isHtmlPreviewExpanded(existingBox) : undefined, 'existingBox=', !!existingBox, 'wasExpanded=', wasExpanded);
+
+      if (renderMarkdownWithHtmlPreviews(target, text, collapsed)) {
+        const firstBox = target.querySelector('.html-preview-box');
+        if (firstBox) {
+          applyHtmlPreviewExpanded(firstBox, wasExpanded);
+        }
+        state.renderedText = text;
+        return;
+      }
+
+      const htmlFences = Array.from(text.matchAll(/(^|\n)```\s*(html|HTML|Html)\b/g));
+      let unclosedFence = null;
+      if (htmlFences.length) {
+        const lastFence = htmlFences[htmlFences.length - 1];
+        const afterLast = text.slice(lastFence.index + lastFence[0].length);
+        if (!/\n```(\s|$)/.test(afterLast)) {
+          unclosedFence = lastFence;
+        }
+      }
+      console.log('[HTMLPreview] flushStreamingMarkdown: unclosedFence=', !!unclosedFence);
+      if (unclosedFence) {
+        const prefix = text.slice(0, unclosedFence.index);
+        const htmlBlock = text.slice(unclosedFence.index);
+        target.innerHTML = renderMarkdown(normalizeMarkdownForStreaming(prefix));
+        const box = buildStreamingHtmlPreviewBox(htmlBlock, collapsed);
+        applyHtmlPreviewExpanded(box, wasExpanded);
+        target.appendChild(box);
+      } else {
+        target.innerHTML = renderMarkdown(text);
+        wrapHtmlCodeBlocks(target, collapsed);
+        applyHtmlPreviewExpanded(target.querySelector('.html-preview-box'), wasExpanded);
+      }
+      state.renderedText = text;
     }
 
     function renderStreamingMarkdown(target, fullText) {
@@ -1304,7 +1657,7 @@
       let state = getStreamingState(target);
 
       if (!state) {
-        state = { pendingText: '', renderedText: '', frameId: 0 };
+        state = { pendingText: '', renderedText: '', frameId: 0, htmlPreviewExpanded: false };
         streamingRenderCache.set(target, state);
       }
 
@@ -1318,10 +1671,10 @@
       return !!state.streamRender;
     }
 
-    function finalizeStreaming(target, fullText, role) {
+    function finalizeStreaming(target, fullText, role, htmlPreviewCollapsed) {
       if (!target) return;
       clearStreamingCache(target);
-      renderRichText(target, String(fullText || ''), { isStreaming: false, role: role || 'assistant' });
+      renderRichText(target, String(fullText || ''), { isStreaming: false, role: role || 'assistant', htmlPreviewCollapsed });
     }
 
     function appendStreamingText(target, fullText) {
@@ -2953,6 +3306,11 @@
           ? response.reasoningCollapsed
           : typeof fallback.reasoningCollapsed === 'boolean'
             ? fallback.reasoningCollapsed
+            : true,
+        htmlPreviewCollapsed: typeof response?.htmlPreviewCollapsed === 'boolean'
+          ? response.htmlPreviewCollapsed
+          : typeof fallback?.htmlPreviewCollapsed === 'boolean'
+            ? fallback.htmlPreviewCollapsed
             : true
       };
     }
@@ -2971,6 +3329,7 @@
         reasoning: typeof message?.reasoning === 'string' ? message.reasoning : '',
         time: typeof message?.time === 'string' ? message.time : nowTime(),
         reasoningCollapsed: typeof message?.reasoningCollapsed === 'boolean' ? message.reasoningCollapsed : true,
+        htmlPreviewCollapsed: typeof message?.htmlPreviewCollapsed === 'boolean' ? message.htmlPreviewCollapsed : true,
         toolCalls: normalizeMcpToolCalls(message?.toolCalls),
         toolCallsCollapsed: typeof message?.toolCallsCollapsed === 'boolean' ? message.toolCallsCollapsed : true,
         toolCallId: typeof message?.toolCallId === 'string' ? message.toolCallId : '',
@@ -3005,6 +3364,7 @@
         reasoning: activeResponse.reasoning,
         time: activeResponse.time,
         reasoningCollapsed: activeResponse.reasoningCollapsed,
+        htmlPreviewCollapsed: activeResponse.htmlPreviewCollapsed,
         toolCalls: normalizeMcpToolCalls(activeResponse.toolCalls)
       };
     }
@@ -3047,6 +3407,7 @@
       message.reasoning = normalized.reasoning;
       message.time = normalized.time;
       message.reasoningCollapsed = normalized.reasoningCollapsed;
+      message.htmlPreviewCollapsed = normalized.htmlPreviewCollapsed;
       message.toolCalls = normalized.toolCalls;
       return message;
     }
@@ -3061,7 +3422,8 @@
         reasoning: typeof extra.reasoning === 'string' ? extra.reasoning : '',
         toolCalls: normalizeMcpToolCalls(extra.toolCalls),
         time: typeof extra.time === 'string' ? extra.time : nowTime(),
-        reasoningCollapsed: typeof extra.reasoningCollapsed === 'boolean' ? extra.reasoningCollapsed : true
+        reasoningCollapsed: typeof extra.reasoningCollapsed === 'boolean' ? extra.reasoningCollapsed : true,
+        htmlPreviewCollapsed: typeof extra.htmlPreviewCollapsed === 'boolean' ? extra.htmlPreviewCollapsed : true
       });
     }
 
@@ -3232,7 +3594,7 @@
 
       const body = document.createElement('div');
       body.className = 'tool-result-body' + (message.toolResultCollapsed ? ' hidden' : '');
-      renderRichText(body, message.content || '');
+      renderRichText(body, message.content || '', { htmlPreviewCollapsed: message.htmlPreviewCollapsed });
 
       toggle.appendChild(toggleMeta);
       toggle.appendChild(toggleCaret);
@@ -4677,10 +5039,10 @@
             appendStreamingText(reasoningBody, message.reasoning || '');
           } else {
             clearStreamingCache(reasoningBody);
-            renderRichText(reasoningBody, message.reasoning || '', { isStreaming: true, role: message.role });
+            renderRichText(reasoningBody, message.reasoning || '', { isStreaming: true, role: message.role, htmlPreviewCollapsed: message.htmlPreviewCollapsed });
           }
         } else {
-          renderRichText(reasoningBody, message.reasoning, { isStreaming: false });
+          renderRichText(reasoningBody, message.reasoning, { isStreaming: false, htmlPreviewCollapsed: message.htmlPreviewCollapsed });
         }
 
         reasoningHead.appendChild(reasoningMeta);
@@ -4890,10 +5252,10 @@
               appendStreamingText(content, message.content || '');
             } else {
               clearStreamingCache(content);
-              renderRichText(content, message.content || '', { isStreaming: true, role: message.role });
+              renderRichText(content, message.content || '', { isStreaming: true, role: message.role, htmlPreviewCollapsed: message.htmlPreviewCollapsed });
             }
           } else {
-            renderRichText(content, message.content || '', { isStreaming: false, role: message.role });
+            renderRichText(content, message.content || '', { isStreaming: false, role: message.role, htmlPreviewCollapsed: message.htmlPreviewCollapsed });
           }
           bubble.appendChild(content);
         }
@@ -5200,10 +5562,10 @@
               renderStreamingMarkdown(reasoningBody, message.reasoning || '');
             } else {
               clearStreamingCache(reasoningBody);
-              renderRichText(reasoningBody, message.reasoning || '', { isStreaming: true, role: message.role });
+              renderRichText(reasoningBody, message.reasoning || '', { isStreaming: true, role: message.role, htmlPreviewCollapsed: message.htmlPreviewCollapsed });
             }
           } else {
-            finalizeStreaming(reasoningBody, message.reasoning || '', message.role);
+            finalizeStreaming(reasoningBody, message.reasoning || '', message.role, message.htmlPreviewCollapsed);
           }
         }
       } else if (reasoningBox) {
@@ -5222,10 +5584,10 @@
             renderStreamingMarkdown(contentDiv, message.content || '');
           } else {
             clearStreamingCache(contentDiv);
-            renderRichText(contentDiv, message.content || '', { isStreaming: true, role: message.role });
+            renderRichText(contentDiv, message.content || '', { isStreaming: true, role: message.role, htmlPreviewCollapsed: message.htmlPreviewCollapsed });
           }
         } else {
-          finalizeStreaming(contentDiv, message.content || '', message.role);
+          finalizeStreaming(contentDiv, message.content || '', message.role, message.htmlPreviewCollapsed);
         }
       } else if (contentDiv) {
         contentDiv.remove();
@@ -5299,6 +5661,7 @@
         reasoning: extra.reasoning || '',
         time: extra.time || nowTime(),
         reasoningCollapsed: typeof extra.reasoningCollapsed === 'boolean' ? extra.reasoningCollapsed : true,
+        htmlPreviewCollapsed: typeof extra.htmlPreviewCollapsed === 'boolean' ? extra.htmlPreviewCollapsed : true,
         toolCalls: normalizeMcpToolCalls(extra.toolCalls),
         toolCallsCollapsed: typeof extra.toolCallsCollapsed === 'boolean' ? extra.toolCallsCollapsed : true,
         toolCallId: typeof extra.toolCallId === 'string' ? extra.toolCallId : '',
@@ -5315,7 +5678,8 @@
           performanceText: nextMessage.performanceText,
           reasoning: nextMessage.reasoning,
           time: nextMessage.time,
-          reasoningCollapsed: nextMessage.reasoningCollapsed
+          reasoningCollapsed: nextMessage.reasoningCollapsed,
+          htmlPreviewCollapsed: nextMessage.htmlPreviewCollapsed
         })];
         nextMessage.activeResponseIndex = 0;
         syncAssistantMessageState(nextMessage);
@@ -8758,6 +9122,17 @@ function confirmAudioRecording() {
         }
       });
       els.messages.addEventListener('click', event => {
+        const htmlPreviewBox = event.target.closest('.html-preview-box');
+        if (htmlPreviewBox) {
+          const htmlPreviewHead = event.target.closest('.html-preview-head');
+          const htmlPreviewBody = event.target.closest('.html-preview-body');
+          const shouldToggleHtmlPreview = !!htmlPreviewHead || (!isHtmlPreviewExpanded(htmlPreviewBox) && !htmlPreviewBody);
+          if (shouldToggleHtmlPreview) {
+            event.preventDefault();
+            toggleHtmlPreviewBox(htmlPreviewBox);
+            return;
+          }
+        }
         const imageCard = event.target.closest('[data-image-preview]');
         if (imageCard) {
           openImageLightbox(imageCard.dataset.imagePreview);

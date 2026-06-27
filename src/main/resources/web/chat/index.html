@@ -3158,22 +3158,65 @@
         Math.max(Number.isInteger(message?.activeResponseIndex) ? message.activeResponseIndex : 0, 0),
         Math.max(responseCount - 1, 0)
       );
-      const raw = typeof message?.variantModelNames?.[activeIndex] === 'string' && message.variantModelNames[activeIndex].trim()
-        ? message.variantModelNames[activeIndex]
-        : typeof message?.variantModels?.[activeIndex] === 'string' && message.variantModels[activeIndex].trim()
-          ? message.variantModels[activeIndex]
-          : (() => {
-              const responses = message?.responses;
-              const resp = Array.isArray(responses) && responses[activeIndex] ? responses[activeIndex] : null;
-              if (typeof resp?.modelName === 'string' && resp.modelName.trim()) return resp.modelName;
-              if (typeof resp?.model === 'string' && resp.model.trim()) return resp.model;
-              if (typeof message?.modelName === 'string' && message.modelName.trim()) return message.modelName;
-              if (typeof message?.model === 'string' && message.model.trim()) return message.model;
-              if (typeof fallbackModel === 'string' && fallbackModel.trim()) return fallbackModel;
-              return state.model;
-            })();
+      let raw = '';
+      if (Array.isArray(message?.variantModelNames) && activeIndex < message.variantModelNames.length
+          && typeof message.variantModelNames[activeIndex] === 'string' && message.variantModelNames[activeIndex].trim()) {
+        raw = message.variantModelNames[activeIndex];
+      } else if (Array.isArray(message?.variantModels) && activeIndex < message.variantModels.length
+          && typeof message.variantModels[activeIndex] === 'string' && message.variantModels[activeIndex].trim()) {
+        raw = message.variantModels[activeIndex];
+      } else {
+        const responses = message?.responses;
+        const resp = Array.isArray(responses) && responses[activeIndex] ? responses[activeIndex] : null;
+        if (typeof resp?.modelName === 'string' && resp.modelName.trim()) raw = resp.modelName;
+        else if (typeof resp?.model === 'string' && resp.model.trim()) raw = resp.model;
+        else if (typeof message?.modelName === 'string' && message.modelName.trim()) raw = message.modelName;
+        else if (typeof message?.model === 'string' && message.model.trim()) raw = message.model;
+        else if (typeof fallbackModel === 'string' && fallbackModel.trim()) raw = fallbackModel;
+        else raw = state.model;
+      }
       const modelName = stripModelNodeSuffix(raw) || window.I18N.t('page.chat.main.message.model', '模型');
       return modelName;
+    }
+
+    function syncAssistantVariantModelArrays(message) {
+      if (!message || message.role !== 'assistant' || !Array.isArray(message.responses)) {
+        return;
+      }
+      const activeIndex = Math.min(
+        Math.max(Number.isInteger(message.activeResponseIndex) ? message.activeResponseIndex : 0, 0),
+        Math.max(message.responses.length - 1, 0)
+      );
+      message.activeResponseIndex = activeIndex;
+      const resp = message.responses[activeIndex];
+      if (!resp) {
+        return;
+      }
+      if (!Array.isArray(message.variantModels)) {
+        message.variantModels = [];
+      }
+      if (!Array.isArray(message.variantModelNames)) {
+        message.variantModelNames = [];
+      }
+      while (message.variantModels.length < message.responses.length) {
+        message.variantModels.push('');
+      }
+      while (message.variantModelNames.length < message.responses.length) {
+        message.variantModelNames.push('');
+      }
+      while (message.variantModels.length > message.responses.length) {
+        message.variantModels.pop();
+      }
+      while (message.variantModelNames.length > message.responses.length) {
+        message.variantModelNames.pop();
+      }
+      const modelValue = resp.model || message.model || '';
+      if (modelValue) {
+        message.variantModels[activeIndex] = modelValue;
+        if (!message.variantModelNames[activeIndex]) {
+          message.variantModelNames[activeIndex] = modelValue;
+        }
+      }
     }
 
     function normalizeTimingNumber(value) {
@@ -3405,6 +3448,7 @@
         audios: normalizeAudioFiles(message?.audios),
         videos: normalizeVideoFiles(message?.videos),
         model: typeof message?.model === 'string' ? message.model : '',
+        modelName: typeof message?.modelName === 'string' ? message.modelName : '',
         timings: normalizeTimings(message?.timings),
         performanceText: typeof message?.performanceText === 'string' ? message.performanceText : '',
         reasoning: typeof message?.reasoning === 'string' ? message.reasoning : '',
@@ -3419,7 +3463,9 @@
         isError: !!message?.isError,
         id: message?.id,
         order: message?.order,
-        fragmentSeq: message?.fragmentSeq
+        fragmentSeq: message?.fragmentSeq,
+        variantModels: Array.isArray(message?.variantModels) ? message.variantModels.slice() : null,
+        variantModelNames: Array.isArray(message?.variantModelNames) ? message.variantModelNames.slice() : null
       };
       if (base.role !== 'assistant') {
         return base;
@@ -3428,6 +3474,13 @@
       const responses = Array.isArray(message?.responses) && message.responses.length
         ? message.responses.map(item => normalizeAssistantResponse(item, fallbackResponse))
         : [fallbackResponse];
+      if (Array.isArray(base.variantModels)) {
+        responses.forEach((resp, idx) => {
+          if (!resp.model && typeof base.variantModels[idx] === 'string' && base.variantModels[idx].trim()) {
+            resp.model = base.variantModels[idx];
+          }
+        });
+      }
       const activeResponseIndex = Math.min(
         Math.max(Number.isInteger(message?.activeResponseIndex) ? message.activeResponseIndex : 0, 0),
         responses.length - 1
@@ -5790,6 +5843,7 @@
         })];
         nextMessage.activeResponseIndex = 0;
         syncAssistantMessageState(nextMessage);
+        syncAssistantVariantModelArrays(nextMessage);
       }
       conversation.messages.push(nextMessage);
       conversation.messageCount = conversation.messages.length;
@@ -5851,6 +5905,7 @@
       if (typeof model === 'string' && model.trim()) {
         activeResponse.model = model.trim();
       }
+      syncAssistantVariantModelArrays(message);
       activeResponse.timings = normalizeTimings(timings);
       activeResponse.performanceText = activeResponse.timings ? formatAssistantPerformanceText(activeResponse.timings) : '';
       activeResponse.time = activeResponse.time || nowTime();
@@ -6899,6 +6954,7 @@
         }));
         assistantMessage.activeResponseIndex = assistantMessage.responses.length - 1;
         syncAssistantMessageState(assistantMessage);
+        syncAssistantVariantModelArrays(assistantMessage);
         assistantMessageIndex = assistantIdx;
       } else {
         const nextMsg = conversation.messages[userMessageIndex + 1];
@@ -6912,6 +6968,7 @@
           }));
           nextMsg.activeResponseIndex = nextMsg.responses.length - 1;
           syncAssistantMessageState(nextMsg);
+          syncAssistantVariantModelArrays(nextMsg);
           assistantMessageIndex = userMessageIndex + 1;
           truncateEndIndex = assistantMessageIndex + 1;
         } else {
@@ -6928,6 +6985,7 @@
           });
           conversation.messages.splice(userMessageIndex + 1, 0, assistantDraft);
           conversation.messageCount = conversation.messages.length;
+          syncAssistantVariantModelArrays(assistantDraft);
           assistantMessageIndex = userMessageIndex + 1;
           truncateEndIndex = assistantMessageIndex + 1;
         }
@@ -7676,7 +7734,7 @@
           out.finishReason = payload.finish_reason.trim();
         }
         if (msg.variants.length > 1) {
-          out.responses = msg.variants.map(v => {
+          out.responses = msg.variants.map((v, vidx) => {
             const p = v?.content || {};
             const resp = {
               content: typeof p.content === 'string' ? p.content : '',
@@ -7684,6 +7742,9 @@
               timings: p.timings && typeof p.timings === 'object' ? p.timings : null,
               finishReason: typeof p.finish_reason === 'string' && p.finish_reason.trim() ? p.finish_reason.trim() : null
             };
+            if (Array.isArray(msg.variantModels) && typeof msg.variantModels[vidx] === 'string' && msg.variantModels[vidx].trim()) {
+              resp.model = msg.variantModels[vidx];
+            }
             if (p.tool_calls && p.tool_calls.length) {
               resp.toolCalls = normalizeMcpToolCalls(p.tool_calls);
             }

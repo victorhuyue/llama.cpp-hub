@@ -2967,6 +2967,7 @@
       state.privacyMode = !state.privacyMode;
       syncPrivacyModeButton();
       renderConversationList();
+      renderMessages();
       syncConversationMeta();
       syncSettingsInputs();
       await persistState({ immediate: true, showErrorToast: true });
@@ -3179,9 +3180,12 @@
     }
 
     function getAssistantDisplayName(message, fallbackModel) {
+      const modelName = getAssistantModelName(message, fallbackModel);
+      if (state.privacyMode) {
+        return modelName;
+      }
       const assistant = getCurrentAssistant();
       const assistantName = assistant ? getAssistantDisplayLabel(assistant) : '';
-      const modelName = getAssistantModelName(message, fallbackModel);
       if (assistantName && modelName) {
         return assistantName + ' · ' + modelName;
       }

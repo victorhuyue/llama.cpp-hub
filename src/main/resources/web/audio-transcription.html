@@ -641,7 +641,7 @@
   <script>
     const TRANSCRIPTION_ENDPOINT = '/v1/audio/transcriptions';
     const MODELS_ENDPOINT = '/v1/models';
-    const MAX_AUDIO_SIZE = 25 * 1024 * 1024;
+    const MAX_AUDIO_SIZE = Infinity;
     const ALLOWED_EXTENSIONS = new Set(['wav', 'mp3', 'm4a', 'ogg', 'flac', 'webm', 'opus', 'aac', 'amr', '3gp', 'wma']);
 
     let selectedFile = null;

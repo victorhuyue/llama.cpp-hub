@@ -265,6 +265,7 @@ public class BuildTaskManager {
                     applyWindowsRuntimePath(pb, env, gpuDeps);
                 } else {
                     applyLinuxRuntimePath(env, gpuDeps);
+                    applyLinuxCompilerPath(env, gpuDeps);
                 }
             }
 
@@ -668,6 +669,65 @@ public class BuildTaskManager {
         if (ldPathBuilder.length() > 0) {
             env.put("LD_LIBRARY_PATH", ldPathBuilder.toString());
         }
+    }
+
+    private void applyLinuxCompilerPath(Map<String, String> env, Set<String> deps) {
+        String existingPath = env.get("PATH");
+        StringBuilder pathBuilder = new StringBuilder();
+
+        if (deps.contains("CUDA")) {
+            File nvcc = new File("/usr/local/cuda/bin/nvcc");
+            if (nvcc.isFile()) {
+                appendPathSep(pathBuilder);
+                pathBuilder.append("/usr/local/cuda/bin");
+                env.putIfAbsent("CUDACXX", nvcc.getAbsolutePath());
+            } else {
+                File cudaRoot = new File("/usr/local");
+                File[] dirs = cudaRoot.listFiles((d, name) -> name.startsWith("cuda-"));
+                if (dirs != null) {
+                    java.util.Arrays.sort(dirs, (a, b) -> b.getName().compareTo(a.getName()));
+                    for (File dir : dirs) {
+                        File nvccFile = new File(dir, "bin/nvcc");
+                        if (nvccFile.isFile()) {
+                            String binDir = new File(dir, "bin").getAbsolutePath();
+                            appendPathSep(pathBuilder);
+                            pathBuilder.append(binDir);
+                            env.putIfAbsent("CUDACXX", nvccFile.getAbsolutePath());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (deps.contains("ROCM")) {
+            File hipcc = new File("/opt/rocm/bin/hipcc");
+            if (hipcc.isFile()) {
+                appendPathSep(pathBuilder);
+                pathBuilder.append("/opt/rocm/bin");
+                env.putIfAbsent("CMAKE_HIP_COMPILER", hipcc.getAbsolutePath());
+            }
+        }
+
+        if (deps.contains("SYCL")) {
+            File icpx = new File("/opt/intel/oneapi/compiler/latest/bin/icpx");
+            File dpcpp = new File("/opt/intel/oneapi/compiler/latest/bin/dpcpp");
+            if (icpx.isFile() || dpcpp.isFile()) {
+                appendPathSep(pathBuilder);
+                pathBuilder.append("/opt/intel/oneapi/compiler/latest/bin");
+            }
+        }
+
+        if (pathBuilder.length() > 0) {
+            if (existingPath != null && !existingPath.isEmpty()) {
+                pathBuilder.append(File.pathSeparator).append(existingPath);
+            }
+            env.put("PATH", pathBuilder.toString());
+        }
+    }
+
+    private static void appendPathSep(StringBuilder sb) {
+        if (sb.length() > 0) sb.append(File.pathSeparator);
     }
 
     private void addExistingDir(List<String> paths, String path) {

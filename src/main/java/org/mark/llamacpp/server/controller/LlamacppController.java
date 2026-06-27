@@ -617,8 +617,8 @@ public class LlamacppController implements BaseController {
 		if (!lower.contains("-x64")) return false;
 		// OS: win or ubuntu/linux only
 		if (!lower.contains("win-") && !lower.contains("ubuntu-") && !lower.contains("linux-")) return false;
-		// Backend: vulkan, cuda, hip, rocm, or cpu (no backend keyword, e.g. win-x64 / ubuntu-x64)
-		if (lower.contains("-vulkan-") || lower.contains("-cuda-") || lower.contains("-hip-") || lower.contains("-rocm-")) {
+		// Backend: vulkan, cuda, hip, rocm, sycl, or cpu (no backend keyword, e.g. win-x64 / ubuntu-x64)
+		if (lower.contains("-vulkan-") || lower.contains("-cuda-") || lower.contains("-hip-") || lower.contains("-rocm-") || lower.contains("-sycl-")) {
 			return true;
 		}
 		// CPU: OS segment followed directly by -x64 (e.g. win-x64, ubuntu-x64, linux-x64)

@@ -152,6 +152,24 @@ public class LlamaCppProcess {
 				ldPathBuilder.append(rocmPath);
 			}
 
+			// SYCL / Intel oneAPI 运行库路径
+			if (isSyclBackend(this.cmd, this.llamaBinPath)) {
+				String[] syclPaths = {
+					"/opt/intel/oneapi/compiler/latest/lib",
+					"/opt/intel/oneapi/mkl/latest/lib",
+					"/opt/intel/oneapi/tbb/latest/lib",
+					"/usr/local/lib",
+					"/usr/local/lib64",
+					"/usr/lib/x86_64-linux-gnu"
+				};
+				for (String syclPath : syclPaths) {
+					if (ldPathBuilder.length() > 0) {
+						ldPathBuilder.append(":");
+					}
+					ldPathBuilder.append(syclPath);
+				}
+			}
+
 			if (existingLdPath != null && !existingLdPath.isEmpty()) {
 				if (ldPathBuilder.length() > 0) {
 					ldPathBuilder.append(":");
@@ -266,6 +284,7 @@ public class LlamaCppProcess {
 
 		this.addWindowsRocmDirs(paths);
 		this.addWindowsCudartDirs(paths);
+		this.addWindowsSyclDirs(paths);
 		this.prependPath(env, paths);
 	}
 
@@ -293,6 +312,38 @@ public class LlamaCppProcess {
 			this.addExistingDir(paths, new File(dir, "bin").getAbsolutePath());
 			this.addExistingDir(paths, new File(dir, "bin\\rocblas").getAbsolutePath());
 			this.addExistingDir(paths, new File(dir, "bin\\hipblaslt").getAbsolutePath());
+		}
+	}
+
+	private void addWindowsSyclDirs(List<String> paths) {
+		if (!isSyclBackend(this.cmd, this.llamaBinPath)) {
+			return;
+		}
+		// 若执行目录已包含 SYCL 运行时，则只需该目录已在 PATH 中即可
+		String[] oneapiRoots = {
+			System.getenv("ONEAPI_ROOT"),
+			"C:\\Program Files (x86)\\Intel\\oneAPI",
+			"C:\\Program Files\\Intel\\oneAPI"
+		};
+		for (String root : oneapiRoots) {
+			if (root == null || root.isBlank()) continue;
+			File rootDir = new File(root);
+			if (!rootDir.isDirectory()) continue;
+			File latest = new File(rootDir, "latest");
+			if (latest.isDirectory()) {
+				this.addExistingDir(paths, new File(latest, "bin").getAbsolutePath());
+				this.addExistingDir(paths, new File(latest, "lib").getAbsolutePath());
+			}
+			File compilerLatest = new File(rootDir, "compiler\\latest");
+			if (compilerLatest.isDirectory()) {
+				this.addExistingDir(paths, new File(compilerLatest, "bin").getAbsolutePath());
+				this.addExistingDir(paths, new File(compilerLatest, "lib").getAbsolutePath());
+			}
+			File mklLatest = new File(rootDir, "mkl\\latest");
+			if (mklLatest.isDirectory()) {
+				this.addExistingDir(paths, new File(mklLatest, "bin").getAbsolutePath());
+				this.addExistingDir(paths, new File(mklLatest, "lib").getAbsolutePath());
+			}
 		}
 	}
 
@@ -636,6 +687,15 @@ public class LlamaCppProcess {
 	private static String sanitizeModelId(String id) {
 		if (id == null) return "unknown";
 		return id.replace('\\', '_').replace('/', '_').replace(':', '_');
+	}
+
+	/**
+	 * 判断当前命令或二进制路径是否指向 SYCL 后端。
+	 */
+	private static boolean isSyclBackend(String cmd, String llamaBinPath) {
+		String haystack = (cmd == null ? "" : cmd) + "|" + (llamaBinPath == null ? "" : llamaBinPath);
+		String lower = haystack.toLowerCase(Locale.ROOT);
+		return lower.contains("sycl") || lower.contains("intel") || lower.contains("oneapi");
 	}
 
 	/**

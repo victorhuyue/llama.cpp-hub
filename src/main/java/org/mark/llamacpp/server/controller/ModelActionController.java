@@ -911,6 +911,23 @@ public class ModelActionController implements BaseController {
 						}
 					}
 
+					// SYCL / Intel oneAPI 库路径
+					if (benchPath != null && (benchPath.toLowerCase().contains("sycl") || benchPath.toLowerCase().contains("oneapi") || benchPath.toLowerCase().contains("intel"))) {
+						String[] syclPaths = {
+							"/opt/intel/oneapi/compiler/latest/lib",
+							"/opt/intel/oneapi/mkl/latest/lib",
+							"/opt/intel/oneapi/tbb/latest/lib",
+							"/usr/local/lib",
+							"/usr/local/lib64",
+							"/usr/lib/x86_64-linux-gnu"
+						};
+						for (String syclPath : syclPaths) {
+							if (!newLdPath.toString().contains(syclPath)) {
+								newLdPath.append(":").append(syclPath);
+							}
+						}
+					}
+
 					env.put("LD_LIBRARY_PATH", newLdPath.toString());
 				}
 			}

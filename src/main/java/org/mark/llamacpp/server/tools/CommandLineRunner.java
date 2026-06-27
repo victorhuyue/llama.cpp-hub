@@ -346,6 +346,7 @@ public class CommandLineRunner {
 			addExistingDir(paths, exeDir.getAbsolutePath());
 			addWindowsRocmDirs(paths);
 			addWindowsCudartDirs(paths, exeDir.getAbsolutePath(), env);
+			addWindowsSyclDirs(paths, exeDir.getAbsolutePath());
 			prependWindowsPath(env, paths);
 			
 			return;
@@ -395,6 +396,23 @@ public class CommandLineRunner {
 			}
 		}
 
+		// SYCL / Intel oneAPI library paths
+		if (isSyclCommand(exe, exeDirAbs)) {
+			String[] syclPaths = {
+				"/opt/intel/oneapi/compiler/latest/lib",
+				"/opt/intel/oneapi/mkl/latest/lib",
+				"/opt/intel/oneapi/tbb/latest/lib",
+				"/usr/local/lib",
+				"/usr/local/lib64",
+				"/usr/lib/x86_64-linux-gnu"
+			};
+			for (String syclPath : syclPaths) {
+				if (!newLdPath.toString().contains(syclPath)) {
+					newLdPath.append(":").append(syclPath);
+				}
+			}
+		}
+
 		env.put("LD_LIBRARY_PATH", newLdPath.toString());
 
 		if (os.contains("mac") || os.contains("darwin")) {
@@ -440,6 +458,54 @@ public class CommandLineRunner {
 			addExistingDir(paths, new File(dir, "bin\\rocblas").getAbsolutePath());
 			addExistingDir(paths, new File(dir, "bin\\hipblaslt").getAbsolutePath());
 		}
+	}
+
+	private static void addWindowsSyclDirs(List<String> paths, String exeDirPath) {
+		if (exeDirPath != null && hasSyclDlls(exeDirPath)) {
+			return;
+		}
+		String[] oneapiRoots = {
+			System.getenv("ONEAPI_ROOT"),
+			"C:\\Program Files (x86)\\Intel\\oneAPI",
+			"C:\\Program Files\\Intel\\oneAPI"
+		};
+		for (String root : oneapiRoots) {
+			if (root == null || root.isBlank()) continue;
+			File rootDir = new File(root);
+			if (!rootDir.isDirectory()) continue;
+			File latest = new File(rootDir, "latest");
+			if (latest.isDirectory()) {
+				addExistingDir(paths, new File(latest, "bin").getAbsolutePath());
+				addExistingDir(paths, new File(latest, "lib").getAbsolutePath());
+			}
+			File compilerLatest = new File(rootDir, "compiler\\latest");
+			if (compilerLatest.isDirectory()) {
+				addExistingDir(paths, new File(compilerLatest, "bin").getAbsolutePath());
+				addExistingDir(paths, new File(compilerLatest, "lib").getAbsolutePath());
+			}
+			File mklLatest = new File(rootDir, "mkl\\latest");
+			if (mklLatest.isDirectory()) {
+				addExistingDir(paths, new File(mklLatest, "bin").getAbsolutePath());
+				addExistingDir(paths, new File(mklLatest, "lib").getAbsolutePath());
+			}
+		}
+	}
+
+	private static boolean hasSyclDlls(String dirPath) {
+		if (dirPath == null || dirPath.isBlank()) return false;
+		Path dir = Paths.get(dirPath);
+		if (!Files.isDirectory(dir)) return false;
+		try (java.util.stream.Stream<Path> entries = Files.list(dir)) {
+			for (Path entry : entries.toList()) {
+				if (!Files.isRegularFile(entry)) continue;
+				String name = entry.getFileName().toString().toLowerCase(Locale.ROOT);
+				if (name.startsWith("sycl") && name.endsWith(".dll")) return true;
+				if (name.equals("opencl.dll")) return true;
+			}
+		} catch (IOException e) {
+			return false;
+		}
+		return false;
 	}
 
 	private static void addWindowsCudartDirs(List<String> paths, String exeDirPath, Map<String, String> env) {
@@ -597,6 +663,22 @@ public class CommandLineRunner {
 		if (exe == null) return false;
 		String lower = exe.toLowerCase(Locale.ROOT);
 		return lower.contains("rocm-smi") || lower.contains("rocm-");
+	}
+
+	private static boolean isSyclCommand(String exe, String exeDirAbs) {
+		if (exe != null) {
+			String lower = exe.toLowerCase(Locale.ROOT);
+			if (lower.contains("sycl") || lower.contains("oneapi") || lower.contains("xpu-smi")) {
+				return true;
+			}
+		}
+		if (exeDirAbs != null) {
+			String lower = exeDirAbs.toLowerCase(Locale.ROOT);
+			if (lower.contains("sycl") || lower.contains("oneapi") || lower.contains("intel")) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private static boolean isWindows() {

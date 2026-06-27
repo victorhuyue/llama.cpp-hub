@@ -2088,6 +2088,7 @@ public class LlamaServerManager {
 			|| lower.contains("out of memory")
 			|| lower.contains("cuda error")
 			|| lower.contains("hip error")
+			|| lower.contains("sycl error")
 			|| lower.contains("ggml_assert")
 			|| lower.contains("ggml_abort")
 			|| (lower.contains("assertion") && lower.contains("failed"))

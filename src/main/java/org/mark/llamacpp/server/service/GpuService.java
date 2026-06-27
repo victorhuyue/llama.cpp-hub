@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * GPU服务
- * 启动时探测系统，检查 nvidia-smi / amd-smi 是否可用，查询时返回原始命令输出
+ * 启动时探测系统，检查 nvidia-smi / amd-smi / xpu-smi / sycl-ls 是否可用，查询时返回原始命令输出
  */
 @Deprecated
 public class GpuService {
@@ -20,9 +20,13 @@ public class GpuService {
 
     private final boolean nvidiaSmiAvailable;
     private final boolean amdSmiAvailable;
+    private final boolean intelXpuAvailable;
+    private final boolean syclLsAvailable;
 
     private final String nvidiaSmiInitOutput;
     private final String amdSmiInitOutput;
+    private final String intelXpuInitOutput;
+    private final String syclLsInitOutput;
 
     public static GpuService getInstance() {
         return INSTANCE;
@@ -48,8 +52,21 @@ public class GpuService {
             this.amdSmiInitOutput = null;
         }
 
-        logger.info("GPU服务初始化: os={}, nvidia-smi={}, amd-smi={}",
-                this.osType, nvidiaSmiAvailable ? "可用" : "不可用", amdSmiAvailable ? "可用" : "不可用");
+        // 探测 Intel XPU（xpu-smi / sycl-ls，Windows 和 Linux 均支持）
+        CommandLineRunner.CommandResult xpuResult = probeCommand(new String[]{"xpu-smi"}, 5);
+        this.intelXpuAvailable = xpuResult != null;
+        this.intelXpuInitOutput = xpuResult != null ? xpuResult.getOutput() : null;
+
+        CommandLineRunner.CommandResult syclResult = probeCommand(new String[]{"sycl-ls"}, 5);
+        this.syclLsAvailable = syclResult != null;
+        this.syclLsInitOutput = syclResult != null ? syclResult.getOutput() : null;
+
+        logger.info("GPU服务初始化: os={}, nvidia-smi={}, amd-smi={}, xpu-smi={}, sycl-ls={}",
+                this.osType,
+                nvidiaSmiAvailable ? "可用" : "不可用",
+                amdSmiAvailable ? "可用" : "不可用",
+                intelXpuAvailable ? "可用" : "不可用",
+                syclLsAvailable ? "可用" : "不可用");
     }
 
     /**
@@ -71,7 +88,8 @@ public class GpuService {
      * 获取GPU信息（初始化时的快照）
      */
     public JsonObject getServiceInfo() {
-        return buildJson(this.nvidiaSmiInitOutput, this.amdSmiInitOutput);
+        return buildJson(this.nvidiaSmiInitOutput, this.amdSmiInitOutput,
+                this.intelXpuInitOutput, this.syclLsInitOutput);
     }
 
     /**
@@ -94,10 +112,26 @@ public class GpuService {
             }
         }
 
-        return buildJson(nvidiaOutput, amdOutput);
+        String intelXpuOutput = null;
+        if (this.intelXpuAvailable) {
+            CommandLineRunner.CommandResult r = probeCommand(new String[]{"xpu-smi"}, 5);
+            if (r != null) {
+                intelXpuOutput = r.getOutput();
+            }
+        }
+
+        String syclLsOutput = null;
+        if (this.syclLsAvailable) {
+            CommandLineRunner.CommandResult r = probeCommand(new String[]{"sycl-ls"}, 5);
+            if (r != null) {
+                syclLsOutput = r.getOutput();
+            }
+        }
+
+        return buildJson(nvidiaOutput, amdOutput, intelXpuOutput, syclLsOutput);
     }
 
-    private JsonObject buildJson(String nvidiaOutput, String amdOutput) {
+    private JsonObject buildJson(String nvidiaOutput, String amdOutput, String intelXpuOutput, String syclLsOutput) {
         JsonObject result = new JsonObject();
         result.addProperty("os", this.osType);
 
@@ -118,6 +152,24 @@ public class GpuService {
             amd.addProperty("output", (String) null);
         }
         result.add("amd-smi", amd);
+
+        JsonObject intelXpu = new JsonObject();
+        intelXpu.addProperty("available", this.intelXpuAvailable);
+        if (intelXpuOutput != null) {
+            intelXpu.addProperty("output", intelXpuOutput);
+        } else {
+            intelXpu.addProperty("output", (String) null);
+        }
+        result.add("intel-xpu", intelXpu);
+
+        JsonObject syclLs = new JsonObject();
+        syclLs.addProperty("available", this.syclLsAvailable);
+        if (syclLsOutput != null) {
+            syclLs.addProperty("output", syclLsOutput);
+        } else {
+            syclLs.addProperty("output", (String) null);
+        }
+        result.add("sycl-ls", syclLs);
 
         return result;
     }

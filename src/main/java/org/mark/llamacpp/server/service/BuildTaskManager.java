@@ -527,6 +527,9 @@ public class BuildTaskManager {
         if (lower.contains("vulkan") || lower.contains("ggml_vulkan")) {
             deps.add("VULKAN");
         }
+        if (lower.contains("sycl") || lower.contains("ggml_sycl") || lower.contains("intel")) {
+            deps.add("SYCL");
+        }
         return deps;
     }
 
@@ -535,6 +538,7 @@ public class BuildTaskManager {
         addExistingDir(paths, null);
         addWindowsRocmDirs(paths, deps);
         addWindowsCudartDirs(paths, deps);
+        addWindowsSyclDirs(paths, deps);
         prependPath(env, paths);
     }
 
@@ -560,6 +564,37 @@ public class BuildTaskManager {
             addExistingDir(paths, new File(dir, "bin").getAbsolutePath());
             addExistingDir(paths, new File(dir, "bin\\rocblas").getAbsolutePath());
             addExistingDir(paths, new File(dir, "bin\\hipblaslt").getAbsolutePath());
+        }
+    }
+
+    private void addWindowsSyclDirs(List<String> paths, Set<String> deps) {
+        if (!deps.contains("SYCL")) return;
+        // Intel oneAPI 安装目录（包含编译器与 MKL 运行时）
+        String[] oneapiRoots = {
+            System.getenv("ONEAPI_ROOT"),
+            "C:\\Program Files (x86)\\Intel\\oneAPI",
+            "C:\\Program Files\\Intel\\oneAPI"
+        };
+        for (String root : oneapiRoots) {
+            if (root == null || root.isBlank()) continue;
+            File rootDir = new File(root);
+            if (!rootDir.isDirectory()) continue;
+            // 优先使用最新版本目录；若存在 latest 链接则用它
+            File latest = new File(rootDir, "latest");
+            if (latest.isDirectory()) {
+                addExistingDir(paths, new File(latest, "bin").getAbsolutePath());
+                addExistingDir(paths, new File(latest, "lib").getAbsolutePath());
+            }
+            File compilerLatest = new File(rootDir, "compiler\\latest");
+            if (compilerLatest.isDirectory()) {
+                addExistingDir(paths, new File(compilerLatest, "bin").getAbsolutePath());
+                addExistingDir(paths, new File(compilerLatest, "lib").getAbsolutePath());
+            }
+            File mklLatest = new File(rootDir, "mkl\\latest");
+            if (mklLatest.isDirectory()) {
+                addExistingDir(paths, new File(mklLatest, "bin").getAbsolutePath());
+                addExistingDir(paths, new File(mklLatest, "lib").getAbsolutePath());
+            }
         }
     }
 
@@ -609,6 +644,19 @@ public class BuildTaskManager {
                 "/usr/local/lib64", "/usr/local/lib"
             };
             for (String p : rocmPaths) {
+                if (ldPathBuilder.length() > 0) ldPathBuilder.append(":");
+                ldPathBuilder.append(p);
+            }
+        }
+        if (deps.contains("SYCL")) {
+            String[] syclPaths = {
+                "/opt/intel/oneapi/compiler/latest/lib",
+                "/opt/intel/oneapi/mkl/latest/lib",
+                "/opt/intel/oneapi/tbb/latest/lib",
+                "/usr/local/lib", "/usr/local/lib64",
+                "/usr/lib/x86_64-linux-gnu"
+            };
+            for (String p : syclPaths) {
                 if (ldPathBuilder.length() > 0) ldPathBuilder.append(":");
                 ldPathBuilder.append(p);
             }

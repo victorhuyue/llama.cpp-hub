@@ -528,7 +528,7 @@ button { cursor: pointer; }
 }
 
 @media (min-width: 1200px) {
-  .avatar-preview-panel {
+  body.avatar-preview-open .avatar-preview-panel {
     display: flex;
   }
 
@@ -1426,7 +1426,6 @@ button { cursor: pointer; }
 .avatar {
   width: 40px;
   height: 40px;
-  aspect-ratio: 1;
   border-radius: 999px;
   display: inline-grid;
   place-items: center;
@@ -1471,7 +1470,6 @@ button { cursor: pointer; }
 .assistant-avatar-preview {
   width: 48px;
   height: 48px;
-  aspect-ratio: 1;
   border-radius: 999px;
   overflow: hidden;
   flex: 0 0 auto;

@@ -605,6 +605,7 @@
     let stateLoadedFromServer = false;
     let stateLoadInProgress = false;
     let conversationLoadInProgress = false;
+    let scrollToBottomRafId = 0;
 
     const state = {
       model: '',
@@ -817,7 +818,11 @@
       if (!force && !state.chatAutoScroll) {
         return;
       }
-      requestAnimationFrame(() => {
+      if (scrollToBottomRafId) {
+        cancelAnimationFrame(scrollToBottomRafId);
+      }
+      scrollToBottomRafId = requestAnimationFrame(() => {
+        scrollToBottomRafId = 0;
         els.chatScroll.scrollTop = els.chatScroll.scrollHeight;
         state.chatAutoScroll = true;
       });
@@ -1708,6 +1713,7 @@
         return;
       }
       const text = state.pendingText;
+      const wasNearBottom = isChatNearBottom();
 
       const collapsed = getHtmlPreviewCollapsedForTarget(target);
       console.log('[HTMLPreview] flushStreamingMarkdown: collapsed=', collapsed);
@@ -1759,6 +1765,9 @@
       } else {
         target.innerHTML = renderMarkdown(text);
         wrapHtmlCodeBlocks(target, collapsed);
+      }
+      if (wasNearBottom && els.chatScroll) {
+        els.chatScroll.scrollTop = els.chatScroll.scrollHeight;
       }
       state.renderedText = text;
     }
@@ -6125,6 +6134,7 @@
       activeResponse.time = activeResponse.time || nowTime();
       if (isFinished) {
         activeResponse.streamingDone = true;
+        activeResponse.isStreaming = false;
       }
       syncAssistantMessageState(message);
       conversation.updatedAt = Date.now();
@@ -6962,7 +6972,8 @@
               result.reasoning || '',
               result.model || requestModel,
               result.timings,
-              currentAssistantIndex
+              currentAssistantIndex,
+              true
             );
             if (Number.isInteger(currentAssistantIndex)) {
               const conv = getCurrentConversation();
@@ -7003,7 +7014,7 @@
             if (Number.isInteger(currentAssistantIndex)) {
               setAssistantResponseStreaming(currentAssistantIndex, true);
             }
-            updateLastAssistantMessage(result.content || '', result.reasoning || '', result.model || requestModel, result.timings, currentAssistantIndex);
+            updateLastAssistantMessage(result.content || '', result.reasoning || '', result.model || requestModel, result.timings, currentAssistantIndex, true);
             if (Number.isInteger(currentAssistantIndex)) {
               const conv = getCurrentConversation();
               const msg = conv?.messages?.[currentAssistantIndex];
@@ -7409,6 +7420,28 @@
       persistState();
     }
 
+    function finalizeMessageDelete(nextMessages, domAction) {
+      const conversation = getCurrentConversation();
+      if (!conversation) return;
+      conversation.messages = nextMessages;
+      conversation.messageCount = nextMessages.length;
+      conversation.updatedAt = Date.now();
+      state.editingMessageIndex = null;
+      state.editingMessageDraft = null;
+      domAction();
+      if (!nextMessages.length) {
+        els.emptyState.classList.remove('hidden');
+      } else {
+        els.emptyState.classList.add('hidden');
+      }
+      updateConversationTitle(conversation);
+      renderConversationList();
+      syncConversationMeta();
+      updateMessageActionStates();
+      renderMessageRail();
+      persistState();
+    }
+
     async function deleteMessage(index) {
       if (state.isSending) {
         return;
@@ -7450,7 +7483,13 @@
           ? backendActiveVariant
           : Math.min(deleteIndex, nextMessage.responses.length - 1);
         nextMessages[index] = nextMessage;
-        setConversationMessages(nextMessages);
+        finalizeMessageDelete(nextMessages, () => {
+          const article = els.messages.querySelector(`article[data-index="${index}"]`);
+          if (article) {
+            const newArticle = createMessageElement(nextMessage, index);
+            article.replaceWith(newArticle);
+          }
+        });
         showToast('info', window.I18N.t('page.chat.main.action.delete_response', '删除当前响应'));
         return;
       }
@@ -7473,7 +7512,14 @@
       // Backend deletes exactly one fragment. Keep any following assistant message
       // in the local list so the in-memory view stays consistent with history reload.
       nextMessages.splice(index, 1);
-      setConversationMessages(nextMessages);
+      finalizeMessageDelete(nextMessages, () => {
+        const article = els.messages.querySelector(`article[data-index="${index}"]`);
+        if (article) article.remove();
+        for (let i = index; i < nextMessages.length; i++) {
+          const el = els.messages.querySelector(`article[data-index="${i + 1}"]`);
+          if (el) el.dataset.index = String(i);
+        }
+      });
       showToast('info', window.I18N.t('page.chat.main.action.delete', '删除'));
     }
 
@@ -8703,7 +8749,7 @@
         prompt = prefix.replace('{date}', dateStr).replace('{time}', timeStr) + '\n\n' + prompt;
       }
 
-      pushMessage('user', prompt, { images, files, audios, videos }, { persist: false, fragmentSeq: (getCurrentConversation()?.nextFragmentSeq ?? 0) });
+      pushMessage('user', prompt, { images, files, audios, videos }, { persist: false, incremental: true, fragmentSeq: (getCurrentConversation()?.nextFragmentSeq ?? 0) });
       const conv = getCurrentConversation();
       if (conv && conv.nextFragmentSeq != null) {
         conv.nextFragmentSeq += 2;
@@ -8892,7 +8938,12 @@
       state.draftVideoFiles = [];
       state.chatAutoScroll = true;
       renderConversationList();
-      renderMessages();
+      els.messages.innerHTML = '';
+      els.emptyState.classList.remove('hidden');
+      syncConversationMeta();
+      updateMessageActionStates();
+      renderMessageRail();
+      scrollChatToBottom();
       renderDraftImages();
       persistState();
       showToast('info', window.I18N.t('page.chat.main.toast.conversation_cleared', '对话已清空'));

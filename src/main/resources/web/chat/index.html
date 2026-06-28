@@ -6967,14 +6967,8 @@
               seedContent: isContinue ? continueSeedContent : '',
               seedReasoning: isContinue ? continueSeedReasoning : ''
             });
-            updateLastAssistantMessage(
-              result.content || '',
-              result.reasoning || '',
-              result.model || requestModel,
-              result.timings,
-              currentAssistantIndex,
-              true
-            );
+            // Content already rendered by consumeSse with isFinished=true;
+            // skip redundant updateLastAssistantMessage to avoid flicker.
             if (Number.isInteger(currentAssistantIndex)) {
               const conv = getCurrentConversation();
               const msg = conv?.messages?.[currentAssistantIndex];
@@ -7048,11 +7042,14 @@
               }
               finishMsg.finishReason = result.finishReason;
               syncAssistantMessageState(finishMsg);
-              // Re-render so the continue button visibility (which depends on
-              // finishReason) is updated immediately; without this the button would
-              // stay visible until the next full renderMessages, causing the
-              // post-completion UI to differ from the post-refresh UI.
-              renderMessages();
+              // Remove the continue button directly (it depends on finishReason)
+              // to avoid full renderMessages flicker.
+              const article = els.messages.querySelector(`article[data-index="${currentAssistantIndex}"]`);
+              if (article) {
+                const continueBtn = article.querySelector('button[data-message-action="continue"]');
+                if (continueBtn) continueBtn.remove();
+              }
+              updateMessageActionStates();
             }
           }
 
@@ -7246,7 +7243,36 @@
 
       conversation.updatedAt = Date.now();
       renderConversationList();
-      renderMessages();
+
+      // Targeted DOM update instead of full renderMessages
+      {
+        const truncateThreshold = createdNewAssistant ? assistantMessageIndex : truncateEndIndex;
+        const articles = els.messages.querySelectorAll('article');
+        for (const article of articles) {
+          const idx = parseInt(article.dataset.index, 10);
+          if (!isNaN(idx) && idx >= truncateThreshold) {
+            article.remove();
+          }
+        }
+        if (createdNewAssistant) {
+          const assistantMessage = conversation.messages[assistantMessageIndex];
+          if (assistantMessage) {
+            els.messages.appendChild(createMessageElement(assistantMessage, assistantMessageIndex));
+          }
+          if (!conversation.messages.length) {
+            els.emptyState.classList.remove('hidden');
+          } else {
+            els.emptyState.classList.add('hidden');
+          }
+          syncConversationMeta();
+          updateMessageActionStates();
+          renderMessageRail();
+          scrollChatToBottom();
+        } else {
+          setAssistantResponseStreaming(assistantMessageIndex, true);
+        }
+      }
+
       persistState();
       // Calculate regenerateSeq: assistant seq is the write target for the new variant.
       const userMsg = conversation.messages[userMessageIndex];
@@ -7276,8 +7302,19 @@
           }
         }
       }
-      if (!success || (truncatedMessages && truncatedMessages.length > 0)) {
+      if (!success) {
         renderMessages();
+        persistState();
+      } else if (truncatedMessages && truncatedMessages.length > 0) {
+        // Append restored messages incrementally instead of full rebuild
+        for (let i = 0; i < truncatedMessages.length; i++) {
+          const msg = truncatedMessages[i];
+          els.messages.appendChild(createMessageElement(msg, truncateEndIndex + i));
+        }
+        syncConversationMeta();
+        updateMessageActionStates();
+        renderMessageRail();
+        scrollChatToBottom();
         persistState();
       }
     }

@@ -154,7 +154,6 @@ public class HttpHttpsUnificationHandler extends ByteToMessageDecoder {
         pipeline.addLast(new WebSocketServerProtocolHandler(websocketPath, null, true, 32768));
         pipeline.addLast(new WebSocketServerHandler());
         pipeline.addLast(new BasicRouterHandler());
-        pipeline.addLast(new CompletionRouterHandler());
         pipeline.addLast(new FileDownloadRouterHandler());
         pipeline.addLast(new LlamaRouterHandler());
     }

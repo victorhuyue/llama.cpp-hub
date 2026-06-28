@@ -1,12 +1,17 @@
 package org.mark.llamacpp.server.controller;
 
+import java.io.RandomAccessFile;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.exception.RequestMethodException;
+import org.mark.llamacpp.server.service.EasyChatAvatarService;
 import org.mark.llamacpp.server.service.EasyChatGlobalLock;
 import org.mark.llamacpp.server.service.EasyChatService;
 import org.mark.llamacpp.server.struct.ApiResponse;
@@ -17,10 +22,22 @@ import org.slf4j.LoggerFactory;
 
 import com.google.gson.JsonObject;
 
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.LastHttpContent;
+import io.netty.handler.codec.http.multipart.DefaultHttpDataFactory;
+import io.netty.handler.codec.http.multipart.FileUpload;
+import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder;
+import io.netty.handler.codec.http.multipart.InterfaceHttpData;
+import io.netty.handler.stream.ChunkedFile;
 
 /**
  * EasyChat 后端接口。
@@ -36,6 +53,10 @@ public class EasyChatController implements BaseController {
 	private static final String PATH_STREAM_CHAT = "/api/chat/stream-chat";
 	private static final String PATH_MESSAGE_UPDATE = "/api/chat/message/update";
 	private static final String PATH_GENERATE_TITLE = "/api/chat/generate-title";
+	private static final String PATH_AVATAR_UPLOAD = "/api/chat/avatar/upload";
+	private static final String PATH_AVATAR_GET = "/api/chat/avatar/get";
+
+	private static final long MAX_AVATAR_UPLOAD_BYTES = 1L * 1024L * 1024L;
 
 	@Override
 	public void inactive(ChannelHandlerContext ctx) {
@@ -59,6 +80,14 @@ public class EasyChatController implements BaseController {
 		}
 		if (uri.startsWith(PATH_GENERATE_TITLE)) {
 			this.handleGenerateTitleRequest(ctx, request);
+			return true;
+		}
+		if (uri.startsWith(PATH_AVATAR_UPLOAD)) {
+			this.handleAvatarUpload(ctx, request);
+			return true;
+		}
+		if (uri.startsWith(PATH_AVATAR_GET)) {
+			this.handleAvatarGet(ctx, request);
 			return true;
 		}
 		return false;
@@ -148,6 +177,150 @@ public class EasyChatController implements BaseController {
 		} catch (Exception e) {
 			logger.info("更新 easy-chat 消息失败", e);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("更新消息失败: " + e.getMessage()));
+		}
+	}
+
+	/* ---- Avatar ---- */
+
+	private void handleAvatarUpload(ChannelHandlerContext ctx, FullHttpRequest request) {
+		if (request.method() != HttpMethod.POST) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("只支持POST请求"));
+			return;
+		}
+		String assistantId = ParamTool.getQueryParam(request.uri()).get("assistantId");
+		if (assistantId == null || assistantId.trim().isEmpty()) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少assistantId参数"));
+			return;
+		}
+		assistantId = assistantId.trim();
+
+		if (request.content() == null || request.content().readableBytes() <= 0) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
+			return;
+		}
+		if (request.content().readableBytes() > MAX_AVATAR_UPLOAD_BYTES) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体过大"));
+			return;
+		}
+
+		HttpPostRequestDecoder decoder = null;
+		try {
+			decoder = new HttpPostRequestDecoder(new DefaultHttpDataFactory(false), request);
+			List<InterfaceHttpData> datas = decoder.getBodyHttpDatas();
+			FileUpload upload = null;
+			for (InterfaceHttpData d : datas) {
+				if (d == null) {
+					continue;
+				}
+				if (d.getHttpDataType() == InterfaceHttpData.HttpDataType.FileUpload) {
+					FileUpload fu = (FileUpload) d;
+					if (fu.isCompleted() && fu.length() > 0) {
+						upload = fu;
+						break;
+					}
+				}
+			}
+			if (upload == null) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("未找到上传文件"));
+				return;
+			}
+			if (upload.length() > MAX_AVATAR_UPLOAD_BYTES) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("头像文件超过最大限制: 1MB"));
+				return;
+			}
+			byte[] bytes = upload.get();
+			if (bytes == null || bytes.length == 0) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("文件内容为空"));
+				return;
+			}
+
+			EasyChatAvatarService avatarService = EasyChatAvatarService.getInstance();
+			String savedName = avatarService.saveAvatar(assistantId, bytes, upload.getFilename(), upload.getContentType());
+			Map<String, Object> data = new HashMap<>();
+			data.put("assistantId", assistantId);
+			data.put("name", savedName);
+			data.put("url", PATH_AVATAR_GET + "?assistantId=" + URLEncoder.encode(assistantId, StandardCharsets.UTF_8));
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+			logger.info("[EasyChatController] 上传头像成功 assistantId={} file={}", assistantId, savedName);
+		} catch (IllegalArgumentException e) {
+			logger.info("[EasyChatController] 上传头像参数错误 assistantId={}", assistantId, e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(e.getMessage()));
+		} catch (Exception e) {
+			logger.info("[EasyChatController] 上传头像失败 assistantId={}", assistantId, e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("上传失败: " + e.getMessage()));
+		} finally {
+			if (decoder != null) {
+				try {
+					decoder.destroy();
+				} catch (Exception ignore) {
+				}
+			}
+		}
+	}
+
+	private void handleAvatarGet(ChannelHandlerContext ctx, FullHttpRequest request) {
+		if (request.method() != HttpMethod.GET) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("只支持GET请求"));
+			return;
+		}
+		String assistantId = ParamTool.getQueryParam(request.uri()).get("assistantId");
+		if (assistantId == null || assistantId.trim().isEmpty()) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少assistantId参数"));
+			return;
+		}
+		assistantId = assistantId.trim();
+
+		try {
+			Path file = EasyChatAvatarService.getInstance().findAvatarFile(assistantId);
+			if (file == null || !Files.isRegularFile(file)) {
+				LlamaServer.sendExpressJsonResponse(ctx, HttpResponseStatus.NOT_FOUND, ApiResponse.error("头像不存在"), true);
+				return;
+			}
+			sendAvatarFile(ctx, file, EasyChatAvatarService.inferImageContentType(file));
+		} catch (IllegalArgumentException e) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(e.getMessage()));
+		} catch (Exception e) {
+			logger.info("[EasyChatController] 读取头像失败 assistantId={}", assistantId, e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("读取头像失败: " + e.getMessage()));
+		}
+	}
+
+	private static void sendAvatarFile(ChannelHandlerContext ctx, Path file, String contentType) throws Exception {
+		RandomAccessFile raf = null;
+		try {
+			raf = new RandomAccessFile(file.toFile(), "r");
+			long fileLength = raf.length();
+
+			HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+			response.headers().set(HttpHeaderNames.CONTENT_LENGTH, fileLength);
+			response.headers().set(HttpHeaderNames.CONTENT_TYPE, contentType == null ? "application/octet-stream" : contentType);
+			response.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-cache");
+			response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+			response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "Content-Type");
+			response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, DELETE, OPTIONS");
+
+			ctx.write(response);
+			final RandomAccessFile finalRaf = raf;
+			ctx.write(new ChunkedFile(raf, 0, fileLength, 8192), ctx.newProgressivePromise());
+			ChannelFuture last = ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT);
+			raf = null;
+			last.addListener(new ChannelFutureListener() {
+				@Override
+				public void operationComplete(ChannelFuture future) {
+					try {
+						finalRaf.close();
+					} catch (Exception ignore) {
+					}
+					ctx.close();
+				}
+			});
+		} finally {
+			if (raf != null) {
+				try {
+					raf.close();
+				} catch (Exception ignore) {
+				}
+			}
 		}
 	}
 }

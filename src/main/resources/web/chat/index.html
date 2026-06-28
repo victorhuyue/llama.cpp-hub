@@ -176,6 +176,17 @@
         <div class="composer-hint" data-i18n="page.chat.main.composer.hint">支持粘贴图片、拖放文件或上传文本文件，回车发送，Shift + 回车换行</div>
       </section>
     </main>
+    <aside id="avatarPreviewPanel" class="avatar-preview-panel" aria-hidden="true">
+      <div class="avatar-preview-panel-inner">
+        <div class="avatar-preview-panel-head">
+          <span data-i18n="page.chat.main.avatar_preview.title">查看头像</span>
+          <button id="closeAvatarPreviewBtn" class="icon-button" type="button" aria-label="关闭" data-i18n-attr="aria-label" data-i18n="page.chat.main.lightbox.close">×</button>
+        </div>
+        <div class="avatar-preview-panel-body">
+          <img id="avatarPreviewImage" src="" alt="">
+        </div>
+      </div>
+    </aside>
   </div>
   <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
 
@@ -268,6 +279,22 @@
                   <input id="assistantNameInput" class="drawer-input" type="text" maxlength="40" placeholder="例如：代码助手" data-i18n-attr="placeholder" data-i18n="page.chat.main.settings.general.name_placeholder">
                 </div>
                 <p id="assistantUsageHint" class="settings-field-desc"></p>
+              </div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.general.avatar_label">助手头像</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.general.avatar_desc">为当前助手设置一个头像，提升对话沉浸感</p>
+                <div class="assistant-avatar-row">
+                  <div id="assistantAvatarPreview" class="assistant-avatar-preview">
+                    <span class="assistant-avatar-placeholder">AI</span>
+                  </div>
+                  <div class="assistant-avatar-actions">
+                    <input id="assistantAvatarInput" class="hidden" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+                    <button id="assistantAvatarUploadBtn" class="ghost-button" type="button" data-i18n="page.chat.main.settings.general.avatar_upload">更换头像</button>
+                    <button id="assistantAvatarDeleteBtn" class="ghost-button danger-text" type="button" disabled data-i18n="page.chat.main.settings.general.avatar_delete">删除头像</button>
+                  </div>
+                </div>
               </div>
               <div class="settings-field">
                 <div class="settings-field-header">
@@ -549,6 +576,8 @@
     const MODELS_ENDPOINT = '/v1/models';
     const EASY_CHAT_STATE_ENDPOINT = '/api/chat/state';
     const EASY_CHAT_STATE_REVISION_ENDPOINT = '/api/chat/state/revision';
+    const AVATAR_UPLOAD_ENDPOINT = '/api/chat/avatar/upload';
+    const AVATAR_GET_ENDPOINT = '/api/chat/avatar/get';
     const EASY_CHAT_CONVERSATION_ENDPOINT = '/api/chat/conversation';
     const EASY_CHAT_SYNC_ENDPOINT = '/api/chat/sync';
     const EASY_CHAT_DELETE_ENDPOINT = '/api/chat/delete';
@@ -711,6 +740,9 @@
       chatScroll: document.getElementById('chatScroll'),
       settingsDrawer: document.getElementById('settingsDrawer'),
       closeSettingsBtn: document.getElementById('closeSettingsBtn'),
+      avatarPreviewPanel: document.getElementById('avatarPreviewPanel'),
+      avatarPreviewImage: document.getElementById('avatarPreviewImage'),
+      closeAvatarPreviewBtn: document.getElementById('closeAvatarPreviewBtn'),
       thinkingMenuWrap: document.getElementById('thinkingMenuWrap'),
       thinkingToggleBtn: document.getElementById('thinkingToggleBtn'),
       thinkingMenu: document.getElementById('thinkingMenu'),
@@ -731,6 +763,10 @@
       newAssistantBtn: document.getElementById('newAssistantBtn'),
       deleteAssistantBtn: document.getElementById('deleteAssistantBtn'),
       assistantNameInput: document.getElementById('assistantNameInput'),
+      assistantAvatarPreview: document.getElementById('assistantAvatarPreview'),
+      assistantAvatarInput: document.getElementById('assistantAvatarInput'),
+      assistantAvatarUploadBtn: document.getElementById('assistantAvatarUploadBtn'),
+      assistantAvatarDeleteBtn: document.getElementById('assistantAvatarDeleteBtn'),
       assistantUsageHint: document.getElementById('assistantUsageHint'),
       settingsStorageHint: document.getElementById('settingsStorageHint'),
       saveSettingsBtn: document.getElementById('saveSettingsBtn'),
@@ -1922,6 +1958,9 @@
        enableThinking: normalizeThinkingLevel(assistant?.enableThinking) || normalizeThinkingLevel(fallback?.enableThinking) || 'off',
         enableTimestamp: typeof assistant?.enableTimestamp === 'boolean' ? assistant.enableTimestamp : typeof fallback?.enableTimestamp === 'boolean' ? fallback.enableTimestamp : false,
         systemPrompt: typeof assistant?.systemPrompt === 'string' ? assistant.systemPrompt : typeof fallback?.systemPrompt === 'string' ? fallback.systemPrompt : '',
+        avatarUrl: typeof assistant?.avatarUrl === 'string' && assistant.avatarUrl.trim()
+          ? assistant.avatarUrl.trim()
+          : (typeof fallback?.avatarUrl === 'string' && fallback.avatarUrl.trim() ? fallback.avatarUrl.trim() : null),
         mcpServerUrls: normalizeMcpAssistantUrls(assistant, fallback),
         mcpToolStates: normalizeMcpToolStates(assistant, fallback)
       };
@@ -3803,6 +3842,7 @@
       els.assistantNameInput.readOnly = !!state.privacyMode;
       els.assistantNameInput.setAttribute('aria-readonly', state.privacyMode ? 'true' : 'false');
       els.assistantNameInput.placeholder = state.privacyMode ? window.I18N.t('page.chat.main.topbar.privacy_hidden_placeholder', '隐私模式已隐藏真实助手名') : window.I18N.t('page.chat.main.settings.assistant_name_placeholder', '例如：代码助手');
+      syncAssistantAvatarPreview(currentAssistant);
       if (currentAssistant) {
         els.assistantUsageHint.textContent = window.I18N.t('page.chat.main.settings.assistant_usage_hint', '当前助手已被 {n} 个会话使用').replace('{n}', getAssistantUsageCount(currentAssistant.id));
       } else {
@@ -3815,6 +3855,156 @@
         mcpModule.render();
       }
       syncAutoReplyButton();
+    }
+
+    function syncAssistantAvatarPreview(assistant) {
+      if (!els.assistantAvatarPreview) {
+        return;
+      }
+      const avatarUrl = assistant?.avatarUrl || null;
+      if (avatarUrl) {
+        els.assistantAvatarPreview.innerHTML = '<img src="' + escapeHtml(avatarUrl) + '" alt="">';
+      } else {
+        const label = assistant?.name ? assistant.name.trim().charAt(0).toUpperCase() : 'AI';
+        els.assistantAvatarPreview.innerHTML = '<span class="assistant-avatar-placeholder">' + escapeHtml(label) + '</span>';
+      }
+      if (els.assistantAvatarDeleteBtn) {
+        els.assistantAvatarDeleteBtn.disabled = !avatarUrl;
+      }
+    }
+
+    function getAssistantAvatarUrl(assistant) {
+      if (!assistant?.id) {
+        return null;
+      }
+      if (assistant.avatarUrl && typeof assistant.avatarUrl === 'string') {
+        return assistant.avatarUrl;
+      }
+      return null;
+    }
+
+    function buildAssistantAvatarUrl(assistantId) {
+      return AVATAR_GET_ENDPOINT + '?assistantId=' + encodeURIComponent(assistantId);
+    }
+
+    async function uploadAssistantAvatar(file) {
+      const assistant = getCurrentAssistant();
+      if (!assistant) {
+        showToast('error', window.I18N.t('page.chat.main.message.no_assistant', '当前没有可用助手'));
+        return;
+      }
+      if (!file) {
+        return;
+      }
+
+      const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+      const allowedExts = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+      const fileName = file.name || '';
+      const ext = fileName.split('.').pop().toLowerCase();
+      if (!allowedTypes.includes(file.type) && !allowedExts.includes(ext)) {
+        showToast('error', window.I18N.t('page.chat.main.settings.general.avatar_type_error', '请选择图片文件（png/jpg/jpeg/gif/webp）'));
+        return;
+      }
+      if (file.size > 1024 * 1024) {
+        showToast('error', window.I18N.t('page.chat.main.settings.general.avatar_size_error', '头像图片需小于 1MB'));
+        return;
+      }
+
+      if (els.assistantAvatarUploadBtn) {
+        els.assistantAvatarUploadBtn.disabled = true;
+      }
+      if (els.assistantAvatarDeleteBtn) {
+        els.assistantAvatarDeleteBtn.disabled = true;
+      }
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const url = AVATAR_UPLOAD_ENDPOINT + '?assistantId=' + encodeURIComponent(assistant.id);
+        const response = await fetch(url, {
+          method: 'POST',
+          body: formData,
+          headers: currentApiKey ? { 'Authorization': 'Bearer ' + currentApiKey } : {},
+          signal: AbortSignal.timeout ? AbortSignal.timeout(60000) : undefined
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || ('HTTP ' + response.status));
+        }
+        const json = await response.json();
+        if (!json?.success) {
+          throw new Error(json?.error || json?.message || '上传失败');
+        }
+        const avatarUrl = json?.data?.url || buildAssistantAvatarUrl(assistant.id);
+        assistant.avatarUrl = avatarUrl;
+        syncAssistantAvatarPreview(assistant);
+        renderMessages();
+        updateTypingIndicatorAvatar();
+        await persistState({ immediate: true, showErrorToast: true });
+      } catch (error) {
+        console.error('上传助手头像失败', error);
+        showToast('error', window.I18N.t('page.chat.main.settings.general.avatar_upload_failed', '头像上传失败：{message}').replace('{message}', error?.message || '未知错误'));
+      } finally {
+        if (els.assistantAvatarUploadBtn) {
+          els.assistantAvatarUploadBtn.disabled = false;
+        }
+        if (els.assistantAvatarDeleteBtn) {
+          els.assistantAvatarDeleteBtn.disabled = !assistant?.avatarUrl;
+        }
+        if (els.assistantAvatarInput) {
+          els.assistantAvatarInput.value = '';
+        }
+      }
+    }
+
+    async function deleteAssistantAvatar() {
+      const assistant = getCurrentAssistant();
+      if (!assistant) {
+        return;
+      }
+      assistant.avatarUrl = null;
+      syncAssistantAvatarPreview(assistant);
+      renderMessages();
+      updateTypingIndicatorAvatar();
+      await persistState({ immediate: true, showErrorToast: true });
+    }
+
+    /* ---- Avatar preview panel ---- */
+
+    function openAvatarPreview(avatarUrl) {
+      if (!avatarUrl || !els.avatarPreviewPanel || !els.avatarPreviewImage) {
+        return;
+      }
+      if (window.innerWidth < 1200) {
+        return;
+      }
+      els.avatarPreviewImage.src = avatarUrl;
+      document.body.classList.add('avatar-preview-open');
+      els.avatarPreviewPanel.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeAvatarPreview() {
+      document.body.classList.remove('avatar-preview-open');
+      if (els.avatarPreviewPanel) {
+        els.avatarPreviewPanel.setAttribute('aria-hidden', 'true');
+      }
+      if (els.avatarPreviewImage) {
+        els.avatarPreviewImage.src = '';
+      }
+    }
+
+    function toggleAvatarPreview(avatarUrl) {
+      if (!avatarUrl) {
+        closeAvatarPreview();
+        return;
+      }
+      const isOpen = document.body.classList.contains('avatar-preview-open');
+      const currentSrc = els.avatarPreviewImage?.src || '';
+      if (isOpen && currentSrc === avatarUrl) {
+        closeAvatarPreview();
+      } else {
+        openAvatarPreview(avatarUrl);
+      }
     }
 
     function applySettingsInputsToState() {
@@ -5146,14 +5336,25 @@
         : message.role === 'tool'
           ? (message.toolName ? window.I18N.t('page.chat.main.message.tool_role', '工具 · {name}').replace('{name}', message.toolName) : window.I18N.t('page.chat.main.message.tool_role_simple', '工具'))
           : assistantDisplayName;
-      const avatarLabel = message.role === 'user' ? window.I18N.t('page.chat.main.message.avatar_user', '你') : (message.role === 'tool' ? window.I18N.t('page.chat.main.message.avatar_tool', '工') : 'AI');
+      const isUser = message.role === 'user';
+      const isTool = message.role === 'tool';
+      const assistant = (!isUser && !isTool) ? getCurrentAssistant() : null;
+      const avatarUrl = assistant?.avatarUrl || null;
+      const avatarLabel = isUser ? window.I18N.t('page.chat.main.message.avatar_user', '你') : (isTool ? window.I18N.t('page.chat.main.message.avatar_tool', '工') : 'AI');
 
       const head = document.createElement('div');
       head.className = 'message-head';
-      head.innerHTML =
-        '<span class="avatar">' + avatarLabel + '</span>' +
-        '<strong>' + escapeHtml(messageTitle) + '</strong>' +
-        '<span>' + escapeHtml(message.time || nowTime()) + '</span>';
+      if (!isUser && !isTool && avatarUrl) {
+        head.innerHTML =
+          '<span class="avatar"><img src="' + escapeHtml(avatarUrl) + '" alt=""></span>' +
+          '<strong>' + escapeHtml(messageTitle) + '</strong>' +
+          '<span>' + escapeHtml(message.time || nowTime()) + '</span>';
+      } else {
+        head.innerHTML =
+          '<span class="avatar">' + avatarLabel + '</span>' +
+          '<strong>' + escapeHtml(messageTitle) + '</strong>' +
+          '<span>' + escapeHtml(message.time || nowTime()) + '</span>';
+      }
 
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
@@ -6120,14 +6321,37 @@
 
     function showTypingIndicator(modelName) {
       removeTypingIndicator();
+      const assistant = getCurrentAssistant();
+      const avatarUrl = assistant?.avatarUrl || null;
+      const avatarHtml = avatarUrl
+        ? '<span class="avatar"><img src="' + escapeHtml(avatarUrl) + '" alt=""></span>'
+        : '<span class="avatar">AI</span>';
       const indicator = document.createElement('div');
       indicator.className = 'typing-indicator';
       indicator.id = 'typingIndicator';
       indicator.innerHTML =
-        '<div class="message-head"><span class="avatar">AI</span><strong>' + escapeHtml(getAssistantDisplayName(null, modelName)) + '</strong></div>' +
+        '<div class="message-head">' + avatarHtml + '<strong>' + escapeHtml(getAssistantDisplayName(null, modelName)) + '</strong></div>' +
         '<div class="typing-bubble"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>';
       els.messages.appendChild(indicator);
       scrollChatToBottom();
+    }
+
+    function updateTypingIndicatorAvatar() {
+      const indicator = document.getElementById('typingIndicator');
+      if (!indicator) {
+        return;
+      }
+      const assistant = getCurrentAssistant();
+      const avatarUrl = assistant?.avatarUrl || null;
+      const avatarSpan = indicator.querySelector('.message-head .avatar');
+      if (!avatarSpan) {
+        return;
+      }
+      if (avatarUrl) {
+        avatarSpan.innerHTML = '<img src="' + escapeHtml(avatarUrl) + '" alt="">';
+      } else {
+        avatarSpan.textContent = 'AI';
+      }
     }
 
     function removeTypingIndicator() {
@@ -9380,6 +9604,60 @@ function confirmAudioRecording() {
       els.saveSettingsBtn.addEventListener('click', async () => {
         await saveSettings();
         closeSettings();
+      });
+      if (els.assistantAvatarUploadBtn && els.assistantAvatarInput) {
+        els.assistantAvatarUploadBtn.addEventListener('click', () => {
+          els.assistantAvatarInput.click();
+        });
+        els.assistantAvatarInput.addEventListener('change', event => {
+          const file = event.target.files?.[0];
+          if (file) {
+            uploadAssistantAvatar(file);
+          }
+        });
+      }
+      if (els.assistantAvatarDeleteBtn) {
+        els.assistantAvatarDeleteBtn.addEventListener('click', () => {
+          const assistant = getCurrentAssistant();
+          if (!assistant?.avatarUrl) {
+            return;
+          }
+          deleteAssistantAvatar();
+        });
+      }
+      if (els.messages) {
+        els.messages.addEventListener('click', event => {
+          const avatar = event.target.closest('.avatar');
+          if (!avatar) {
+            return;
+          }
+          const article = avatar.closest('article.message');
+          const inTypingIndicator = avatar.closest('.typing-indicator') !== null;
+          const isAssistant = (article && article.classList.contains('assistant')) || inTypingIndicator;
+          if (!isAssistant) {
+            return;
+          }
+          const assistant = getCurrentAssistant();
+          const avatarUrl = assistant?.avatarUrl;
+          if (!avatarUrl) {
+            return;
+          }
+          event.stopPropagation();
+          toggleAvatarPreview(avatarUrl);
+        });
+      }
+      if (els.closeAvatarPreviewBtn) {
+        els.closeAvatarPreviewBtn.addEventListener('click', closeAvatarPreview);
+      }
+      window.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && document.body.classList.contains('avatar-preview-open')) {
+          closeAvatarPreview();
+        }
+      });
+      window.addEventListener('resize', () => {
+        if (window.innerWidth < 1200 && document.body.classList.contains('avatar-preview-open')) {
+          closeAvatarPreview();
+        }
       });
       if (mcpModule) {
         mcpModule.bindEvents();

@@ -361,19 +361,24 @@ public class EasyChatService {
 					}
 				}
 				if (!targetHasToolCalls) {
-					for (long seq = 0; seq < regenerateSeq; seq++) {
+					// Only reject when the immediate preceding non-deleted fragment is a
+					// tool result — that is the case where llama.cpp emits EOS immediately.
+					// Regenerating later messages (whose preceding fragment is a user or
+					// assistant message) is safe.
+					for (long seq = regenerateSeq - 1; seq >= 0; seq--) {
 						EasyChatStorage.FragmentHeader h = storage.readFragmentHeader(convDir, seq);
 						if (h == null || storage.isDeleted(h)) { continue; }
 						int v = storage.resolveVariantIndex(h, variants != null ? variants.get(seq) : null);
 						if (v < 0) { v = h.activeVariantIndex; }
 						if (v < 0) { v = 0; }
 						byte[] p = storage.readPayload(convDir, seq, v);
-						if (p == null || p.length == 0) { continue; }
+						if (p == null || p.length == 0) { break; }
 						JsonObject m = JsonUtil.tryParseObject(new String(p, StandardCharsets.UTF_8));
 						if (m != null && "tool".equals(JsonUtil.getJsonString(m, "role", ""))) {
 							LlamaServer.sendJsonResponse(ctx, ApiResponse.error("该回复依赖工具调用上下文，无法重新生成"));
 							return;
 						}
+						break;
 					}
 				}
 			} catch (Exception e) {

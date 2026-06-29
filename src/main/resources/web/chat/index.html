@@ -7185,10 +7185,11 @@
         // Reject regenerate of a tool-call-following assistant: llama.cpp emits EOS
         // immediately when regenerating the final reply after a tool result. Mirrors
         // the backend precheck in EasyChatService. Regenerate of the tool_calls-bearing
-        // assistant itself remains allowed.
+        // assistant itself remains allowed. Later messages after the tool round are
+        // also safe (their preceding fragment is a user/assistant message, not a tool).
         if (!hasAssistantToolCalls(message)) {
-          const hasPriorTool = conversation.messages.slice(0, index).some(m => m.role === 'tool');
-          if (hasPriorTool) {
+          const prevMsg = conversation.messages[index - 1];
+          if (prevMsg?.role === 'tool') {
             showToast('info', window.I18N.t('page.chat.main.status.regenerate_tool_context_unsupported', '该回复依赖工具调用上下文，无法重新生成'));
             return;
           }

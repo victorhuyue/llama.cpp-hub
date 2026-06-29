@@ -628,6 +628,7 @@
   "page.model.filter.all": "All",
   "page.model.filter.local": "Local",
   "page.model.filter.remote": "Remote",
+  "page.model.filter.loaded_only": "Loaded Only",
   "page.model.search_placeholder": "Search models...",
   "page.model.section.all": "All Models",
   "page.model.empty_remote_title": "No remote models",

@@ -330,6 +330,10 @@ function sortAndRenderModels() {
         filtered = currentModelsData.filter(m => m && m.nodeId === nodeFilter);
     }
 
+    if (getLoadedOnly()) {
+        filtered = filtered.filter(m => m && m.isLoaded);
+    }
+
     const comparator = getModelSortComparator(sortType);
     const all = [...filtered];
 
@@ -681,6 +685,34 @@ function applyRunningFirstUI() {
     const btn = document.getElementById('runningFirstToggle');
     if (btn) {
         btn.classList.toggle('active', getRunningFirst());
+    }
+}
+
+function getLoadedOnly() {
+    try {
+        return localStorage.getItem('loadedOnly') === 'true';
+    } catch (e) {
+        return false;
+    }
+}
+
+function setLoadedOnly(val) {
+    try {
+        localStorage.setItem('loadedOnly', String(val));
+    } catch (e) {}
+}
+
+function toggleLoadedOnly() {
+    const next = !getLoadedOnly();
+    setLoadedOnly(next);
+    applyLoadedOnlyUI();
+    sortAndRenderModels();
+}
+
+function applyLoadedOnlyUI() {
+    const btn = document.getElementById('loadedOnlyToggle');
+    if (btn) {
+        btn.classList.toggle('active', getLoadedOnly());
     }
 }
 

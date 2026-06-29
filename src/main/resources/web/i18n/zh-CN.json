@@ -628,6 +628,7 @@
   "page.model.filter.all": "全部",
   "page.model.filter.local": "本机",
   "page.model.filter.remote": "远程",
+  "page.model.filter.loaded_only": "仅已加载",
   "page.model.search_placeholder": "搜索模型...",
   "page.model.section.all": "全部模型",
   "page.model.empty_remote_title": "没有远程模型",

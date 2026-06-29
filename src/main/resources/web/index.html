@@ -2531,6 +2531,11 @@
                     onclick="toggleRunningFirst()">
                     <i class="fas fa-bolt"></i>
                 </button>
+                <button id="loadedOnlyToggle" class="btn-icon" style="width:36px;height:36px;"
+                    title="page.model.filter.loaded_only" data-i18n="page.model.filter.loaded_only" data-i18n-attr="title"
+                    onclick="toggleLoadedOnly()">
+                    <i class="fas fa-check-circle"></i>
+                </button>
                 <button id="modelViewToggle" class="btn-icon" style="width:36px;height:36px;"
                     title="Toggle view" onclick="toggleModelView()">
                     <i class="fas fa-th-large"></i>
@@ -4605,6 +4610,7 @@ llama.cpp-hub</textarea>
             updateChatCompletionLinkForDevice();
             applyModelView();
             applyRunningFirstUI();
+            applyLoadedOnlyUI();
         });
 
         window.addEventListener('i18n:ready', function (e) {

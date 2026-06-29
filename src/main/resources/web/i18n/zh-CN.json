@@ -916,6 +916,8 @@
   "param.server.reasoning_format.desc": "--reasoning-format：控制是否允许及/或从响应中提取思考标签，以及它们的返回格式；可选值：none: 在 message.content 中保留未解析的思考内容； deepseek：将思考内容放入 message.reasoning_content； deepseek-legacy：在 message.content 中保留<think>标签，同时填充 message.reasoning_content（默认：auto）",
   "param.server.reasoning_budget.name": "强制推理",
   "param.server.reasoning_budget.desc": "--reasoning-budget：控制允许的思考量；-1 表示无限制思考预算，或 0 表示禁用思考，其它任意参数：思维链的最大长度，但是未必一定有效（默认：-1）。",
+  "param.server.reasoning_preserve.name": "保留推理痕迹",
+  "param.server.reasoning_preserve.desc": "--reasoning-preserve：在完整的对话历史中保留推理/思考痕迹，而不仅仅是最后一条assistant消息。兼容支持 supports_preserve_reasoning 能力的模板（默认：auto，由模板决定）。",
   "param.server.no_mmproj_offload.name": "禁用mmproj卸载",
   "param.server.no_mmproj_offload.desc": "--no-mmproj-offload：卸载mmproj投影到CPU，当GPU显存不足时，可以开启该选项，但是CPU处理图片的性能往往不如GPU。",
   "param.server.mmproj.name": "多模态投影文件 (mmproj)",

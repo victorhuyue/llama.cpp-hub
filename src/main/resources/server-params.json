@@ -845,14 +845,36 @@
     "groupCollapsed": true
   },
   {
-    "name": "param.server.spec_type_mtp.name",
-    "fullName": "--spec-type_draft-mtp",
-    "abbreviation": "--spec-type_draft-mtp",
-    "type": "LOGIC",
-    "defaultValue": "0",
-    "description": "param.server.spec_type_mtp.desc",
+    "name": "param.server.spec_type.name",
+    "fullName": "--spec-type",
+    "abbreviation": "",
+    "type": "STRING",
+    "defaultValue": "none",
+    "description": "param.server.spec_type.desc",
+    "values": [
+      {
+        "value": "none",
+        "label": "无"
+      },
+      {
+        "value": "draft-simple",
+        "label": "独立草稿模型（Simple）"
+      },
+      {
+        "value": "draft-eagle3",
+        "label": "Eagle3 草稿模型"
+      },
+      {
+        "value": "draft-mtp",
+        "label": "MTP（多 Token 预测）"
+      },
+      {
+        "value": "draft-dflash",
+        "label": "dFlash 草稿模型"
+      }
+    ],
     "sort": 0,
-    "defaultEnabled": false,
+    "defaultEnabled": true,
     "group": "page.params.group.draft_model",
     "groupOrder": 70,
     "groupCollapsed": true

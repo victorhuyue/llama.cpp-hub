@@ -2241,9 +2241,10 @@ public class LlamaServerManager {
 	/**
 	 * 合并多个 --spec-type 为逗号分隔形式。
 	 * 处理两种格式：
-	 *   --spec-type_xxx（下划线，来自前端 LOGIC 参数）
-	 *   --spec-type xxx（空格，来自 extraParams）
+	 *   --spec-type_xxx（下划线，来自前端 LOGIC 参数，如 ngram-mod）
+	 *   --spec-type xxx（空格，来自前端 STRING 参数或 extraParams）
 	 * 输出：--spec-type val1,val2,val3
+	 * 注意：STRING 参数 --spec-type 的值若为 none 则不添加。
 	 */
 	private static String splitSpecType(String input) {
 		if (input == null || input.isEmpty()) return input;
@@ -2255,15 +2256,18 @@ public class LlamaServerManager {
 		for (int i = 0; i < tokens.length; i++) {
 			String t = tokens[i];
 
+			// --spec-type_xxx（如 ngram-mod、ngram-map-k4v）
 			if (t.startsWith("--spec-type_")) {
 				String v = t.substring("--spec-type_".length());
 				if (!v.isEmpty()) values.add(v);
 				continue;
 			}
 
+			// --spec-type xxx
 			if ("--spec-type".equals(t) && i + 1 < tokens.length) {
 				String v = tokens[i + 1];
-				if (!v.isEmpty()) values.add(v);
+				// 过滤掉 "none"（表示未启用）
+				if (!v.isEmpty() && !"none".equals(v)) values.add(v);
 				i++;
 				continue;
 			}

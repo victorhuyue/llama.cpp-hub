@@ -197,7 +197,7 @@ loadModelInBackgroundFromCmd()
 
 ### 特殊处理
 
-- **多个 `--spec-type` 合并** — `splitSpecType()` 将多个 `--spec-type val` 合并为 `--spec-type val1,val2,val3`
+- **多个 `--spec-type` 合并** — `splitSpecType()` 将 `--spec-type_model=xxx`、`--spec-type_ngram-mod`、`--spec-type xxx` 合并为 `--spec-type xxx,ngram-mod,...`
 - **设备单元素与多元素差异** — 单设备使用 `-sm none --device X`；多设备使用 `--device X,Y,Z`
 - **`--no-webui`** 已被注释禁用
 

@@ -1,14 +1,19 @@
 package org.mark.llamacpp.server.service;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.mark.llamacpp.server.LlamaServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -177,21 +182,56 @@ public class StreamingForwarder {
      * 有 nodeId → 仅注入 timing 参数后转发；无 nodeId → 注入采样参数 + timing 参数后转发。
      */
     public void streamBody(OutputStream output, Boolean clientEnableThinking) throws IOException {
-        String timingInjection = "\"timings_per_token\":true,\"return_progress\":true";
-        if (nodeId != null && !nodeId.isBlank()) {
-            // 远程节点同样默认开启 timing，确保每个 chunk 都携带性能数据
-            long injected = bodyBuffer.streamInjected(output, timingInjection);
-            logger.info("[远程代理] nodeId={}, injected={} bytes", nodeId, injected);
-        } else {
-            String injection = SamplingInjectionBuilder.buildInjectionString(modelName, clientEnableThinking);
-            if (!injection.isEmpty()) {
-                injection = injection + "," + timingInjection;
-            } else {
-                injection = timingInjection;
+        OutputStream logOutput = null;
+        OutputStream targetOutput = output;
+        
+        if (LlamaServer.logRequestBodyToFile) {
+            try {
+                logOutput = createLogFile();
+                targetOutput = new TeeOutputStream(output, logOutput);
+                logger.info("[Debug] 请求体日志已开启: {}", modelName);
+            } catch (IOException e) {
+                logger.warn("[Debug] 创建请求体日志文件失败，继续使用原始输出: {}", e.getMessage());
             }
-            long injected = bodyBuffer.streamInjected(output, injection);
-            logger.info("[注入] model={}, injected={} bytes: {}", modelName, injected, injection);
         }
+        
+        String timingInjection = "\"timings_per_token\":true,\"return_progress\":true";
+        try {
+            if (nodeId != null && !nodeId.isBlank()) {
+                long injected = bodyBuffer.streamInjected(targetOutput, timingInjection);
+                logger.info("[远程代理] nodeId={}, injected={} bytes", nodeId, injected);
+            } else {
+                String injection = SamplingInjectionBuilder.buildInjectionString(modelName, clientEnableThinking);
+                if (!injection.isEmpty()) {
+                    injection = injection + "," + timingInjection;
+                } else {
+                    injection = timingInjection;
+                }
+                long injected = bodyBuffer.streamInjected(targetOutput, injection);
+                logger.info("[注入] model={}, injected={} bytes: {}", modelName, injected, injection);
+            }
+        } finally {
+            if (logOutput != null) {
+                try {
+                    logOutput.close();
+                } catch (IOException e) {
+                    logger.warn("[Debug] 关闭请求体日志文件失败", e);
+                }
+            }
+        }
+    }
+    
+    private OutputStream createLogFile() throws IOException {
+        Path logDir = Paths.get("cache", "logs").toAbsolutePath();
+        if (!Files.exists(logDir)) {
+            Files.createDirectories(logDir);
+        }
+        String safeModel = modelName != null && !modelName.isEmpty() 
+            ? modelName.replace("/", "_").replace("\\", "_") 
+            : "unknown";
+        String filename = System.currentTimeMillis() + "_" + safeModel + ".json";
+        Path logFile = logDir.resolve(filename);
+        return new FileOutputStream(logFile.toFile());
     }
 
     /**

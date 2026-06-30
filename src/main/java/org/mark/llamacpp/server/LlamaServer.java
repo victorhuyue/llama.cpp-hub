@@ -509,6 +509,11 @@ public class LlamaServer {
      */
     public static boolean logRequestBody = false;
     
+    /**
+     * 日志相关：将请求体（注入参数后）写入本地文件，每个请求独立文件，用于调试。
+     */
+    public static boolean logRequestBodyToFile = false;
+    
     
     // 一些默认的目录，必须创建
     static {
@@ -613,6 +618,9 @@ public class LlamaServer {
 				if (logging.has("logRequestBody")) {
 					logRequestBody = logging.get("logRequestBody").getAsBoolean();
 				}
+				if (logging.has("logRequestBodyToFile")) {
+					logRequestBodyToFile = logging.get("logRequestBodyToFile").getAsBoolean();
+				}
 			}
 		}
 		
@@ -690,6 +698,7 @@ public class LlamaServer {
 				logging.addProperty("logRequestUrl", logRequestUrl);
 				logging.addProperty("logRequestHeader", logRequestHeader);
 				logging.addProperty("logRequestBody", logRequestBody);
+				logging.addProperty("logRequestBodyToFile", logRequestBodyToFile);
 				root.add("logging", logging);
 				
 				JsonObject https = new JsonObject();

@@ -53,11 +53,10 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
 
-public class EasyChatService {
+	public class EasyChatService {
 
 	private static final Logger logger = LoggerFactory.getLogger(EasyChatService.class);
 	private static final int STREAM_TIMEOUT_MS = 36000 * 1000;
-	private static final boolean ENABLE_REQUEST_LOG = false;
 	
 
 	private static EasyChatService instance;
@@ -1219,14 +1218,14 @@ public class EasyChatService {
 		}
 	}
 
-   /**
-     * Create a FileOutputStream for request logging.
-     * Returns null if ENABLE_REQUEST_LOG is false or file creation fails (non-fatal).
-     */
-    private OutputStream createRequestLogStream(String conversationId, String modelId) {
-        if (!ENABLE_REQUEST_LOG) {
-            return null;
-        }
+    /**
+      * Create a FileOutputStream for request logging.
+      * Returns null if LlamaServer.logRequestBodyToFile is false or file creation fails (non-fatal).
+      */
+     private OutputStream createRequestLogStream(String conversationId, String modelId) {
+         if (!LlamaServer.logRequestBodyToFile) {
+             return null;
+         }
         try {
             Path logDir = LlamaServer.getCachePath().resolve("easy-chat");
             if (!Files.exists(logDir)) {

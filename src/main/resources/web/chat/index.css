@@ -476,6 +476,70 @@ button { cursor: pointer; }
   min-width: 0;
 }
 
+.main.has-background-image {
+  position: relative;
+  isolation: isolate;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* 背景图上方的主题自适应遮罩层，用于淡化背景 */
+.main.has-background-image::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 68%, transparent);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.main.has-background-image .topbar {
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.main.has-background-image .chat-scroll {
+  background: transparent;
+}
+
+.main.has-background-image .composer-shell {
+  background: transparent;
+}
+
+.main.has-background-image .composer-card {
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.main.has-background-image .empty-card {
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* 消息气泡半透明，使背景隐约透出但文字仍可读 */
+.main.has-background-image .message {
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  border-radius: calc(var(--radius) + 4px);
+  padding: 14px 16px;
+  margin: 6px 0;
+}
+
+.main.has-background-image .message + .message {
+  border-top: none;
+}
+
+.main.has-background-image .reasoning-box {
+  background: color-mix(in srgb, var(--muted-bg) 86%, transparent);
+}
+
+.main.has-background-image .message pre code {
+  background: color-mix(in srgb, var(--muted-bg) 86%, transparent);
+}
+
 /* ── Avatar preview panel (right sidebar) ── */
 .avatar-preview-panel {
   display: none;
@@ -1508,6 +1572,58 @@ button { cursor: pointer; }
 }
 
 .assistant-avatar-actions .ghost-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-bg-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.chat-bg-preview {
+  width: 120px;
+  height: 72px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: var(--muted-bg);
+  color: var(--muted);
+  display: inline-grid;
+  place-items: center;
+  font-size: 13px;
+  border: 1px solid var(--border);
+}
+
+.chat-bg-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.chat-bg-placeholder {
+  user-select: none;
+}
+
+.chat-bg-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-bg-actions .ghost-button {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.chat-bg-actions .ghost-button.danger-text {
+  color: var(--danger);
+}
+
+.chat-bg-actions .ghost-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

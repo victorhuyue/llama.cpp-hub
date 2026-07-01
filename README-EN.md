@@ -2,13 +2,8 @@
 
 [🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md)
 
-> ⚠️ **Important Reminder: About Easy Chat**
->
-> The author has been refactoring and optimizing the project recently, but due to high complexity, various weird bugs keep appearing. **Easy Chat (the built-in chat tool)** has a risk of failing to load chat history.
->
 > **Please do not store important content in Easy Chat.**
->
-> ⚠️ **Warning: In future versions, the old Easy Chat logic will be completely rewritten, and all existing chat records will become unusable.**
+> **Place each model in its own separate folder; if you are concerned about the `mmproj` file, place it in a separate folder as well, and simply select it via the startup parameters.**
 
 Slapping a web UI on llama.cpp — a graphical interface to wrangle models and llama.cpp. Packed with way too many bells and whistles.
 

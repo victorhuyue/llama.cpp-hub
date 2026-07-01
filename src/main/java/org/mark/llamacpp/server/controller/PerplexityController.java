@@ -12,7 +12,9 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.NodeManager;
@@ -68,9 +70,12 @@ public class PerplexityController implements BaseController {
 			return true;
 		}
 		if (path.startsWith("/api/perplexity/records/")) {
+			// 路径格式: /api/perplexity/records/{fileName}，nodeId 从查询参数读取
 			String fileName = path.substring("/api/perplexity/records/".length());
-			handleRecordByFilename(ctx, request, fileName);
-			return true;
+			if (!fileName.isEmpty()) {
+				handleRecordByFilename(ctx, request, fileName);
+				return true;
+			}
 		}
 		return false;
 	}
@@ -130,7 +135,7 @@ public class PerplexityController implements BaseController {
 	}
 
 	private void handleRemoteRun(ChannelHandlerContext ctx, JsonObject json, String nodeId) {
-		// 转发给远程节点时移除 nodeId，避免递归代理
+		// 转发给远程节点时移除 nodeId，让远程节点执行本地运行
 		JsonObject forwarded = json.deepCopy();
 		forwarded.remove("nodeId");
 
@@ -177,11 +182,13 @@ public class PerplexityController implements BaseController {
 		});
 	}
 
+	@SuppressWarnings("unchecked")
 	private void handleListRecords(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
 		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
 		try {
-			File dir = new File("benchmarks");
 			List<Map<String, Object>> records = new ArrayList<>();
+			// 读取本地记录
+			File dir = new File("benchmarks");
 			if (dir.exists() && dir.isDirectory()) {
 				File[] all = dir.listFiles();
 				if (all != null) {
@@ -198,10 +205,12 @@ public class PerplexityController implements BaseController {
 							if (obj == null) {
 								continue;
 							}
+							String recordNode = obj.has("nodeId") ? obj.get("nodeId").getAsString() : "local";
 							Map<String, Object> info = new HashMap<>();
 							info.put("fileName", name);
+							info.put("fileNameWithNode", recordNode + "/" + name);
 							info.put("modelId", obj.has("modelId") ? obj.get("modelId").getAsString() : "");
-							info.put("nodeId", obj.has("nodeId") ? obj.get("nodeId").getAsString() : "local");
+							info.put("nodeId", recordNode);
 							info.put("timestamp", obj.has("timestamp") ? obj.get("timestamp").getAsString() : fmt.format(new Date(f.lastModified())));
 							if (obj.has("ppl") && !obj.get("ppl").isJsonNull()) {
 								info.put("ppl", obj.get("ppl").getAsDouble());
@@ -218,6 +227,31 @@ public class PerplexityController implements BaseController {
 					}
 				}
 			}
+
+			// 聚合远程节点记录（仅在 master 节点）
+			if (LlamaServer.isMasterNode()) {
+				List<org.mark.llamacpp.server.LlamaHubNode> remoteNodes = NodeManager.getInstance().listEnabledNodes();
+				if (!remoteNodes.isEmpty()) {
+					try {
+						Map<String, Object> remoteRecords = fetchRemoteRecords(remoteNodes);
+						List<Map<String, Object>> remoteRecordList = (List<Map<String, Object>>) remoteRecords.get("records");
+						if (remoteRecordList != null) {
+							records.addAll(remoteRecordList);
+						}
+						// 按时间戳降序排序所有记录
+						records.sort((a, b) -> {
+							String ta = (String) a.get("timestamp");
+							String tb = (String) b.get("timestamp");
+							if (ta == null) ta = "";
+							if (tb == null) tb = "";
+							return tb.compareTo(ta);
+						});
+					} catch (Exception e) {
+						logger.warn("获取远程节点困惑度记录失败: {}", e.getMessage());
+					}
+				}
+			}
+
 			Map<String, Object> data = new HashMap<>();
 			data.put("records", records);
 			data.put("count", records.size());
@@ -225,6 +259,92 @@ public class PerplexityController implements BaseController {
 		} catch (Exception e) {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取困惑度测试记录列表失败: " + e.getMessage()));
 		}
+	}
+
+	/**
+	 * 从远程节点获取困惑度测试记录（并行请求）
+	 */
+	@SuppressWarnings("unchecked")
+	private Map<String, Object> fetchRemoteRecords(List<org.mark.llamacpp.server.LlamaHubNode> remoteNodes) {
+		Map<String, Object> result = new HashMap<>();
+		List<Map<String, Object>> allRecords = new ArrayList<>();
+
+		// 并行获取所有远程节点的记录
+		List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
+		for (org.mark.llamacpp.server.LlamaHubNode node : remoteNodes) {
+			futures.add(CompletableFuture.supplyAsync(() -> {
+				String currentNodeId = node.getNodeId();
+				Map<String, Object> nodeRecords = new HashMap<>();
+				try {
+					NodeManager.StreamResult sr = NodeManager.getInstance().callRemoteApiStreaming(
+							currentNodeId, "GET", "api/perplexity/records", (JsonObject) null, Collections.emptyMap(), 10000);
+					if (!sr.isSuccess()) {
+						logger.debug("远程节点 {} 调用失败: HTTP {}", currentNodeId, sr.getStatusCode());
+						return nodeRecords;
+					}
+					try (InputStream in = sr.getBody()) {
+						byte[] bytes = in.readAllBytes();
+						String jsonStr = new String(bytes, StandardCharsets.UTF_8);
+						JsonObject obj = JsonUtil.fromJson(jsonStr, JsonObject.class);
+						if (obj != null && obj.has("success") && obj.get("success").getAsBoolean()) {
+							JsonObject data = obj.getAsJsonObject("data");
+							if (data != null && data.has("records") && data.get("records").isJsonArray()) {
+								var recordArr = data.getAsJsonArray("records");
+								// 转为列表，清洗数据：nodeId 始终用当前远程节点 ID，清理文件名前缀
+								List<Map<String, Object>> records = new ArrayList<>();
+								for (var elem2 : recordArr) {
+									JsonObject r2 = elem2.getAsJsonObject();
+									Map<String, Object> m = new HashMap<>();
+									String rawName = r2.get("fileName").getAsString();
+									// 清理 : 和 / 前缀，保留纯文件名
+									String pureName = rawName;
+									int colonIdx = pureName.indexOf(':');
+									if (colonIdx > 0) pureName = pureName.substring(colonIdx + 1);
+									int slashIdx = pureName.indexOf('/');
+									if (slashIdx >= 0) pureName = pureName.substring(slashIdx + 1);
+									// nodeId 必须用 currentNodeId，不读取记录的 nodeId（可能错误）
+									m.put("fileName", pureName);
+									m.put("fileNameWithNode", currentNodeId + "/" + pureName);
+									m.put("modelId", r2.has("modelId") ? r2.get("modelId").getAsString() : "");
+									m.put("nodeId", currentNodeId);
+									m.put("timestamp", r2.has("timestamp") ? r2.get("timestamp").getAsString() : "");
+									if (r2.has("ppl") && !r2.get("ppl").isJsonNull()) {
+										m.put("ppl", r2.get("ppl").getAsDouble());
+									}
+									if (r2.has("uncertainty") && !r2.get("uncertainty").isJsonNull()) {
+										m.put("uncertainty", r2.get("uncertainty").getAsDouble());
+									}
+									m.put("exitCode", r2.has("exitCode") ? r2.get("exitCode").getAsInt() : -1);
+									m.put("elapsedMs", r2.has("elapsedMs") ? r2.get("elapsedMs").getAsLong() : 0);
+									records.add(m);
+								}
+								nodeRecords.put("records", records);
+							}
+						}
+					} finally {
+						sr.abort();
+					}
+				} catch (Exception e) {
+					logger.debug("读取远程节点 {} 困惑度记录失败: {}", currentNodeId, e.getMessage());
+				}
+				return nodeRecords;
+			}));
+		}
+		// 等待所有结果
+		for (CompletableFuture<Map<String, Object>> f : futures) {
+			try {
+				Map<String, Object> nodeRecords = f.get(30, TimeUnit.SECONDS);
+				List<Map<String, Object>> recs = (List<Map<String, Object>>) nodeRecords.get("records");
+				if (recs != null) {
+					allRecords.addAll(recs);
+				}
+			} catch (Exception e) {
+				logger.debug("等待远程记录结果超时或失败: {}", e.getMessage());
+			}
+		}
+
+		result.put("records", allRecords);
+		return result;
 	}
 
 	private void handleRecordByFilename(ChannelHandlerContext ctx, FullHttpRequest request, String fileName)
@@ -237,10 +357,46 @@ public class PerplexityController implements BaseController {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("文件名不合法"));
 			return;
 		}
+
+		// 从查询参数读取 nodeId，缺省为 local
+		String nodeId = "local";
+		String query = request.uri();
+		int qIdx = query.indexOf('?');
+		if (qIdx > 0) {
+			String queryString = query.substring(qIdx + 1);
+			String[] params = queryString.split("&");
+			for (String param : params) {
+				if (param.startsWith("nodeId=")) {
+					nodeId = param.substring("nodeId=".length());
+					break;
+				}
+			}
+		}
+
+		// 本地文件处理
+		if ("local".equalsIgnoreCase(nodeId)) {
+			if (request.method() == HttpMethod.GET) {
+				handleGetRecord(ctx, fileName);
+			} else if (request.method() == HttpMethod.DELETE) {
+				handleDeleteRecord(ctx, fileName);
+			} else {
+				this.assertRequestMethod(true, "只支持GET或DELETE请求");
+			}
+			return;
+		}
+
+		// 远程节点：验证节点存在
+		var node = NodeManager.getInstance().getNode(nodeId);
+		if (node == null) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("未找到节点: " + nodeId));
+			return;
+		}
+
+		// 转发到远程节点
 		if (request.method() == HttpMethod.GET) {
-			handleGetRecord(ctx, fileName);
+			handleForwardRecord(ctx, nodeId, fileName, "GET");
 		} else if (request.method() == HttpMethod.DELETE) {
-			handleDeleteRecord(ctx, fileName);
+			handleForwardRecord(ctx, nodeId, fileName, "DELETE");
 		} else {
 			this.assertRequestMethod(true, "只支持GET或DELETE请求");
 		}
@@ -289,6 +445,43 @@ public class PerplexityController implements BaseController {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 		} catch (Exception e) {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("删除困惑度测试记录失败: " + e.getMessage()));
+		}
+	}
+
+	private void handleForwardRecord(ChannelHandlerContext ctx, String nodeId, String fileName, String method) {
+		try {
+			String remotePath = "api/perplexity/records/" + java.net.URLEncoder.encode(fileName, StandardCharsets.UTF_8)
+					+ "?nodeId=" + java.net.URLEncoder.encode(nodeId, StandardCharsets.UTF_8);
+			NodeManager.StreamResult sr = NodeManager.getInstance().callRemoteApiStreaming(
+					nodeId, method, remotePath,
+					(JsonObject) null, Collections.emptyMap(), 10000);
+			if (!sr.isSuccess()) {
+				sr.abort();
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败 (HTTP " + sr.getStatusCode() + ")"));
+				return;
+			}
+			try (InputStream in = sr.getBody()) {
+				byte[] bytes = in.readAllBytes();
+				String jsonStr = new String(bytes, StandardCharsets.UTF_8);
+				JsonObject obj = JsonUtil.fromJson(jsonStr, JsonObject.class);
+				if (obj != null && obj.has("success") && obj.get("success").getAsBoolean()) {
+					JsonObject data = obj.getAsJsonObject("data");
+					// 还原 fileName，添加 nodeId/ 前缀，以便前端再次操作
+					if (data != null && data.has("fileName")) {
+						String originalFileName = data.get("fileName").getAsString();
+						data.addProperty("fileName", nodeId + "/" + originalFileName);
+					}
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+				} else {
+					String error = obj != null && obj.has("error") ? obj.get("error").getAsString() : "未知错误";
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error));
+				}
+			} finally {
+				sr.abort();
+			}
+		} catch (Exception e) {
+			String action = "GET".equals(method) ? "读取" : "删除";
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(action + "远程困惑度记录失败: " + e.getMessage()));
 		}
 	}
 

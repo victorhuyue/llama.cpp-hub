@@ -1005,10 +1005,13 @@
     }
     for (const r of records) {
       const tr = document.createElement('tr');
+      // 使用纯文件名和 nodeId 构造查询参数
+      const pureFileName = r.fileName || '';
+      const recordNodeId = r.nodeId || 'local';
       const cells = [
         r.timestamp || '-',
         r.modelId || '-',
-        r.nodeId || 'local',
+        recordNodeId,
         r.ppl != null ? Number(r.ppl).toFixed(4) : '-',
         r.uncertainty != null ? Number(r.uncertainty).toFixed(5) : '-',
         formatElapsed(r.elapsedMs)
@@ -1025,23 +1028,24 @@
       btnView.className = 'btn';
       btnView.style.cssText = 'padding:2px 6px; font-size:11px; margin-right:4px;';
       btnView.textContent = t('page.tools.perplexity.action.view', '查看');
-      btnView.addEventListener('click', () => viewRecord(r.fileName));
+      btnView.addEventListener('click', () => viewRecord(pureFileName, recordNodeId));
       tdAct.appendChild(btnView);
       const btnDel = document.createElement('button');
       btnDel.type = 'button';
       btnDel.className = 'btn';
       btnDel.style.cssText = 'padding:2px 6px; font-size:11px;';
       btnDel.textContent = t('page.tools.perplexity.action.delete', '删除');
-      btnDel.addEventListener('click', () => deleteRecord(r.fileName));
+      btnDel.addEventListener('click', () => deleteRecord(pureFileName, recordNodeId));
       tdAct.appendChild(btnDel);
       tr.appendChild(tdAct);
       els.recordsBody.appendChild(tr);
     }
   }
 
-  async function viewRecord(fileName) {
+  async function viewRecord(fileName, nodeId) {
     try {
-      const resp = await fetch('/api/perplexity/records/' + encodeURIComponent(fileName), { method: 'GET' });
+      const url = '/api/perplexity/records/' + encodeURIComponent(fileName) + '?nodeId=' + encodeURIComponent(nodeId);
+      const resp = await fetch(url, { method: 'GET' });
       const data = await resp.json();
       if (!data || !data.success) {
         setStatus(data && data.error ? data.error : t('page.tools.perplexity.status.load_failed', '加载失败'));
@@ -1079,9 +1083,10 @@
     }
   }
 
-  async function deleteRecord(fileName) {
+  async function deleteRecord(fileName, nodeId) {
     try {
-      const resp = await fetch('/api/perplexity/records/' + encodeURIComponent(fileName), { method: 'DELETE' });
+      const url = '/api/perplexity/records/' + encodeURIComponent(fileName) + '?nodeId=' + encodeURIComponent(nodeId);
+      const resp = await fetch(url, { method: 'DELETE' });
       const data = await resp.json();
       if (data && data.success) {
         loadRecords();
@@ -1101,7 +1106,8 @@
       if (data && data.success && data.data && Array.isArray(data.data.records)) {
         for (const r of data.data.records) {
           try {
-            await fetch('/api/perplexity/records/' + encodeURIComponent(r.fileName), { method: 'DELETE' });
+            const url = '/api/perplexity/records/' + encodeURIComponent(r.fileName) + '?nodeId=' + encodeURIComponent(r.nodeId || 'local');
+            await fetch(url, { method: 'DELETE' });
           } catch (e) {}
         }
         loadRecords();

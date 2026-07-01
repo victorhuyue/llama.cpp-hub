@@ -310,7 +310,14 @@ public class CommandLineRunner {
 		if (pb == null || commandArray == null || commandArray.length == 0) {
 			return;
 		}
+		// 处理 stdbuf 包装的情况：跳过 stdbuf 及其参数，使用实际的可执行文件
 		String exe = commandArray[0];
+		String exeName = new File(exe).getName().toLowerCase();
+		if (exeName.equals("stdbuf") && commandArray.length > 3) {
+			// stdbuf 格式：stdbuf -oL -eL <actual-command> [args...]
+			// 跳过 stdbuf, -oL, -eL，使用实际命令
+			exe = commandArray[3];
+		}
 		if (exe == null || exe.isBlank()) {
 			return;
 		}

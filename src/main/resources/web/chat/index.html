@@ -117,7 +117,7 @@
               <span data-i18n="page.chat.main.composer.drop_zone">拖放文件到此处</span>
             </div>
           </div>
-          <textarea id="promptInput" class="composer-input" placeholder="输入消息，支持粘贴图片或添加文本文件…" data-i18n-attr="placeholder" data-i18n="page.chat.main.composer.placeholder"></textarea>
+          <textarea id="promptInput" class="composer-input" placeholder="输入消息，支持粘贴图片、拖放文件或上传文本文件，回车发送，Shift + 回车换行…" data-i18n-attr="placeholder" data-i18n="page.chat.main.composer.placeholder"></textarea>
           <input id="imageInput" class="hidden" type="file" multiple>
           <div class="composer-bar">
             <div class="composer-left">
@@ -173,7 +173,6 @@
             </div>
           </div>
         </div>
-        <div class="composer-hint" data-i18n="page.chat.main.composer.hint">支持粘贴图片、拖放文件或上传文本文件，回车发送，Shift + 回车换行</div>
       </section>
     </main>
     <aside id="avatarPreviewPanel" class="avatar-preview-panel" aria-hidden="true">
@@ -227,6 +226,10 @@
           <button class="settings-tab active" data-settings-tab="general" role="tab" type="button" data-i18n="page.chat.main.settings.tab.general">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             通用
+          </button>
+          <button class="settings-tab" data-settings-tab="background" role="tab" type="button" data-i18n="page.chat.main.settings.tab.background">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            背景
           </button>
           <button class="settings-tab" data-settings-tab="sampling" role="tab" type="button" data-i18n="page.chat.main.settings.tab.sampling">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
@@ -298,22 +301,6 @@
               </div>
               <div class="settings-field">
                 <div class="settings-field-header">
-                  <label data-i18n="page.chat.main.settings.general.bg_image_label">聊天背景</label>
-                </div>
-                <p class="settings-field-desc" data-i18n="page.chat.main.settings.general.bg_image_desc">仅对当前浏览器生效，建议选择 1920×1080 以内、小于 2MB 的图片</p>
-                <div class="chat-bg-row">
-                  <div id="chatBgPreview" class="chat-bg-preview">
-                    <span class="chat-bg-placeholder" data-i18n="page.chat.main.settings.general.bg_image_placeholder">无背景</span>
-                  </div>
-                  <div class="chat-bg-actions">
-                    <input id="chatBgInput" class="hidden" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
-                    <button id="chatBgUploadBtn" class="ghost-button" type="button" data-i18n="page.chat.main.settings.general.bg_image_upload">更换背景</button>
-                    <button id="chatBgDeleteBtn" class="ghost-button danger-text" type="button" disabled data-i18n="page.chat.main.settings.general.bg_image_delete">删除背景</button>
-                  </div>
-                </div>
-              </div>
-              <div class="settings-field">
-                <div class="settings-field-header">
                   <label for="systemPromptInput" data-i18n="page.chat.main.settings.general.system_label">系统提示词</label>
                 </div>
                 <p class="settings-field-desc" data-i18n="page.chat.main.settings.general.system_desc">定义当前助手的行为和角色，会在本会话使用该助手时发送</p>
@@ -348,6 +335,28 @@
                     <span class="toggle-slider"></span>
                   </span>
                 </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section" data-settings-section="background">
+            <div class="settings-group">
+              <div class="settings-group-title" data-i18n="page.chat.main.settings.background.title">聊天背景</div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.background.bg_image_label">当前背景</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.background.bg_image_desc">仅对当前浏览器生效，建议选择 1920×1080 以内、小于 2MB 的图片</p>
+                <div class="chat-bg-row">
+                  <div id="chatBgPreview" class="chat-bg-preview">
+                    <span class="chat-bg-placeholder" data-i18n="page.chat.main.settings.background.bg_image_placeholder">无背景</span>
+                  </div>
+                  <div class="chat-bg-actions">
+                    <input id="chatBgInput" class="hidden" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+                    <button id="chatBgUploadBtn" class="ghost-button" type="button" data-i18n="page.chat.main.settings.background.bg_image_upload">更换背景</button>
+                    <button id="chatBgDeleteBtn" class="ghost-button danger-text" type="button" disabled data-i18n="page.chat.main.settings.background.bg_image_delete">删除背景</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -3995,7 +4004,7 @@
           localStorage.removeItem(CHAT_BG_STORAGE_KEY);
         }
       } catch (e) {
-        showToast('error', window.I18N.t('page.chat.main.settings.general.bg_image_storage_failed', '背景图片保存失败：浏览器存储空间不足'));
+        showToast('error', window.I18N.t('page.chat.main.settings.background.bg_image_storage_failed', '背景图片保存失败：浏览器存储空间不足'));
       }
     }
 
@@ -4022,7 +4031,7 @@
       if (dataUrl) {
         els.chatBgPreview.innerHTML = '<img src="' + escapeHtml(dataUrl) + '" alt="">';
       } else {
-        const placeholder = window.I18N.t('page.chat.main.settings.general.bg_image_placeholder', '无背景');
+        const placeholder = window.I18N.t('page.chat.main.settings.background.bg_image_placeholder', '无背景');
         els.chatBgPreview.innerHTML = '<span class="chat-bg-placeholder">' + escapeHtml(placeholder) + '</span>';
       }
       if (els.chatBgDeleteBtn) {
@@ -4039,11 +4048,11 @@
       const fileName = file.name || '';
       const ext = fileName.split('.').pop().toLowerCase();
       if (!allowedTypes.includes(file.type) && !allowedExts.includes(ext)) {
-        showToast('error', window.I18N.t('page.chat.main.settings.general.bg_image_type_error', '请选择图片文件（png/jpg/jpeg/gif/webp）'));
+        showToast('error', window.I18N.t('page.chat.main.settings.background.bg_image_type_error', '请选择图片文件（png/jpg/jpeg/gif/webp）'));
         return;
       }
       if (file.size > MAX_CHAT_BG_SIZE) {
-        showToast('error', window.I18N.t('page.chat.main.settings.general.bg_image_size_error', '背景图片需小于 2MB'));
+        showToast('error', window.I18N.t('page.chat.main.settings.background.bg_image_size_error', '背景图片需小于 2MB'));
         return;
       }
 
@@ -4063,10 +4072,10 @@
         });
         setChatBackgroundImage(dataUrl);
         applyChatBackground();
-        showToast('success', window.I18N.t('page.chat.main.settings.general.bg_image_applied', '背景图片已应用'));
+        showToast('success', window.I18N.t('page.chat.main.settings.background.bg_image_applied', '背景图片已应用'));
       } catch (error) {
         console.error('设置聊天背景失败', error);
-        showToast('error', window.I18N.t('page.chat.main.settings.general.bg_image_failed', '背景图片设置失败：{message}').replace('{message}', error?.message || '未知错误'));
+        showToast('error', window.I18N.t('page.chat.main.settings.background.bg_image_failed', '背景图片设置失败：{message}').replace('{message}', error?.message || '未知错误'));
       } finally {
         if (els.chatBgUploadBtn) {
           els.chatBgUploadBtn.disabled = false;
@@ -4083,7 +4092,7 @@
     function deleteChatBackground() {
       setChatBackgroundImage('');
       applyChatBackground();
-      showToast('success', window.I18N.t('page.chat.main.settings.general.bg_image_deleted', '背景图片已删除'));
+      showToast('success', window.I18N.t('page.chat.main.settings.background.bg_image_deleted', '背景图片已删除'));
     }
 
     /* ---- Avatar preview panel ---- */

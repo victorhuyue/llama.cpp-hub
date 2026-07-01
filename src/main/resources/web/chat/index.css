@@ -2270,6 +2270,7 @@ pre:has(code[data-lang]) .code-copy-btn {
   gap: 8px;
   overflow: visible;
   position: relative;
+  border-radius: var(--radius);
   transform: translateX(var(--chat-center-offset));
   transition: transform 0.2s ease;
 }
